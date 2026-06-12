@@ -1,0 +1,165 @@
+"""The engine: ticks every hop, layers DSP -> VAD -> emotion into a RoomState,
+and pushes it to consumers.
+
+Layering contract (M1 spec):
+  1. DSP runs every tick, unconditionally — the heartbeat.
+  2. VAD runs continuously on new audio; its speech ratio gates layer 3.
+  3. Emotion runs only on speech-containing windows, asynchronously, and is
+     published with confidence + staleness so consumers can judge freshness.
+
+Consumers receive a finished RoomState and nothing else; the console renderer
+today and the M2 dashboard tomorrow plug in identically.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Protocol
+
+from . import dsp
+from .config import Config
+from .emotion import EmotionWorker
+from .state import Ema, RoomState, TrendTracker, energy_score, mood_quadrant
+from .vad import VadGate
+
+log = logging.getLogger(__name__)
+
+
+class Consumer(Protocol):
+    def on_state(self, state: RoomState) -> None: ...
+
+
+class AudioSource(Protocol):
+    sample_rate: int
+    device_name: str
+    ring: object
+
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+
+
+class Engine:
+    def __init__(self, source, config: Config, consumers: list[Consumer]):
+        self.source = source
+        self.config = config
+        self.consumers = list(consumers)
+        self.vad = VadGate(config.sample_rate, config.window_s, config.vad_threshold)
+        self.emotion: EmotionWorker | None = (
+            EmotionWorker(
+                config.emotion_model,
+                config.emotion_min_interval_s,
+                config.torch_threads,
+                config.os_truststore,
+            )
+            if config.emotion_enabled
+            else None
+        )
+        self._ema_loudness = Ema(config.smooth_tau_dsp_s)
+        self._ema_activity = Ema(config.smooth_tau_dsp_s)
+        self._ema_speech = Ema(config.smooth_tau_dsp_s)
+        self._ema_valence = Ema(config.smooth_tau_emotion_s)
+        self._ema_arousal = Ema(config.smooth_tau_emotion_s)
+        self._trend = TrendTracker(config.trend_horizon_s, config.trend_slope_threshold)
+        self._vad_position = 0
+        self._running = False
+
+    @property
+    def emotion_status(self) -> str:
+        if self.emotion is None:
+            return "disabled"
+        return self.emotion.status
+
+    def run(self, max_ticks: int | None = None) -> None:
+        """Blocking loop: capture -> tick every hop -> publish. Ctrl+C to stop."""
+        self.vad.load()
+        if self.emotion is not None:
+            self.emotion.start()  # loads the model off-thread; ticks don't wait
+        self.source.start()
+        log.info("capturing from %r", self.source.device_name)
+        self._running = True
+        ticks = 0
+        next_tick = time.monotonic() + self.config.hop_s
+        try:
+            while self._running:
+                delay = next_tick - time.monotonic()
+                if delay > 0:
+                    time.sleep(delay)
+                next_tick += self.config.hop_s
+                state = self._tick()
+                for consumer in self.consumers:
+                    try:
+                        consumer.on_state(state)
+                    except Exception:
+                        log.exception("consumer %r failed", consumer)
+                ticks += 1
+                if max_ticks is not None and ticks >= max_ticks:
+                    break
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.stop()
+
+    def stop(self) -> None:
+        self._running = False
+        self.source.stop()
+        if self.emotion is not None:
+            self.emotion.stop()
+
+    def _tick(self) -> RoomState:
+        now = time.monotonic()
+        wall = time.time()
+        window = self.source.ring.read_last(
+            int(self.config.window_s * self.config.sample_rate)
+        )
+
+        # Layer 1: DSP heartbeat.
+        measured = dsp.analyze(window, self.config.sample_rate)
+        loudness = self._ema_loudness.update(measured.rms_dbfs, now)
+        activity = self._ema_activity.update(measured.onset_density, now)
+
+        # Layer 2: VAD on audio captured since the last tick.
+        new_samples, self._vad_position = self.source.ring.read_since(self._vad_position)
+        self.vad.feed(new_samples)
+        speech_ratio = self._ema_speech.update(self.vad.speech_ratio(), now)
+
+        # Layer 3: emotion, gated on the *instantaneous* window's speech.
+        valence = arousal = confidence = staleness = None
+        if self.emotion is not None:
+            raw_ratio = self.vad.speech_ratio()
+            if (
+                raw_ratio >= self.config.emotion_min_speech_ratio
+                and window.size >= self.config.sample_rate  # at least 1s of audio
+            ):
+                self.emotion.submit(window, raw_ratio, now)
+            reading, staleness = self.emotion.latest(now)
+            if reading is not None:
+                valence = self._ema_valence.update(reading.valence, now)
+                arousal = self._ema_arousal.update(reading.arousal, now)
+                confidence = reading.confidence
+
+        energy = energy_score(loudness, activity, speech_ratio, arousal)
+        mood = None
+        if (
+            valence is not None
+            and arousal is not None
+            and staleness is not None
+            and staleness <= self.config.emotion_max_staleness_s
+        ):
+            mood = mood_quadrant(valence, arousal)
+
+        return RoomState(
+            timestamp=wall,
+            loudness_dbfs=round(loudness, 1),
+            activity_density=round(activity, 2),
+            spectral_balance=measured.spectral_balance,
+            speech_ratio=round(speech_ratio, 3),
+            valence=None if valence is None else round(valence, 3),
+            arousal=None if arousal is None else round(arousal, 3),
+            emotion_confidence=None if confidence is None else round(confidence, 2),
+            emotion_staleness_s=None if staleness is None else round(staleness, 1),
+            headcount_bucket=None,  # Milestone 2
+            energy=round(energy, 3),
+            mood=mood,
+            trend=self._trend.update(energy, now),
+        )

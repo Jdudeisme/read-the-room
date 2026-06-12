@@ -1,0 +1,28 @@
+# Environments / secrets
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Model caches (HuggingFace, torch hub) — never commit weights
+.hf-cache/
+models/
+*.pt
+*.onnx
+*.safetensors
+
+# Tooling
+.pytest_cache/
+.idea/
+.vscode/
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db

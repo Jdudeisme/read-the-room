@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "read-the-room"
+version = "0.1.0"
+description = "Ambient room-sensing engine: loudness, speech, and emotion from live audio."
+readme = "README.md"
+# Pinned to 3.12: the demo target (2019 Intel MacBook Pro) is capped at
+# torch 2.2.2, whose last Intel-macOS wheels are cp312. Do not bump without
+# re-checking wheel availability for macOS x86_64.
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+dependencies = [
+    # torch 2.2.x is the last release with Intel-macOS wheels; keep both
+    # platforms on the same version so MacBook benchmarks stay representative.
+    "torch>=2.2.2,<2.3",
+    "torchaudio>=2.2.2,<2.3",
+    # torch 2.2 predates numpy 2.0 and crashes against it.
+    "numpy>=1.26,<2",
+    "transformers>=4.40,<4.50",
+    "silero-vad>=5.1",
+    "sounddevice>=0.4.6",
+    "python-dotenv>=1.0",
+    # Uses the OS certificate store for model downloads; needed behind
+    # TLS-intercepting proxies/AV where certifi's bundle fails.
+    "truststore>=0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+read-the-room = "sensing.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
