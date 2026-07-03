@@ -61,3 +61,18 @@ class VadGate:
             return 0.0
         hits = sum(1 for p in self._probs if p >= self.threshold)
         return hits / len(self._probs)
+
+    def speech_mask(self) -> np.ndarray:
+        """Per-chunk speech decisions for the rolling window, oldest first.
+
+        One boolean per 512-sample chunk, aligned to the end of the current
+        analysis window. This is the single certification point both the
+        emotion and headcount layers gate on — downstream layers must never
+        run their own VAD (M2 spec; also where a future music-detection gate
+        slots in so every layer inherits it at once).
+        """
+        return np.fromiter(
+            (p >= self.threshold for p in self._probs),
+            dtype=bool,
+            count=len(self._probs),
+        )

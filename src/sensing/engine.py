@@ -1,11 +1,18 @@
 """The engine: ticks every hop, layers DSP -> VAD -> emotion into a RoomState,
 and pushes it to consumers.
 
-Layering contract (M1 spec):
+Layering contract (M1 spec, extended by M2):
   1. DSP runs every tick, unconditionally — the heartbeat.
-  2. VAD runs continuously on new audio; its speech ratio gates layer 3.
-  3. Emotion runs only on speech-containing windows, asynchronously, and is
-     published with confidence + staleness so consumers can judge freshness.
+  2. VAD runs continuously on new audio; its speech ratio gates layers 3-4.
+     VAD certification is CENTRALIZED here: emotion and headcount both
+     consume the same gate's output and never run their own VAD. (This is
+     also where a future music-detection gate inserts, so every downstream
+     layer inherits it at once.)
+  3. Emotion runs only on speech-certified windows, asynchronously, published
+     with confidence + staleness so consumers can judge freshness.
+  4. Headcount (M2) runs only on speech-certified windows, asynchronously, on
+     its own worker thread, published as a power-of-2 bucket with the same
+     confidence + staleness pattern.
 
 Consumers receive a finished RoomState and nothing else; the console renderer
 today and the M2 dashboard tomorrow plug in identically.
@@ -20,6 +27,7 @@ from typing import Protocol
 from . import dsp
 from .config import Config
 from .emotion import EmotionWorker
+from .headcount import BucketSmoother, HeadcountEstimator, HeadcountWorker
 from .state import Ema, RoomState, TrendTracker, energy_score, mood_quadrant
 from .vad import VadGate
 
@@ -55,6 +63,26 @@ class Engine:
             if config.emotion_enabled
             else None
         )
+        self.headcount: HeadcountWorker | None = (
+            HeadcountWorker(
+                config.headcount_model,
+                config.headcount_min_interval_s,
+                HeadcountEstimator(
+                    buffer_s=config.headcount_buffer_s,
+                    buffer_cap=config.headcount_buffer_cap,
+                    cluster_threshold=config.headcount_cluster_threshold,
+                ),
+                BucketSmoother(
+                    tau_s=config.headcount_smooth_tau_s,
+                    hold_k=config.headcount_hysteresis_k,
+                ),
+                sample_rate=config.sample_rate,
+                torch_threads=config.torch_threads,
+                os_truststore=config.os_truststore,
+            )
+            if config.headcount_enabled
+            else None
+        )
         self._ema_loudness = Ema(config.smooth_tau_dsp_s)
         self._ema_activity = Ema(config.smooth_tau_dsp_s)
         self._ema_speech = Ema(config.smooth_tau_dsp_s)
@@ -70,11 +98,19 @@ class Engine:
             return "disabled"
         return self.emotion.status
 
+    @property
+    def headcount_status(self) -> str:
+        if self.headcount is None:
+            return "disabled"
+        return self.headcount.status
+
     def run(self, max_ticks: int | None = None) -> None:
         """Blocking loop: capture -> tick every hop -> publish. Ctrl+C to stop."""
         self.vad.load()
         if self.emotion is not None:
             self.emotion.start()  # loads the model off-thread; ticks don't wait
+        if self.headcount is not None:
+            self.headcount.start()
         self.source.start()
         log.info("capturing from %r", self.source.device_name)
         self._running = True
@@ -105,6 +141,8 @@ class Engine:
         self.source.stop()
         if self.emotion is not None:
             self.emotion.stop()
+        if self.headcount is not None:
+            self.headcount.stop()
 
     def _tick(self) -> RoomState:
         now = time.monotonic()
@@ -138,6 +176,24 @@ class Engine:
                 arousal = self._ema_arousal.update(reading.arousal, now)
                 confidence = reading.confidence
 
+        # Layer 4: headcount, gated on the same instantaneous VAD certification.
+        # During silence nothing is submitted: the bucket holds and staleness
+        # grows — silence is absence of evidence, not evidence of an empty room.
+        hc_bucket = hc_confidence = hc_staleness = None
+        if self.headcount is not None:
+            raw_ratio = self.vad.speech_ratio()
+            if (
+                raw_ratio >= self.config.headcount_min_speech_ratio
+                and window.size >= self.config.sample_rate
+            ):
+                self.headcount.submit(
+                    window, self.vad.speech_mask(), raw_ratio, measured.rms_dbfs, now
+                )
+            hc_reading, hc_staleness = self.headcount.latest(now)
+            if hc_reading is not None:
+                hc_bucket = hc_reading.bucket
+                hc_confidence = hc_reading.confidence
+
         energy = energy_score(loudness, activity, speech_ratio, arousal)
         mood = None
         if (
@@ -158,7 +214,9 @@ class Engine:
             arousal=None if arousal is None else round(arousal, 3),
             emotion_confidence=None if confidence is None else round(confidence, 2),
             emotion_staleness_s=None if staleness is None else round(staleness, 1),
-            headcount_bucket=None,  # Milestone 2
+            headcount_bucket=hc_bucket,
+            headcount_confidence=None if hc_confidence is None else round(hc_confidence, 2),
+            headcount_staleness_s=None if hc_staleness is None else round(hc_staleness, 1),
             energy=round(energy, 3),
             mood=mood,
             trend=self._trend.update(energy, now),

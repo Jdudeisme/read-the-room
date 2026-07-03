@@ -26,6 +26,9 @@ def main(argv: list[str] | None = None) -> int:
         "--no-emotion", action="store_true", help="run without the emotion layer"
     )
     parser.add_argument(
+        "--no-headcount", action="store_true", help="run without the headcount layer"
+    )
+    parser.add_argument(
         "--ticks", type=int, metavar="N", help="stop after N analysis windows"
     )
     parser.add_argument(
@@ -56,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
     config = Config.from_env()
     if args.no_emotion:
         config = dataclasses.replace(config, emotion_enabled=False)
+    if args.no_headcount:
+        config = dataclasses.replace(config, headcount_enabled=False)
     if args.device:
         config = dataclasses.replace(config, input_device=args.device)
 

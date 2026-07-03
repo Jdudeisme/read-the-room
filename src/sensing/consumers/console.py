@@ -55,7 +55,7 @@ class ConsoleRenderer:
         sep = g["sep"]
         loud_frac = (state.loudness_dbfs + 60.0) / 50.0
         lines = [
-            f"Read the Room {sep} M1  {clock}",
+            f"Read the Room {sep} M2  {clock}",
             f"  loudness  {state.loudness_dbfs:7.1f} dBFS  {_bar(loud_frac, g)}",
             f"  activity  {state.activity_density:7.2f} onset/s",
             f"  spectrum   low {sb['low']:.0%} {sep} mid {sb['mid']:.0%} {sep} high {sb['high']:.0%}",
@@ -63,9 +63,25 @@ class ConsoleRenderer:
             f"  emotion   {emotion_note}",
             f"  mood      {_MOOD_LABEL[state.mood]:8s} energy {state.energy:.2f}  "
             f"{g[state.trend]}",
-            f"  headcount --       (Milestone 2)",
+            f"  headcount {self._headcount_note(state)}",
         ]
         self._draw(lines)
+
+    def _headcount_note(self, state: RoomState) -> str:
+        if state.headcount_bucket is not None:
+            return (
+                f"{state.headcount_bucket.value:8s} "
+                f"(conf {state.headcount_confidence:.2f}, "
+                f"{state.headcount_staleness_s:.0f}s old)"
+            )
+        status = self._engine.headcount_status if self._engine else "unknown"
+        notes = {
+            "loading": "warming up... (model loading)",
+            "ready": "no speech detected yet",
+            "disabled": "disabled",
+            "failed": "FAILED — see log",
+        }
+        return notes.get(status, status)
 
     def _emotion_note(self, state: RoomState) -> str:
         if state.valence is not None:

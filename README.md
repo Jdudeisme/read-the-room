@@ -4,10 +4,10 @@ An ambient room-sensing engine. It listens to a live microphone and publishes a
 rolling **RoomState** — loudness, activity, speech presence, and emotional tone
 — a few times per second-scale window, entirely on-CPU and on-device.
 
-**Milestone 1 (this commit):** loudness / speech / emotion engine + console renderer.
-**Milestone 2 (next):** headcount estimation + dashboard consumer. The RoomState
-schema already carries a stubbed `headcount_bucket` field so the wire format
-will not change.
+**Milestone 1:** loudness / speech / emotion engine + console renderer.
+**Milestone 2 (this branch):** headcount estimation — ECAPA speaker embeddings
++ clustering, published as power-of-2 occupancy buckets with confidence and
+staleness. Dashboard consumer still to come.
 
 ## Architecture
 
@@ -24,6 +24,21 @@ EMA-smoothed:
    VAD-gated, own worker thread): continuous valence/arousal in [-1, 1],
    `null` when there is no speech, always published with a confidence and a
    staleness age.
+4. **Headcount layer** ([SpeechBrain ECAPA-TDNN](https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb),
+   VAD-gated, own worker thread, M2): speaker embeddings over certified
+   speech runs, accumulated in a rolling ~90 s evidence buffer and clustered
+   (average-linkage, cosine threshold — the cluster count is an output,
+   never an input). Two regimes: a real count up to ~8 separable speakers,
+   blending into an ordinal crowd-density estimate beyond (`crowd_weight`
+   in the debug logs shows the blend). Published as a power-of-2 bucket,
+   EMA-smoothed in log2 space with hysteresis so one loud laugh never flaps
+   the bucket. During silence the bucket holds and `headcount_staleness_s`
+   grows — silence is absence of evidence, not evidence of an empty room.
+
+VAD certification is centralized in the engine: emotion and headcount consume
+the same gate and never run their own VAD. (This is also where the future
+music-detection gate slots in — a deliberate seam, since vocal music would
+otherwise read as a stable phantom speaker once RTR starts playing music.)
 
 One ML framework: PyTorch (CPU). No TensorFlow, no GPU required.
 
@@ -32,7 +47,8 @@ One ML framework: PyTorch (CPU). No TensorFlow, no GPU required.
 Per window: `timestamp`, `loudness_dbfs`, `activity_density`,
 `spectral_balance` {low, mid, high}, `speech_ratio`, `valence`, `arousal`,
 `emotion_confidence`, `emotion_staleness_s`, `headcount_bucket`
-(solo / pair / 4 / 8 / 16 / crowd — always `null` in M1), plus derived
+(solo / pair / 4 / 8 / … / 1024 / crowd — powers of 2, geometric-midpoint
+boundaries), `headcount_confidence`, `headcount_staleness_s`, plus derived
 `energy` (0–1), `mood` (excited / tense / chill / flat) and `trend`
 (rising / stable / falling over the last ~60 s).
 
@@ -83,7 +99,8 @@ TLS-intercepting proxies/AV the download uses the OS certificate store
 read-the-room                     # live mic, full engine (or: python -m sensing)
 read-the-room --list-devices      # pick a mic, then set RTR_INPUT_DEVICE or --device
 read-the-room --source synth      # synthetic signal, no mic needed
-read-the-room --no-emotion        # DSP + VAD only
+read-the-room --no-emotion        # run without the emotion layer
+read-the-room --no-headcount      # run without the headcount layer
 read-the-room --jsonl out.jsonl   # also log every RoomState as JSON lines
 read-the-room --ticks 10          # exit after 10 windows (smoke tests)
 ```
@@ -93,7 +110,23 @@ Configuration is via environment variables / a `.env` file — see
 
 ## Performance budget (run this on the MacBook first)
 
-The emotion model is the only expensive component. It runs on its own worker
+Budget arithmetic: the 2 s hop, minus emotion's measured 0.63 s floor (M1,
+2019 Intel MacBook Pro), leaves **1.37 s (p95) for headcount**. Both models
+run on their own worker threads, so the real risk is CPU contention — which
+is why the M2 gate is the **concurrent** benchmark:
+
+```bash
+python scripts/bench_headcount.py               # standalone timing
+python scripts/bench_headcount.py --concurrent  # THE M2 GATE
+```
+
+PASS requires headcount p95 < 1.37 s while emotion runs concurrently AND
+emotion staying within 25% of its M1 baseline. On FAIL, the pre-approved
+fallback: `RTR_HEADCOUNT_MIN_INTERVAL_S=4.0` (every other hop), plus
+`RTR_TORCH_THREADS=2` to limit core oversubscription. Live-audio test tiers
+are in [docs/M2-TEST-PLAN.md](docs/M2-TEST-PLAN.md).
+
+The emotion model is the more expensive of the two. It runs on its own worker
 thread (it can never stall the DSP/VAD heartbeat), is rate-limited by
 `RTR_EMOTION_MIN_INTERVAL_S`, and must average under the 2 s hop to update
 every window. Measure it on day one:

@@ -16,15 +16,57 @@ Trend = Literal["rising", "stable", "falling"]
 
 
 class HeadcountBucket(str, Enum):
-    """Powers-of-2 occupancy buckets. Milestone 2 fills this in; the field
-    exists now so the consumer-facing schema never changes."""
+    """Powers-of-2 occupancy buckets, published by the M2 headcount layer.
 
-    SOLO = "solo"
-    PAIR = "pair"
+    Semantics by regime: up through ~8-16 the bucket is a diarization-derived
+    count; above that it is an ordinal crowd-density estimate (denser room ->
+    equal-or-higher bucket), never a census. `headcount_confidence` encodes
+    which regime produced the value.
+    """
+
+    SOLO = "solo"  # 2^0
+    PAIR = "pair"  # 2^1
     FOUR = "4"
     EIGHT = "8"
     SIXTEEN = "16"
-    CROWD = "crowd"
+    THIRTY_TWO = "32"
+    SIXTY_FOUR = "64"
+    ONE_TWENTY_EIGHT = "128"
+    TWO_FIFTY_SIX = "256"
+    FIVE_TWELVE = "512"
+    TEN_TWENTY_FOUR = "1024"
+    CROWD = "crowd"  # anything beyond 1024
+
+
+# Ordered ladder, index == log2 of the nominal occupancy. CROWD sits past the
+# end. Kept as a computed lookup (not per-bucket branching) so nothing in the
+# codebase hard-codes a maximum countable size.
+BUCKET_LADDER: tuple[HeadcountBucket, ...] = (
+    HeadcountBucket.SOLO,
+    HeadcountBucket.PAIR,
+    HeadcountBucket.FOUR,
+    HeadcountBucket.EIGHT,
+    HeadcountBucket.SIXTEEN,
+    HeadcountBucket.THIRTY_TWO,
+    HeadcountBucket.SIXTY_FOUR,
+    HeadcountBucket.ONE_TWENTY_EIGHT,
+    HeadcountBucket.TWO_FIFTY_SIX,
+    HeadcountBucket.FIVE_TWELVE,
+    HeadcountBucket.TEN_TWENTY_FOUR,
+)
+
+
+def bucket_from_log2(log2_estimate: float) -> HeadcountBucket:
+    """Nearest power-of-2 bucket for a continuous log2 occupancy estimate.
+
+    Rounding in log space means the boundary between buckets is the geometric
+    midpoint (e.g. 4 vs 8 splits at ~5.66 people). Estimates beyond the ladder
+    collapse into CROWD.
+    """
+    idx = round(max(0.0, log2_estimate))
+    if idx >= len(BUCKET_LADDER):
+        return HeadcountBucket.CROWD
+    return BUCKET_LADDER[idx]
 
 
 @dataclass(frozen=True)
@@ -45,8 +87,11 @@ class RoomState:
     emotion_confidence: float | None  # 0..1 heuristic (speech ratio at inference)
     emotion_staleness_s: float | None  # age of the reading; grows between updates
 
-    # Milestone 2 — always None in M1.
+    # Headcount layer (None until the first speech-gated estimate lands).
+    # Mirrors the emotion trio: value + confidence + staleness.
     headcount_bucket: HeadcountBucket | None
+    headcount_confidence: float | None  # 0..1; capped low in the crowd regime
+    headcount_staleness_s: float | None  # seconds since last speech-certified update
 
     # Derived.
     energy: float  # 0..1 composite
