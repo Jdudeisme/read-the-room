@@ -29,12 +29,22 @@ state.HeadcountBucket). Design decisions, per the approved M2 proposal:
   slow inference can never stall the DSP/VAD heartbeat, and jobs replace
   rather than queue.
 
-Future music-contamination note (out of scope for M2, per spec): vocal music
+Future media-contamination note (out of scope for M2, per spec): vocal music
 will present as a stable phantom speaker — a recurring consistent embedding
 cluster with plenty of mass. The eventual fix is a music-detection gate at
 the engine's *centralized* certification point, upstream of both emotion and
 headcount; nothing in this module does its own gating, so both layers will
 inherit that fix for free.
+
+Confirmed live (2026-07-03): the same hazard applies to TV/media *spoken*
+dialogue, not just music — a solo viewer with the TV on had each new
+on-screen voice (commercial cuts, multiple actors) correctly clustered and
+counted as additional room occupants, which is correct behavior for the
+algorithm but wrong for the "solo person wants ambient sensing of their own
+room" use case. Revisit together with the music-detection gate above: once
+the engine can recognize known/playing audio (e.g. to answer "what song is
+this"), the same source-identification signal should suppress its speech
+from headcount (and ideally emotion) certification, not just music vocals.
 """
 
 from __future__ import annotations

@@ -90,6 +90,14 @@ already encoded in `tests/test_headcount.py`:
   engine's centralized VAD certification point in a later milestone; both
   emotion and headcount inherit it at once. Do not tune M2 thresholds
   against music-contaminated audio.
+- **TV/media spoken dialogue.** Confirmed live 2026-07-03: a solo viewer
+  with the TV on had each new on-screen voice (commercial cuts, multiple
+  actors) correctly clustered as additional occupants — algorithmically
+  correct, but wrong for the "solo person, ambient sensing of their own
+  room" use case (e.g. "what song is this"). Deferred to the same
+  audio-source-identification gate as the music case above: once the
+  engine can recognize known/playing audio, suppress its speech from
+  headcount certification too. Not addressed in M2.
 - **Webcam/vision headcount.** Deprioritized for M2 (single-sensor
   simplicity, privacy positioning). Revisit only if the audio-only scale
   ladder fails badly at n ≤ 8.

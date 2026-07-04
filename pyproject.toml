@@ -21,9 +21,11 @@ dependencies = [
     "numpy>=1.26,<2",
     "transformers>=4.40,<4.50",
     "silero-vad>=5.1",
-    # ECAPA-TDNN speaker embeddings for the M2 headcount layer. 1.x supports
-    # torch 2.2; do not bump past what the Intel-macOS torch pin allows.
-    "speechbrain>=1.0,<2",
+    # ECAPA-TDNN speaker embeddings for the M2 headcount layer. 1.1.0 moved
+    # to torch's unified amp API (torch.amp.custom_fwd with device_type=),
+    # which doesn't exist in the 2.2.x line this Mac is pinned to; 1.0.x
+    # still uses torch.cuda.amp.custom_fwd, which does. Stay <1.1.
+    "speechbrain>=1.0,<1.1",
     "sounddevice>=0.4.6",
     "python-dotenv>=1.0",
     # Uses the OS certificate store for model downloads; needed behind
