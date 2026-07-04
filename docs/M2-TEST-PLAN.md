@@ -40,9 +40,11 @@ longer the same claim. `--concurrent`'s own pass criteria are unchanged — it
 remains the strict every-hop gate.
 
 **THE GATE for this milestone is now `--fallback`**, since that's the
-schedule the shipped config actually runs. Measured on the Intel MacBook Pro:
-headcount p95 ~0.96s (passes 1.37 s) and emotion overall p95 ~0.98s
-(passes the 1.2 s absolute bound) → **PASS**.
+schedule the shipped config actually runs. Measured on the Intel MacBook Pro
+(`python scripts/bench_headcount.py --fallback`, `RTR_TORCH_THREADS=2`):
+headcount p95 1.09 s on the contended hops it runs (passes the 1.37 s
+budget) and emotion overall p95 1.09 s (passes the 1.2 s absolute bound)
+→ **PASS**.
 
 **Production `.env` for this machine:** `RTR_HEADCOUNT_MIN_INTERVAL_S=4.0`
 plus `RTR_TORCH_THREADS=2`.
