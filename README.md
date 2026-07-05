@@ -216,6 +216,30 @@ budget, the fallbacks — in order — are:
 here without any hop actually missing its deadline, and for the full
 contended-vs-uncontended emotion breakdown.
 
+### Milestone 3 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
+
+All four parts of the M3 gate pass; see
+[docs/M3-TEST-PLAN.md](docs/M3-TEST-PLAN.md) for the full checklist.
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback` | headcount, contended hops | 0.99 s | 1.05 s | < 1.37 s | PASS |
+| `bench_headcount.py --fallback` | emotion, overall | 0.87 s | 1.06 s | < 1.2 s absolute | PASS |
+
+M3 adds no compute to the engine path (the mapper is a few comparisons per
+hop, the dashboard is I/O), so this is the same M2 gate re-run as a
+regression check, not a new cost. The other three gate parts — 10-minute
+live dashboard run, `pytest` (102 passed), and a real button-tap annotation
+round-trip verified against `tuning_report.py` — were also confirmed live.
+
+One live-run finding to note if you tune boundaries: on this machine a
+single speaker's embeddings can fragment across the `RTR_HEADCOUNT_BUFFER_S`
+window and ratchet the bucket upward (solo → pair → 4 → 8) at the default
+`RTR_HEADCOUNT_CLUSTER_THRESHOLD=0.40`, with headcount confidence high
+enough to clear the mapper's low-confidence guard. If you see this,
+annotate **Wrong** (that's the loop working) and consider trialing a higher
+threshold (e.g. `0.55`) — from annotation evidence, not ad hoc.
+
 ## Tests
 
 ```bash
