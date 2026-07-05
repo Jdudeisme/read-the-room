@@ -5,9 +5,12 @@ rolling **RoomState** — loudness, activity, speech presence, and emotional ton
 — a few times per second-scale window, entirely on-CPU and on-device.
 
 **Milestone 1:** loudness / speech / emotion engine + console renderer.
-**Milestone 2 (this branch):** headcount estimation — ECAPA speaker embeddings
-+ clustering, published as power-of-2 occupancy buckets with confidence and
-staleness. Dashboard consumer still to come.
+**Milestone 2:** headcount estimation — ECAPA speaker embeddings +
+clustering, published as power-of-2 occupancy buckets with confidence and
+staleness.
+**Milestone 3 (this branch):** shadow-mode mapping layer (RoomState → music
+recommendation, never played), live web dashboard, and a Good/Wrong
+annotation loop feeding an offline tuning report.
 
 ## Architecture
 
@@ -107,6 +110,60 @@ read-the-room --ticks 10          # exit after 10 windows (smoke tests)
 
 Configuration is via environment variables / a `.env` file — see
 [.env.example](.env.example) for every knob and its default.
+
+## Dashboard (M3, shadow mode)
+
+```bash
+read-the-room-dashboard                  # live mic (or: python -m dashboard)
+read-the-room-dashboard --source synth   # no mic needed
+read-the-room-dashboard --port 8000      # default binds 127.0.0.1:8000
+```
+
+Open http://127.0.0.1:8000. The dashboard process hosts the sensing engine
+plus the M3 **mapping layer**: a rulebook keyed by (headcount bucket,
+valence band, arousal band) — seeded from the 2020 thesis GenrePicker grid —
+turns each RoomState into a `Recommendation` (genre pool, energy action,
+targets, confidence, and full attribution: the rulebook cell that fired and
+every boundary value in effect). Band cutoffs and dwell times are
+`RTR_MAPPING_*` env vars ([.env.example](.env.example)).
+
+**Shadow mode** means nothing is ever played: there is no playback layer
+yet, so the mic never hears the system's own output. The recommendation bar
+is labeled "not playing" — the point of M3 is to *watch* the mapping be
+right or wrong before any speaker gets involved.
+
+The page shows the valence/arousal quadrant (with a ~2 min trail),
+headcount / regime / voice-activity cards, live `emotion age` /
+`headcount age` staleness (the honest end-to-end health numbers), a
+10-minute valence/arousal timeline (browser memory only), and the shadow
+recommendation with **Good call / Wrong call** buttons.
+
+### Annotation log
+
+Each button tap appends one line to `data/annotations/YYYY-MM-DD.jsonl`
+(gitignored; override the directory with `RTR_DASHBOARD_ANNOTATIONS_DIR`):
+
+```json
+{"schema_version": 1, "ts": ..., "verdict": "good" | "wrong",
+ "state": { ...RoomState as displayed... },
+ "recommendation": { ...incl. matched_cell + boundaries_snapshot... }}
+```
+
+The page sends the state/recommendation it was *displaying* at tap time, so
+the label always describes what the human actually saw.
+
+### Tuning report
+
+```bash
+python scripts/tuning_report.py          # reads data/annotations/*.jsonl
+```
+
+Prints verdict counts per rulebook cell, wrong-call clustering near band
+boundaries, and suggested boundary shifts with the number of past verdicts
+each would have flipped. Output only — it never modifies anything; apply
+suggestions by editing `RTR_MAPPING_*` in `.env` and re-observing. Learned
+(automatic) tuning is deliberately deferred until playback exists — see
+[docs/M3-PROPOSAL.md](docs/M3-PROPOSAL.md).
 
 ## Performance budget (run this on the MacBook first)
 
