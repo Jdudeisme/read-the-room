@@ -157,7 +157,7 @@ def suggest_adjustments(records: list[dict]) -> dict[str, dict]:
 def print_report(records: list[dict]) -> None:
     total = Counter(r["verdict"] for r in records)
     print("=" * 64)
-    print("TUNING REPORT — shadow-mode annotations")
+    print("TUNING REPORT - shadow-mode annotations")
     print("=" * 64)
     print(
         f"records: {len(records)}  "
@@ -174,13 +174,13 @@ def print_report(records: list[dict]) -> None:
           f"{PROXIMITY_TOL:.2f}) ------------")
     near = boundary_proximity(records)
     if not near:
-        print("none — wrong calls (if any) are not boundary-clustered")
+        print("none - wrong calls (if any) are not boundary-clustered")
     for name, _ in BOUNDARIES:
         if near.get(name):
             print(f"{name:<14} {near[name]} wrong call(s) within {PROXIMITY_TOL:.2f}")
 
     print("\n-- 3. suggested boundary adjustments ---------------------------")
-    print("(proposals only — nothing is modified; apply by editing")
+    print("(proposals only - nothing is modified; apply by editing")
     print(" RTR_MAPPING_* in .env and re-observing)")
     any_suggestion = False
     for name, s in suggest_adjustments(records).items():
@@ -211,11 +211,11 @@ def main(argv: list[str] | None = None) -> int:
 
     files = sorted({Path(p) for pattern in args.paths for p in glob.glob(str(pattern))})
     if not files:
-        print(f"no annotation files match {args.paths} — nothing to report")
+        print(f"no annotation files match {args.paths} - nothing to report")
         return 1
     records = load_annotations(files)
     if not records:
-        print("annotation files are empty — nothing to report")
+        print("annotation files are empty - nothing to report")
         return 1
     print(f"reading {len(files)} file(s): {', '.join(str(f) for f in files)}")
     print_report(records)

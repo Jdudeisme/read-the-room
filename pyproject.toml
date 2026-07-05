@@ -31,9 +31,12 @@ dependencies = [
     # Uses the OS certificate store for model downloads; needed behind
     # TLS-intercepting proxies/AV where certifi's bundle fails.
     "truststore>=0.9",
-    # M3 dashboard: FastAPI app + websocket, served by uvicorn.
+    # M3 dashboard: FastAPI app + websocket, served by uvicorn. Plain
+    # uvicorn has no websocket protocol implementation — the explicit
+    # websockets dep is required for /ws to accept upgrades.
     "fastapi>=0.110,<1",
     "uvicorn>=0.29,<1",
+    "websockets>=12,<16",
 ]
 
 [project.optional-dependencies]
