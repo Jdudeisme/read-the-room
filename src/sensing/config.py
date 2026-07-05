@@ -74,7 +74,16 @@ class Config:
     headcount_buffer_s: float = 90.0  # rolling embedding evidence horizon
     headcount_buffer_cap: int = 200  # max buffered embeddings (memory bound,
     # limits evidence quality — NOT a representable-count ceiling)
-    headcount_cluster_threshold: float = 0.40  # cosine distance cut
+    # Cosine-distance cut for speaker clustering. Calibrated 2026-07-05
+    # against measured ECAPA distances on 1.25s segments: same-voice pairs
+    # center ~0.35 (p90 0.47) even on clean synthetic speech and ~0.6 on a
+    # laptop mic, while different-voice pairs sit ~0.9 (p10 0.87). The old
+    # 0.40 default sat INSIDE the same-speaker distribution and fragmented a
+    # solo speaker into phantom people.
+    headcount_cluster_threshold: float = 0.70
+    # A cluster only counts as a person while it holds at least this fraction
+    # of all buffered speech evidence (see HeadcountEstimator min-mass).
+    headcount_min_cluster_frac: float = 0.10
     headcount_smooth_tau_s: float = 20.0  # EMA time constant, log2 space
     headcount_hysteresis_k: int = 3  # consecutive updates to change bucket
 
@@ -117,6 +126,9 @@ class Config:
             ),
             headcount_cluster_threshold=_env_float(
                 "RTR_HEADCOUNT_CLUSTER_THRESHOLD", cls.headcount_cluster_threshold
+            ),
+            headcount_min_cluster_frac=_env_float(
+                "RTR_HEADCOUNT_MIN_CLUSTER_FRAC", cls.headcount_min_cluster_frac
             ),
             headcount_smooth_tau_s=_env_float(
                 "RTR_HEADCOUNT_SMOOTH_TAU_S", cls.headcount_smooth_tau_s

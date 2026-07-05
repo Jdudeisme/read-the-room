@@ -232,13 +232,20 @@ regression check, not a new cost. The other three gate parts — 10-minute
 live dashboard run, `pytest` (102 passed), and a real button-tap annotation
 round-trip verified against `tuning_report.py` — were also confirmed live.
 
-One live-run finding to note if you tune boundaries: on this machine a
-single speaker's embeddings can fragment across the `RTR_HEADCOUNT_BUFFER_S`
-window and ratchet the bucket upward (solo → pair → 4 → 8) at the default
-`RTR_HEADCOUNT_CLUSTER_THRESHOLD=0.40`, with headcount confidence high
-enough to clear the mapper's low-confidence guard. If you see this,
-annotate **Wrong** (that's the loop working) and consider trialing a higher
-threshold (e.g. `0.55`) — from annotation evidence, not ad hoc.
+The live runs on this machine surfaced a real M2 calibration bug — a solo
+speaker ratcheted solo → pair → 4 → 8 as the evidence buffer filled — which
+was then root-caused offline: measured same-voice ECAPA distances on 1.25s
+segments run ~0.35 mean (p90 0.47) even on clean synthetic speech, so the
+original `0.40` clustering threshold sat *inside* the same-speaker
+distribution, and the absolute 2-segment min-mass rule let far-tail
+fragments count as people once ~100+ segments accumulated. Fixed by
+recalibrating the default threshold to `0.70` (different-voice pairs
+measure ~0.9) and making min-mass proportional to buffered evidence
+(`RTR_HEADCOUNT_MIN_CLUSTER_FRAC`). Two residual cautions: keep the mic
+input level modest (a hot input level inflates the crowd-regime heuristic —
+a loud solo speaker with dispersed embeddings can read as babble), and very
+similar voices may now merge (undercounting beats phantom crowds for this
+use case).
 
 ## Tests
 

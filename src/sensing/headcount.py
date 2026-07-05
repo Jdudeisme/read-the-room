@@ -310,9 +310,10 @@ class HeadcountEstimator:
         self,
         buffer_s: float = 90.0,
         buffer_cap: int = 200,
-        cluster_threshold: float = 0.40,
+        cluster_threshold: float = 0.70,
         min_cluster_segments: int = 2,
         min_cluster_speech_s: float = 2.5,
+        min_cluster_evidence_frac: float = 0.10,
         count_reliable_max: int = 4,
         count_regime_max: int = 8,
     ):
@@ -321,6 +322,7 @@ class HeadcountEstimator:
         self.cluster_threshold = cluster_threshold
         self.min_cluster_segments = min_cluster_segments
         self.min_cluster_speech_s = min_cluster_speech_s
+        self.min_cluster_evidence_frac = min_cluster_evidence_frac
         self.count_reliable_max = count_reliable_max
         self.count_regime_max = count_regime_max
         self._embeddings: list[np.ndarray] = []
@@ -362,19 +364,28 @@ class HeadcountEstimator:
         labels = agglomerative_cluster(emb, self.cluster_threshold)
         durations = np.asarray(self._durations)
 
-        # Minimum-mass criterion: a cluster counts as a person only with >=
-        # min_cluster_segments segments or >= min_cluster_speech_s attributed
-        # speech. A fragmenting solo speaker (one heavy cluster + stray
-        # singletons) therefore still counts as ONE — the cluster-level half
-        # of the 2020 phantom-speaker fix (the VAD gate is the other half).
+        # Minimum-mass criterion, two tiers. Absolute floor: a cluster needs
+        # >= min_cluster_segments segments or >= min_cluster_speech_s of
+        # attributed speech. Proportional floor: it must also hold >=
+        # min_cluster_evidence_frac of ALL buffered speech. The absolute
+        # floor alone fails at buffer scale — with ~100+ segments accumulated
+        # over buffer_s, same-speaker embedding scatter (measured ~0.35 mean
+        # pairwise cosine distance on clean audio, ~0.6 on a laptop mic)
+        # reliably forms far-tail fragments of 2+ segments, and counting each
+        # as a person ratchets a solo speaker up the bucket ladder as the
+        # buffer fills. Requiring a fraction of total evidence scales with
+        # the buffer: a solo speaker's debris stays debris, while real
+        # additional speakers (>= ~10% of the talk time) still count.
         raw = 0
         stray_segments = 0
+        min_frac_s = self.min_cluster_evidence_frac * float(durations.sum())
         for label in np.unique(labels):
             in_cluster = labels == label
+            cluster_s = float(durations[in_cluster].sum())
             if (
                 int(in_cluster.sum()) >= self.min_cluster_segments
-                or float(durations[in_cluster].sum()) >= self.min_cluster_speech_s
-            ):
+                or cluster_s >= self.min_cluster_speech_s
+            ) and cluster_s >= min_frac_s:
                 raw += 1
             else:
                 stray_segments += int(in_cluster.sum())

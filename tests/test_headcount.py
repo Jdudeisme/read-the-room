@@ -51,6 +51,40 @@ class Test2020Regressions:
         assert result is not None
         assert result.raw_clusters == 1
 
+    def test_solo_speaker_with_heavy_fragments_counts_as_one(self):
+        """The 2026-07-05 live finding: at buffer scale a solo speaker's
+        far-tail fragments arrive as small CLUSTERS (2-3 segments), not
+        singletons — the absolute min-mass floor alone counts each as a
+        person. The proportional evidence floor must filter them."""
+        dominant = _synthetic_speakers(1, 30, seed=2, spread=0.02)
+        frag_a = _synthetic_speakers(1, 3, seed=3, spread=0.02)
+        frag_b = _synthetic_speakers(1, 3, seed=4, spread=0.02)
+        est = HeadcountEstimator()
+        est.add(np.vstack([dominant, frag_a, frag_b]), [1.25] * 36, now=0.0)
+        result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
+        assert result is not None
+        assert result.raw_clusters == 1  # 3/36 segments < 10% of evidence
+
+    def test_two_balanced_speakers_both_pass_proportional_min_mass(self):
+        """The proportional floor must not swallow real speakers: two voices
+        splitting the talk time each hold ~50% of the evidence."""
+        est = HeadcountEstimator()
+        est.add(_synthetic_speakers(2, 10, seed=5, spread=0.02), [1.25] * 20, now=0.0)
+        result = est.estimate(speech_ratio=0.6, loudness_dbfs=-30.0)
+        assert result.raw_clusters == 2
+
+    def test_default_threshold_tolerates_measured_same_voice_scatter(self):
+        """Calibration regression (2026-07-05): same-voice ECAPA distances on
+        1.25s segments measure ~0.35 mean / 0.47 p90 on CLEAN speech. One
+        speaker at that scatter must cluster as one person at the default
+        threshold. (The old 0.40 default sat inside this distribution and
+        fragmented a solo speaker into phantom people.)"""
+        emb = _synthetic_speakers(1, 40, seed=6, spread=0.055)  # ~0.35-0.45 dist
+        est = HeadcountEstimator()
+        est.add(emb, [1.25] * 40, now=0.0)
+        result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
+        assert result.raw_clusters == 1
+
     def test_silence_produces_no_estimate_not_a_phantom_count(self):
         """Empty buffer (pure silence session) -> None, never a number."""
         est = HeadcountEstimator()
@@ -207,7 +241,7 @@ class TestRegimes:
     def test_babble_pressure_is_monotone_in_the_crowd_regime(self):
         """Denser room (higher speech saturation + loudness) -> equal-or-higher
         estimate. Ordinal correctness is all the crowd regime promises."""
-        blob = _synthetic_speakers(1, 60, seed=3, spread=0.055)  # smeared babble
+        blob = _synthetic_speakers(1, 60, seed=3, spread=0.09)  # smeared babble
 
         estimates = []
         for ratio, loud in [(0.5, -40.0), (0.8, -30.0), (1.0, -18.0)]:
@@ -221,10 +255,12 @@ class TestRegimes:
         """Heavy overlap can collapse a crowd into ONE diffuse cluster —
         saturated + loud + high-dispersion must still read as crowd regime,
         never as a confident solo."""
-        # Spread 0.055 -> pairwise cosine distance ~0.35: just under the 0.40
+        # Spread 0.09 -> pairwise cosine distance ~0.6: under the 0.70
         # threshold, so AHC chains everything into ONE cluster whose internal
-        # dispersion is far beyond real same-speaker tightness (~0.1-0.2).
-        blob = _synthetic_speakers(1, 80, seed=4, spread=0.055)
+        # dispersion sits well up the [0.35, 0.70] dispersion ramp — far
+        # beyond clean same-speaker scatter (~0.35 measured on 1.25s
+        # segments), reading as smear.
+        blob = _synthetic_speakers(1, 80, seed=4, spread=0.09)
         est = HeadcountEstimator()
         est.add(blob, [1.25] * 80, now=0.0)
         result = est.estimate(speech_ratio=1.0, loudness_dbfs=-15.0)
@@ -236,8 +272,11 @@ class TestRegimes:
         TIGHT embeddings — saturation alone must not flip the regime.
 
         Spread calibration: per-coordinate noise sigma yields cosine distance
-        ~ sigma^2 * d in 192-dim space; 0.02 -> ~0.08, matching real ECAPA
-        same-speaker segment distances (~0.1-0.2)."""
+        ~ sigma^2 * d in 192-dim space; 0.02 -> ~0.08, an idealized tight
+        speaker. (Measured clean same-voice scatter on 1.25s segments is
+        ~0.35, which the [0.35, 0.70] dispersion ramp deliberately zeroes;
+        noisier capture can push real solo speech up the ramp — a known
+        limitation of the smear signal, mitigated by modest mic gain.)"""
         tight = _synthetic_speakers(1, 20, seed=9, spread=0.02)
         est = HeadcountEstimator()
         est.add(tight, [1.25] * 20, now=0.0)
