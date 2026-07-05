@@ -26,3 +26,7 @@ models/
 # OS
 .DS_Store
 Thumbs.db
+
+# M3 annotation logs — local data, never committed
+data/*
+!data/.gitkeep

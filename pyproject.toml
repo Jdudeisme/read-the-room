@@ -31,16 +31,24 @@ dependencies = [
     # Uses the OS certificate store for model downloads; needed behind
     # TLS-intercepting proxies/AV where certifi's bundle fails.
     "truststore>=0.9",
+    # M3 dashboard: FastAPI app + websocket, served by uvicorn.
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.29,<1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+# httpx backs FastAPI/Starlette's TestClient (websocket + HTTP smoke tests).
+dev = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
 read-the-room = "sensing.__main__:main"
+read-the-room-dashboard = "dashboard.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+dashboard = ["static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

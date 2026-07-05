@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Read the Room — shadow dashboard</title>
+<style>
+  :root {
+    --bg: #101318; --panel: #191e26; --panel2: #1f2530; --line: #2b3342;
+    --text: #e8ecf2; --dim: #8d99ab; --accent: #5cc8ff; --accent2: #ffb454;
+    --good: #45c86e; --bad: #e5534b; --warn: #e0a63a;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 14px; max-width: 1100px; margin: 0 auto;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding-bottom: 12px;
+  }
+  header h1 { font-size: 17px; font-weight: 600; letter-spacing: .02em; }
+  .badge {
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--warn);
+    border: 1px solid var(--warn); border-radius: 4px; padding: 2px 7px;
+  }
+  .chips { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .chip {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+    padding: 3px 11px; font-size: 12px; color: var(--dim); white-space: nowrap;
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.stale b { color: var(--warn); }
+  #conn { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+  #conn.on { background: var(--good); }
+
+  .grid { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 12px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .panel h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 8px;
+  }
+
+  #quadrant { width: 100%; aspect-ratio: 1; display: block; }
+  .qlabel { fill: var(--dim); font-size: 13px; font-weight: 600; letter-spacing: .06em; }
+  .qaxis { stroke: var(--line); stroke-width: 1; }
+
+  .cards { display: grid; gap: 12px; align-content: start; }
+  .card .big { font-size: 26px; font-weight: 700; margin: 2px 0; }
+  .card .sub { color: var(--dim); font-size: 12px; }
+  .bar { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; margin-top: 7px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+
+  #recbar { margin-top: 12px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  #recsummary { font-size: 16px; font-weight: 600; flex: 1 1 260px; }
+  #recmeta { color: var(--dim); font-size: 12px; }
+  .genres { display: flex; gap: 6px; flex-wrap: wrap; }
+  .genre { background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; font-size: 12px; }
+  button {
+    font: inherit; font-weight: 600; border-radius: 8px; padding: 9px 16px;
+    border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+    cursor: pointer;
+  }
+  button:disabled { opacity: .35; cursor: default; }
+  #good { border-color: var(--good); color: var(--good); }
+  #wrong { border-color: var(--bad); color: var(--bad); }
+  #good:not(:disabled):hover { background: rgba(69,200,110,.12); }
+  #wrong:not(:disabled):hover { background: rgba(229,83,75,.12); }
+  #toast { font-size: 12px; color: var(--good); min-width: 70px; }
+
+  #timelinewrap { margin-top: 12px; }
+  #timeline { width: 100%; height: 110px; display: block; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--dim); margin-top: 4px; }
+  .dotkey { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; }
+
+  #overlay {
+    position: fixed; inset: 0; background: rgba(16,19,24,.82); display: none;
+    align-items: center; justify-content: center; z-index: 10; backdrop-filter: blur(2px);
+  }
+  body.disconnected #overlay { display: flex; }
+  #overlay div {
+    background: var(--panel); border: 1px solid var(--bad); border-radius: 10px;
+    padding: 22px 34px; font-size: 16px; font-weight: 600; color: var(--bad);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Read the Room</h1>
+  <span class="badge">SHADOW MODE — NOT PLAYING</span>
+  <div class="chips">
+    <span class="chip">emotion age <b id="emostale">—</b></span>
+    <span class="chip">headcount age <b id="hcstale">—</b></span>
+    <span id="conn" title="websocket"></span>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Valence / arousal</h2>
+    <svg id="quadrant" viewBox="0 0 400 400">
+      <rect x="20" y="20" width="360" height="360" rx="8" fill="var(--panel2)"/>
+      <line class="qaxis" x1="200" y1="20" x2="200" y2="380"/>
+      <line class="qaxis" x1="20" y1="200" x2="380" y2="200"/>
+      <text class="qlabel" x="34" y="44">TENSE</text>
+      <text class="qlabel" x="366" y="44" text-anchor="end">EXCITED</text>
+      <text class="qlabel" x="34" y="368">LOW</text>
+      <text class="qlabel" x="366" y="368" text-anchor="end">CONTENT</text>
+      <g id="trail"></g>
+      <circle id="dot" r="7" fill="var(--accent)" visibility="hidden">
+      </circle>
+    </svg>
+  </div>
+
+  <div class="cards">
+    <div class="panel card">
+      <h2>Headcount</h2>
+      <div class="big" id="hcbucket">—</div>
+      <div class="sub" id="hcsub">waiting for speech</div>
+    </div>
+    <div class="panel card">
+      <h2>Regime</h2>
+      <div class="big" id="regime">—</div>
+      <div class="sub" id="regimesub">crowd_weight — · clusters —</div>
+    </div>
+    <div class="panel card">
+      <h2>Voice activity</h2>
+      <div class="big" id="vad">—</div>
+      <div class="sub" id="vadsub">speech ratio —</div>
+      <div class="bar"><i id="vadbar"></i></div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="recbar">
+  <div style="flex:1 1 300px">
+    <h2>Shadow recommendation</h2>
+    <div id="recsummary">waiting for first recommendation…</div>
+    <div id="recmeta"></div>
+  </div>
+  <div class="genres" id="genres"></div>
+  <button id="good" disabled>Good call</button>
+  <button id="wrong" disabled>Wrong call</button>
+  <span id="toast"></span>
+</div>
+
+<div class="panel" id="timelinewrap">
+  <h2>Last 10 minutes</h2>
+  <svg id="timeline" viewBox="0 0 600 110" preserveAspectRatio="none">
+    <line x1="0" y1="55" x2="600" y2="55" stroke="var(--line)" stroke-width="1"/>
+    <polyline id="tl-valence" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+    <polyline id="tl-arousal" fill="none" stroke="var(--accent2)" stroke-width="1.6"/>
+  </svg>
+  <div class="legend">
+    <span><i class="dotkey" style="background:var(--accent)"></i>valence</span>
+    <span><i class="dotkey" style="background:var(--accent2)"></i>arousal</span>
+  </div>
+</div>
+
+<div id="overlay"><div>DISCONNECTED — retrying…</div></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+// ---- client-side buffers (browser memory only) ----------------------------
+const TIMELINE_S = 600, TRAIL_S = 120;
+let timeline = [];            // {ts, valence, arousal}
+let trail = [];               // {ts, valence, arousal}
+let displayedState = null;    // exactly what the page is showing
+let displayedRec = null;
+let lastFrameAt = null;       // performance clock at last state frame
+let lastEmoStale = null, lastHcStale = null;
+
+// ---- helpers ---------------------------------------------------------------
+const fmt = (x, d=2) => (x === null || x === undefined) ? "—" : Number(x).toFixed(d);
+const qx = v => 200 + v * 180;      // valence -1..1 -> svg x
+const qy = a => 200 - a * 180;      // arousal -1..1 -> svg y
+
+function setStaleChips() {
+  const extra = lastFrameAt === null ? 0 : (performance.now() - lastFrameAt) / 1000;
+  const put = (id, base) => {
+    const el = $(id);
+    if (base === null || base === undefined) { el.textContent = "—"; return; }
+    const v = base + extra;
+    el.textContent = v.toFixed(0) + "s";
+    el.parentElement.classList.toggle("stale", v > 30);
+  };
+  put("emostale", lastEmoStale);
+  put("hcstale", lastHcStale);
+}
+setInterval(setStaleChips, 1000);
+
+// ---- state frame -----------------------------------------------------------
+function onState(f) {
+  displayedState = f;
+  lastFrameAt = performance.now();
+  lastEmoStale = f.emotion_staleness_s;
+  lastHcStale = f.headcount_staleness_s;
+  setStaleChips();
+
+  // quadrant
+  if (f.valence !== null && f.arousal !== null) {
+    trail.push({ ts: f.timestamp, valence: f.valence, arousal: f.arousal });
+    trail = trail.filter(p => f.timestamp - p.ts <= TRAIL_S);
+    const dot = $("dot");
+    dot.setAttribute("cx", qx(f.valence));
+    dot.setAttribute("cy", qy(f.arousal));
+    dot.setAttribute("visibility", "visible");
+    const g = $("trail");
+    g.innerHTML = trail.slice(0, -1).map(p => {
+      const age = (f.timestamp - p.ts) / TRAIL_S;      // 0 new .. 1 old
+      const o = Math.max(0.04, 0.5 * (1 - age));
+      return `<circle cx="${qx(p.valence).toFixed(1)}" cy="${qy(p.arousal).toFixed(1)}"` +
+             ` r="3" fill="var(--accent)" opacity="${o.toFixed(3)}"/>`;
+    }).join("");
+  }
+
+  // headcount card
+  if (f.headcount_bucket !== null) {
+    $("hcbucket").textContent = f.headcount_bucket;
+    const conf = f.headcount_confidence;
+    const rungs = conf >= 0.7 ? "±0 rungs" : conf >= 0.4 ? "±1 rung" : "±2+ rungs";
+    $("hcsub").textContent =
+      `${rungs} · conf ${fmt(conf)} · ${fmt(f.headcount_staleness_s, 0)}s old`;
+  } else {
+    $("hcbucket").textContent = "—";
+    $("hcsub").textContent = f.headcount_status === "loading"
+      ? "model warming up…" : "waiting for speech";
+  }
+
+  // regime card (crowd_weight/raw_clusters are dashboard extras; see proposal)
+  const cw = f.headcount_crowd_weight;
+  if (cw !== null && cw !== undefined) {
+    $("regime").textContent = cw < 0.25 ? "counting" : cw < 0.75 ? "blend" : "crowd";
+    $("regimesub").textContent =
+      `crowd_weight ${fmt(cw)} · clusters ${f.headcount_raw_clusters ?? "—"}`;
+  } else {
+    $("regime").textContent = "—";
+    $("regimesub").textContent = "crowd_weight — · clusters —";
+  }
+
+  // VAD card
+  $("vad").textContent = f.speech_ratio >= 0.2 ? "speech" : "quiet";
+  $("vadsub").textContent = `speech ratio ${fmt(f.speech_ratio)}`;
+  $("vadbar").style.width = Math.round(100 * Math.min(1, f.speech_ratio)) + "%";
+
+  // timeline
+  timeline.push({ ts: f.timestamp, valence: f.valence, arousal: f.arousal });
+  timeline = timeline.filter(p => f.timestamp - p.ts <= TIMELINE_S);
+  drawTimeline(f.timestamp);
+}
+
+function drawTimeline(now) {
+  const line = key => timeline
+    .filter(p => p[key] !== null)
+    .map(p => {
+      const x = 600 * (1 - (now - p.ts) / TIMELINE_S);
+      const y = 55 - p[key] * 50;
+      return x.toFixed(1) + "," + y.toFixed(1);
+    }).join(" ");
+  $("tl-valence").setAttribute("points", line("valence"));
+  $("tl-arousal").setAttribute("points", line("arousal"));
+}
+
+// ---- recommendation frame ---------------------------------------------------
+function onRecommendation(f) {
+  displayedRec = f;
+  $("recsummary").textContent = f.summary;
+  $("recmeta").textContent =
+    `confidence ${fmt(f.confidence)} · ${f.energy_action} energy · ` +
+    `cell [${f.matched_cell.join(" · ")}] · not playing`;
+  $("genres").innerHTML =
+    f.genre_pool.map(g => `<span class="genre"></span>`).join("");
+  [...$("genres").children].forEach((el, i) => el.textContent = f.genre_pool[i]);
+  $("good").disabled = $("wrong").disabled = false;
+}
+
+// ---- annotations ------------------------------------------------------------
+async function annotate(verdict) {
+  if (!displayedRec || !displayedState) return;
+  // Strip the frame-type tags; send EXACTLY what is being displayed.
+  const { type: _s, ...state } = displayedState;
+  const { type: _r, ...recommendation } = displayedRec;
+  $("good").disabled = $("wrong").disabled = true;
+  try {
+    const res = await fetch("/annotations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ verdict, state, recommendation }),
+    });
+    $("toast").textContent = res.ok ? "logged ✓" : "failed ✗";
+    $("toast").style.color = res.ok ? "var(--good)" : "var(--bad)";
+  } catch {
+    $("toast").textContent = "failed ✗";
+    $("toast").style.color = "var(--bad)";
+  }
+  $("good").disabled = $("wrong").disabled = false;
+  setTimeout(() => { $("toast").textContent = ""; }, 2500);
+}
+$("good").onclick = () => annotate("good");
+$("wrong").onclick = () => annotate("wrong");
+
+// ---- websocket with reconnect/backoff ----------------------------------------
+let attempts = 0;
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => {
+    attempts = 0;
+    document.body.classList.remove("disconnected");
+    $("conn").classList.add("on");
+    timeline = []; trail = [];   // server replays history; start clean
+  };
+  ws.onmessage = ev => {
+    const f = JSON.parse(ev.data);
+    if (f.type === "state") onState(f);
+    else if (f.type === "recommendation") onRecommendation(f);
+  };
+  ws.onclose = () => {
+    $("conn").classList.remove("on");
+    document.body.classList.add("disconnected");
+    const delay = Math.min(15000, 1000 * Math.pow(1.7, attempts++));
+    setTimeout(connect, delay);
+  };
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>
