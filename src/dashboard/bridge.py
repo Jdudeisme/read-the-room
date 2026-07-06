@@ -53,10 +53,15 @@ class DashboardBridge:
     def _engine_extras(self) -> dict:
         """Dashboard-added frame fields (NOT RoomState schema): regime info
         from the hosted engine's HeadcountReading, plus worker statuses.
-        dispersion/fragmentation stay internal to sensing — see M3-PROPOSAL."""
+        dispersion/fragmentation/smoothed_log2 are the M4 observability
+        fields (see M4-PROPOSAL deliverable 3); riding the frame means every
+        annotation/override snapshot carries them for free."""
         extras = {
             "headcount_crowd_weight": None,
             "headcount_raw_clusters": None,
+            "headcount_dispersion": None,
+            "headcount_fragmentation": None,
+            "headcount_smoothed_log2": None,
             "emotion_status": None,
             "headcount_status": None,
         }
@@ -70,6 +75,9 @@ class DashboardBridge:
             if reading is not None:
                 extras["headcount_crowd_weight"] = round(reading.crowd_weight, 3)
                 extras["headcount_raw_clusters"] = reading.raw_clusters
+                extras["headcount_dispersion"] = round(reading.dispersion, 3)
+                extras["headcount_fragmentation"] = round(reading.fragmentation, 3)
+                extras["headcount_smoothed_log2"] = round(reading.smoothed_log2, 3)
         return extras
 
     @staticmethod

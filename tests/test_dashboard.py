@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 from conftest import make_state
 from dashboard import DashboardBridge, build_record, create_app
 from mapping import Mapper, MappingConfig
+from sensing.headcount import HeadcountReading
+from sensing.state import HeadcountBucket
 
 
 @pytest.fixture
@@ -37,7 +39,13 @@ class TestWebsocket:
             assert frame["speech_ratio"] == state.speech_ratio
             assert frame["headcount_bucket"] == "4"
             # dashboard-added extras exist even without a hosted engine
-            assert "headcount_crowd_weight" in frame
+            for extra in (
+                "headcount_crowd_weight",
+                "headcount_dispersion",
+                "headcount_fragmentation",
+                "headcount_smoothed_log2",
+            ):
+                assert extra in frame
 
             rec = ws.receive_json()
             assert rec["type"] == "recommendation"
@@ -55,6 +63,42 @@ class TestWebsocket:
         assert len(states) == 5
         assert states[0]["timestamp"] == 1000.0  # oldest first
         assert frames[-1]["type"] == "recommendation"  # current rec last
+
+
+class TestEngineExtras:
+    def test_hosted_engine_reading_attaches_observability_fields(self):
+        """M4 deliverable 3: dispersion/fragmentation/smoothed_log2 ride the
+        frame exactly like crowd_weight, rounded for the wire."""
+
+        class FakeWorker:
+            def latest(self, now):
+                reading = HeadcountReading(
+                    bucket=HeadcountBucket.PAIR,
+                    confidence=0.8,
+                    raw_clusters=2,
+                    crowd_weight=0.12345,
+                    dispersion=0.45678,
+                    fragmentation=0.25,
+                    smoothed_log2=1.23456,
+                    at=0.0,
+                )
+                return reading, 0.0
+
+        class FakeEngine:
+            emotion_status = "ready"
+            headcount_status = "ready"
+            headcount = FakeWorker()
+
+        bridge = DashboardBridge(
+            Mapper(MappingConfig(min_dwell_s=0.0)), engine=FakeEngine()
+        )
+        bridge.on_state(make_state(timestamp=1000.0))
+        frame = bridge.snapshot()[0][-1]
+        assert frame["headcount_crowd_weight"] == 0.123
+        assert frame["headcount_dispersion"] == 0.457
+        assert frame["headcount_fragmentation"] == 0.25
+        assert frame["headcount_smoothed_log2"] == 1.235
+        assert frame["headcount_status"] == "ready"
 
 
 class TestAnnotations:

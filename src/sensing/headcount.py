@@ -296,6 +296,12 @@ class Estimate:
     confidence: float  # 0..1
     raw_clusters: int  # min-mass-passing cluster count (diagnostic)
     crowd_weight: float  # 0 = pure count regime, 1 = pure babble regime
+    # M4 observability (FIELD-NOTES 2026-07-06 debuggability gap): the raw
+    # smear signals behind crowd_weight, pre-ramp, so a smoothed-bucket
+    # anomaly is attributable from the log alone. The ramps are pure
+    # functions of these plus config, so raw values lose nothing.
+    dispersion: float  # segment-weighted mean within-cluster cosine distance
+    fragmentation: float  # fraction of segments in mass-failing stray clusters
 
 
 class HeadcountEstimator:
@@ -422,14 +428,13 @@ class HeadcountEstimator:
         saturation = _ramp(speech_ratio, 0.6, 0.95) * _ramp(loudness_dbfs, -45.0, -20.0)
         # Same-speaker segment dispersion runs ~0.1-0.2 cosine distance;
         # signal ramps over the upper half of the clustering threshold.
-        dispersion = _ramp(
-            _mean_intra_cluster_distance(emb, labels),
-            0.5 * self.cluster_threshold,
-            self.cluster_threshold,
+        dispersion = _mean_intra_cluster_distance(emb, labels)
+        dispersion_signal = _ramp(
+            dispersion, 0.5 * self.cluster_threshold, self.cluster_threshold
         )
         # A solo speaker sheds up to ~20-30% strays; only heavier
         # fragmentation reads as babble confetti.
-        smear = max(dispersion, _ramp(fragmentation, 0.3, 0.8))
+        smear = max(dispersion_signal, _ramp(fragmentation, 0.3, 0.8))
         crowd_weight = max(
             0.0, min(1.0, sep_collapse * max(count_pressure, saturation * smear))
         )
@@ -456,6 +461,8 @@ class HeadcountEstimator:
             confidence=max(0.0, min(1.0, conf)),
             raw_clusters=raw,
             crowd_weight=crowd_weight,
+            dispersion=dispersion,
+            fragmentation=fragmentation,
         )
 
 
@@ -525,6 +532,9 @@ class HeadcountReading:
     confidence: float  # 0..1
     raw_clusters: int
     crowd_weight: float
+    dispersion: float  # raw estimator signals, see Estimate (M4 observability)
+    fragmentation: float
+    smoothed_log2: float  # the BucketSmoother EMA value that produced `bucket`
     at: float  # time.monotonic() when the estimate finished
 
 
@@ -642,12 +652,19 @@ class HeadcountWorker:
             if estimate is None:
                 continue
             bucket = self._smoother.update(estimate.log2_count, submitted_at)
+            # update() always seeds the EMA, so smoothed_log2 is non-None here.
+            smoothed_log2 = self._smoother.smoothed_log2
             with self._lock:
                 self._latest = HeadcountReading(
                     bucket=bucket,
                     confidence=estimate.confidence,
                     raw_clusters=estimate.raw_clusters,
                     crowd_weight=estimate.crowd_weight,
+                    dispersion=estimate.dispersion,
+                    fragmentation=estimate.fragmentation,
+                    smoothed_log2=(
+                        smoothed_log2 if smoothed_log2 is not None else estimate.log2_count
+                    ),
                     at=self._last_infer_at,
                 )
             log.debug(

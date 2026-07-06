@@ -285,6 +285,38 @@ class TestRegimes:
         assert result.crowd_weight < 0.5
         assert result.log2_count < 1.0  # still reads ~solo
 
+    def test_observability_fields_expose_raw_smear_signals(self):
+        """M4 deliverable 3: dispersion/fragmentation ride the Estimate so a
+        smoothed-bucket anomaly (the pool session's pair -> 16, FIELD-NOTES
+        2026-07-06) is attributable from the log alone.
+
+        Raw signals, pre-ramp: a tight solo speaker reads low dispersion and
+        zero fragmentation; a smeared blob reads dispersion up the ramp."""
+        tight = _synthetic_speakers(1, 20, seed=9, spread=0.02)
+        est = HeadcountEstimator()
+        est.add(tight, [1.25] * 20, now=0.0)
+        result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
+        assert result.dispersion < 0.2
+        assert result.fragmentation == 0.0
+
+        blob = _synthetic_speakers(1, 80, seed=4, spread=0.09)
+        est = HeadcountEstimator()
+        est.add(blob, [1.25] * 80, now=0.0)
+        smeared = est.estimate(speech_ratio=1.0, loudness_dbfs=-15.0)
+        assert smeared.dispersion > 0.35  # inside the [0.35, 0.70] ramp
+
+    def test_fragmentation_counts_mass_failing_stray_evidence(self):
+        """Same inputs as the heavy-fragments regression above: two 3-segment
+        far-tail fragments fail min-mass, so 6 of 36 segments are strays."""
+        dominant = _synthetic_speakers(1, 30, seed=2, spread=0.02)
+        frag_a = _synthetic_speakers(1, 3, seed=3, spread=0.02)
+        frag_b = _synthetic_speakers(1, 3, seed=4, spread=0.02)
+        est = HeadcountEstimator()
+        est.add(np.vstack([dominant, frag_a, frag_b]), [1.25] * 36, now=0.0)
+        result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
+        assert result.raw_clusters == 1
+        assert result.fragmentation == pytest.approx(6 / 36)
+
     def test_buffer_evicts_by_time_and_cap(self):
         est = HeadcountEstimator(buffer_s=10.0, buffer_cap=5)
         est.add(_synthetic_speakers(1, 4, seed=5), [1.0] * 4, now=0.0)

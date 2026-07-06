@@ -231,12 +231,15 @@ function onState(f) {
       ? "model warming up…" : "waiting for speech";
   }
 
-  // regime card (crowd_weight/raw_clusters are dashboard extras; see proposal)
+  // regime card (crowd_weight/raw_clusters/dispersion/fragmentation/
+  // smoothed_log2 are dashboard extras; see M4 proposal deliverable 3)
   const cw = f.headcount_crowd_weight;
   if (cw !== null && cw !== undefined) {
     $("regime").textContent = cw < 0.25 ? "counting" : cw < 0.75 ? "blend" : "crowd";
     $("regimesub").textContent =
-      `crowd_weight ${fmt(cw)} · clusters ${f.headcount_raw_clusters ?? "—"}`;
+      `crowd_weight ${fmt(cw)} · clusters ${f.headcount_raw_clusters ?? "—"}` +
+      ` · disp ${fmt(f.headcount_dispersion)} · frag ${fmt(f.headcount_fragmentation)}` +
+      ` · log2 ${fmt(f.headcount_smoothed_log2)}`;
   } else {
     $("regime").textContent = "—";
     $("regimesub").textContent = "crowd_weight — · clusters —";
