@@ -176,6 +176,63 @@ class TestSpeechSegments:
 
 
 # ---------------------------------------------------------------------------
+# Contamination gate v1 (M4): floor-relative saturation during playback
+# ---------------------------------------------------------------------------
+
+
+class TestContaminationGateV1:
+    def _smeared_estimator(self) -> HeadcountEstimator:
+        """Reverb-smeared single blob — the acoustics that false-fired at
+        the pool (high dispersion, saturated speech, loud)."""
+        est = HeadcountEstimator()
+        est.add(_synthetic_speakers(1, 80, seed=4, spread=0.09), [1.25] * 80, now=0.0)
+        return est
+
+    def test_music_raised_floor_no_longer_false_fires(self):
+        """The gating scenario: continuous music pins absolute loudness
+        inside the [-45, -20] ramp for the whole session. With playback
+        active and a seeded floor, loudness barely above that floor must
+        contribute ~zero saturation — no phantom 16 from two people talking
+        over the music. The same acoustics WITHOUT playback still fire the
+        absolute ramp (the gate never changes clean-path behavior)."""
+        est = self._smeared_estimator()
+        contaminated = est.estimate(
+            speech_ratio=1.0,
+            loudness_dbfs=-15.0,
+            playback_active=True,
+            noise_floor_dbfs=-17.0,  # only +2 dB above the music's floor
+        )
+        assert contaminated.crowd_weight < 0.25
+        clean = est.estimate(speech_ratio=1.0, loudness_dbfs=-15.0)
+        assert clean.crowd_weight > 0.5
+
+    def test_real_crowd_rides_well_above_the_floor(self):
+        """A packed talking room sits 10+ dB over whatever floor the music
+        set — the crowd regime must still engage during playback."""
+        est = self._smeared_estimator()
+        result = est.estimate(
+            speech_ratio=1.0,
+            loudness_dbfs=-15.0,
+            playback_active=True,
+            noise_floor_dbfs=-32.0,  # +17 dB above floor
+        )
+        assert result.crowd_weight > 0.5
+
+    def test_unseeded_floor_falls_back_to_absolute_ramp(self):
+        """Playback starting before any quiescent window: no floor yet.
+        Falling back to the absolute ramp keeps the babble path gated the
+        old way rather than un-gating it entirely."""
+        est = self._smeared_estimator()
+        result = est.estimate(
+            speech_ratio=1.0,
+            loudness_dbfs=-15.0,
+            playback_active=True,
+            noise_floor_dbfs=None,
+        )
+        assert result.crowd_weight > 0.5
+
+
+# ---------------------------------------------------------------------------
 # Bucket ladder + smoothing
 # ---------------------------------------------------------------------------
 

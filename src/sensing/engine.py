@@ -103,6 +103,9 @@ class Engine:
         self._ema_loudness = Ema(config.smooth_tau_dsp_s)
         self._ema_activity = Ema(config.smooth_tau_dsp_s)
         self._ema_speech = Ema(config.smooth_tau_dsp_s)
+        # Rolling noise floor: EMA over QUIESCENT windows only (raw speech
+        # ratio < 0.1), so it tracks fans/HVAC/music, not conversation.
+        self._noise_floor = Ema(config.noise_floor_tau_s)
         self._ema_valence = Ema(config.smooth_tau_emotion_s)
         self._ema_arousal = Ema(config.smooth_tau_emotion_s)
         self._trend = TrendTracker(config.trend_horizon_s, config.trend_slope_threshold)
@@ -173,15 +176,39 @@ class Engine:
         loudness = self._ema_loudness.update(measured.rms_dbfs, now)
         activity = self._ema_activity.update(measured.onset_density, now)
 
-        # Layer 2: VAD on audio captured since the last tick.
+        # Playback awareness (M4): a cached read, never provider I/O. A
+        # broken source must not take down the sensing heartbeat. Read
+        # BEFORE certification — it selects the VAD threshold.
+        playback_active, playback_track_id = False, None
+        if self.playback_source is not None:
+            try:
+                playback_active, playback_track_id = (
+                    self.playback_source.playback_state()
+                )
+            except Exception:
+                log.exception("playback state source failed; stamping inactive")
+
+        # Layer 2: VAD on audio captured since the last tick. Contamination
+        # gate v1: while the system's own output is audible, certification
+        # demands a stricter per-chunk threshold — this is the centralized
+        # certification point, so emotion and headcount inherit it at once.
         new_samples, self._vad_position = self.source.ring.read_since(self._vad_position)
         self.vad.feed(new_samples)
-        speech_ratio = self._ema_speech.update(self.vad.speech_ratio(), now)
+        cert_threshold = (
+            self.config.vad_playback_threshold
+            if playback_active
+            else self.config.vad_threshold
+        )
+        raw_ratio = self.vad.speech_ratio(cert_threshold)
+        speech_ratio = self._ema_speech.update(raw_ratio, now)
+        # Quiescent windows feed the rolling noise floor (fan/HVAC/music —
+        # whatever the room sounds like when nobody is talking).
+        if raw_ratio < 0.1:
+            self._noise_floor.update(measured.rms_dbfs, now)
 
         # Layer 3: emotion, gated on the *instantaneous* window's speech.
         valence = arousal = confidence = staleness = None
         if self.emotion is not None:
-            raw_ratio = self.vad.speech_ratio()
             if (
                 raw_ratio >= self.config.emotion_min_speech_ratio
                 and window.size >= self.config.sample_rate  # at least 1s of audio
@@ -198,29 +225,23 @@ class Engine:
         # grows — silence is absence of evidence, not evidence of an empty room.
         hc_bucket = hc_confidence = hc_staleness = None
         if self.headcount is not None:
-            raw_ratio = self.vad.speech_ratio()
             if (
                 raw_ratio >= self.config.headcount_min_speech_ratio
                 and window.size >= self.config.sample_rate
             ):
                 self.headcount.submit(
-                    window, self.vad.speech_mask(), raw_ratio, measured.rms_dbfs, now
+                    window,
+                    self.vad.speech_mask(cert_threshold),
+                    raw_ratio,
+                    measured.rms_dbfs,
+                    now,
+                    playback_active,
+                    self._noise_floor.value,
                 )
             hc_reading, hc_staleness = self.headcount.latest(now)
             if hc_reading is not None:
                 hc_bucket = hc_reading.bucket
                 hc_confidence = hc_reading.confidence
-
-        # Playback awareness (M4): a cached read, never provider I/O. A
-        # broken source must not take down the sensing heartbeat.
-        playback_active, playback_track_id = False, None
-        if self.playback_source is not None:
-            try:
-                playback_active, playback_track_id = (
-                    self.playback_source.playback_state()
-                )
-            except Exception:
-                log.exception("playback state source failed; stamping inactive")
 
         energy = energy_score(loudness, activity, speech_ratio, arousal)
         mood = None

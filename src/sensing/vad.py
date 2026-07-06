@@ -55,24 +55,33 @@ class VadGate:
             self._probs.append(prob)
         self._pending = data[n_chunks * _CHUNK :]
 
-    def speech_ratio(self) -> float:
-        """Fraction of the rolling window's chunks judged to be speech."""
+    def speech_ratio(self, threshold: float | None = None) -> float:
+        """Fraction of the rolling window's chunks judged to be speech.
+
+        `threshold` overrides the configured cutoff for this read; raw
+        per-chunk probabilities are stored, so certification strictness is a
+        read-time decision. The M4 contamination gate uses this: while
+        playback is active the engine certifies with a stricter threshold.
+        """
         if not self._probs:
             return 0.0
-        hits = sum(1 for p in self._probs if p >= self.threshold)
+        thr = self.threshold if threshold is None else threshold
+        hits = sum(1 for p in self._probs if p >= thr)
         return hits / len(self._probs)
 
-    def speech_mask(self) -> np.ndarray:
+    def speech_mask(self, threshold: float | None = None) -> np.ndarray:
         """Per-chunk speech decisions for the rolling window, oldest first.
 
         One boolean per 512-sample chunk, aligned to the end of the current
         analysis window. This is the single certification point both the
         emotion and headcount layers gate on — downstream layers must never
-        run their own VAD (M2 spec; also where a future music-detection gate
-        slots in so every layer inherits it at once).
+        run their own VAD (M2 spec; the M4 playback-aware threshold lands
+        here so every layer inherits it at once, and a future music-detection
+        gate slots in the same way).
         """
+        thr = self.threshold if threshold is None else threshold
         return np.fromiter(
-            (p >= self.threshold for p in self._probs),
+            (p >= thr for p in self._probs),
             dtype=bool,
             count=len(self._probs),
         )

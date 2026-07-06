@@ -162,3 +162,18 @@ class TestPlaybackAwareness:
 
         tagged = make_state(playback_active=True, playback_track_id="track-9")
         assert tagged.to_dict()["playback_track_id"] == "track-9"
+
+
+class TestVadCertificationThreshold:
+    def test_read_time_threshold_override(self):
+        """Contamination gate v1 (M4): the gate stores raw per-chunk
+        probabilities, so stricter certification during playback is a
+        read-time decision — same audio, same model state, higher bar."""
+        from sensing.vad import VadGate
+
+        gate = VadGate(16_000, window_s=5.0, threshold=0.5)
+        gate._probs.extend([0.6, 0.8, 0.4, 0.9])  # injected: no model in tests
+        assert gate.speech_ratio() == pytest.approx(0.75)
+        assert gate.speech_ratio(0.75) == pytest.approx(0.5)
+        assert int(gate.speech_mask().sum()) == 3
+        assert int(gate.speech_mask(0.75).sum()) == 2
