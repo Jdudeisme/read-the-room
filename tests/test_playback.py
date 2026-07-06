@@ -22,6 +22,7 @@ from playback import (
     Track,
     TrackSelector,
     derive_tier,
+    load_playlists,
 )
 
 
@@ -446,6 +447,49 @@ class TestOverrideActions:
             assert events == []
         finally:
             c.stop()
+
+
+class TestPlaylistMapping:
+    def test_missing_file_means_nothing_mapped_yet(self, tmp_path):
+        assert load_playlists(tmp_path / "playlists.json") == {}
+
+    def test_valid_mapping_round_trip(self, tmp_path):
+        path = tmp_path / "playlists.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "playlists": {
+                        "Pop": {"high": "spotify:playlist:aaa", "mid": "spotify:playlist:bbb"},
+                        "Jazz": {"low": "spotify:playlist:ccc"},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        mapping = load_playlists(path)
+        assert mapping[("Pop", "high")] == "spotify:playlist:aaa"
+        assert mapping[("Jazz", "low")] == "spotify:playlist:ccc"
+        assert len(mapping) == 3
+
+    def test_curation_typos_fail_loudly(self, tmp_path):
+        """A silent typo would look identical to 'nothing mapped' and waste
+        a live session — malformed files must raise."""
+        path = tmp_path / "playlists.json"
+        path.write_text(
+            json.dumps(
+                {"schema_version": 1, "playlists": {"Pop": {"hgih": "x"}}}
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="unknown tier"):
+            load_playlists(path)
+        path.write_text("{not json", encoding="utf-8")
+        with pytest.raises(ValueError, match="not valid JSON"):
+            load_playlists(path)
+        path.write_text(json.dumps({"playlists": {}}), encoding="utf-8")
+        with pytest.raises(ValueError, match="schema_version"):
+            load_playlists(path)
 
 
 class TestWireTypes:

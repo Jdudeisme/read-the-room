@@ -25,9 +25,14 @@ log = logging.getLogger(__name__)
 
 
 class DashboardBridge:
-    def __init__(self, mapper: Mapper, history_maxlen: int = 300, engine=None):
+    def __init__(
+        self, mapper: Mapper, history_maxlen: int = 300, engine=None, playback=None
+    ):
         self._mapper = mapper
         self.engine = engine  # optional; read for regime extras + statuses
+        # Optional PlaybackController (M4): receives every Mapper emission
+        # (non-blocking slot handoff) and contributes now-playing extras.
+        self.playback = playback
         self._history: deque[dict] = deque(maxlen=history_maxlen)
         self._current_rec: dict | None = None
         self._clients: dict[int, tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = {}
@@ -37,8 +42,18 @@ class DashboardBridge:
     # -- engine side (engine thread) ----------------------------------------
 
     def on_state(self, state: RoomState) -> None:
-        frame = {"type": "state", **state.to_dict(), **self._engine_extras()}
+        frame = {
+            "type": "state",
+            **state.to_dict(),
+            **self._engine_extras(),
+            **self._playback_extras(),
+        }
         rec = self._mapper.update(state)
+        if rec is not None and self.playback is not None:
+            try:
+                self.playback.on_recommendation(rec)  # slot handoff, no I/O
+            except Exception:
+                log.exception("playback controller rejected a recommendation")
         rec_frame = {"type": "recommendation", **rec.to_dict()} if rec else None
         with self._lock:
             self._history.append(frame)
@@ -79,6 +94,18 @@ class DashboardBridge:
                 extras["headcount_fragmentation"] = round(reading.fragmentation, 3)
                 extras["headcount_smoothed_log2"] = round(reading.smoothed_log2, 3)
         return extras
+
+    def _playback_extras(self) -> dict:
+        """Now-playing frame fields (M4 deliverable 4). Shadow mode is the
+        first-class default — 'shadow' is what no controller looks like."""
+        if self.playback is None:
+            return {
+                "playback_status": "shadow",
+                "playback_error": None,
+                "now_playing": None,
+                "queued_track": None,
+            }
+        return self.playback.snapshot()
 
     @staticmethod
     def _offer(queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, frame: dict):

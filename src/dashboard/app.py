@@ -44,6 +44,7 @@ def create_app(
     annotations_dir: Path,
     overrides_dir: Path | None = None,
     playback=None,  # PlaybackController | None; None = shadow mode
+    playlists_path: Path | None = None,  # curated mapping for the manual picker
 ) -> FastAPI:
     app = FastAPI(title="Read the Room — shadow dashboard")
     overrides_dir = overrides_dir or Path("data/overrides")
@@ -127,6 +128,24 @@ def create_app(
             "action_ok": acted_track is not None,
             "acted_track": acted_track.to_dict() if acted_track else None,
             "action_error": action_error,
+        }
+
+    @app.get("/playlists")
+    async def playlists() -> dict:
+        """Mapped (genre, tier) pairs for the manual picker. Reloaded per
+        request so curation edits show up without a restart."""
+        if playlists_path is None:
+            return {"mappings": []}
+        from playback import load_playlists
+
+        try:
+            mapping = load_playlists(playlists_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+        return {
+            "mappings": [
+                {"genre": genre, "tier": tier} for genre, tier in sorted(mapping)
+            ]
         }
 
     return app

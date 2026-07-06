@@ -70,6 +70,21 @@
   #wrong:not(:disabled):hover { background: rgba(229,83,75,.12); }
   #toast { font-size: 12px; color: var(--good); min-width: 70px; }
 
+  /* Playback controls (M4): hidden while shadow mode is presented. */
+  .pbctl { display: none; }
+  body.playback-on button.pbctl { display: inline-block; }
+  body.playback-on span.pbctl { display: inline-flex; align-items: center; gap: 6px; }
+  body.playback-on #nowplaying { display: block; }
+  #nowplaying { font-size: 15px; font-weight: 600; color: var(--accent); margin-bottom: 4px; }
+  #skip { border-color: var(--warn); color: var(--warn); }
+  #wrongvibe { border-color: var(--bad); color: var(--bad); }
+  #skip:not(:disabled):hover { background: rgba(224,166,58,.12); }
+  #wrongvibe:not(:disabled):hover { background: rgba(229,83,75,.12); }
+  select {
+    font: inherit; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  }
+
   #timelinewrap { margin-top: 12px; }
   #timeline { width: 100%; height: 110px; display: block; }
   .legend { display: flex; gap: 14px; font-size: 12px; color: var(--dim); margin-top: 4px; }
@@ -89,8 +104,10 @@
 <body>
 <header>
   <h1>Read the Room</h1>
-  <span class="badge">SHADOW MODE — NOT PLAYING</span>
+  <span class="badge" id="modebadge">SHADOW MODE — NOT PLAYING</span>
   <div class="chips">
+    <span class="chip" title="contamination status: is our own output audible?">
+      playback <b id="pbactive">off</b></span>
     <span class="chip">emotion age <b id="emostale">—</b></span>
     <span class="chip">headcount age <b id="hcstale">—</b></span>
     <span id="conn" title="websocket"></span>
@@ -136,11 +153,18 @@
 
 <div class="panel" id="recbar">
   <div style="flex:1 1 300px">
-    <h2>Shadow recommendation</h2>
+    <h2 id="rectitle">Shadow recommendation</h2>
+    <div id="nowplaying" class="pbctl"></div>
     <div id="recsummary">waiting for first recommendation…</div>
     <div id="recmeta"></div>
   </div>
   <div class="genres" id="genres"></div>
+  <button id="skip" class="pbctl">Skip</button>
+  <button id="wrongvibe" class="pbctl">Wrong vibe</button>
+  <span class="pbctl" id="manualwrap">
+    <select id="mpick" title="manual pick: any mapped playlist"></select>
+    <button id="mgo">Play it</button>
+  </span>
   <button id="good" disabled>Good call</button>
   <button id="wrong" disabled>Wrong call</button>
   <span id="toast"></span>
@@ -171,6 +195,7 @@ let timeline = [];            // {ts, valence, arousal}
 let trail = [];               // {ts, valence, arousal}
 let displayedState = null;    // exactly what the page is showing
 let displayedRec = null;
+let displayedNowPlaying = null;  // the track under judgment for overrides
 let lastFrameAt = null;       // performance clock at last state frame
 let lastEmoStale = null, lastHcStale = null;
 
@@ -250,6 +275,9 @@ function onState(f) {
   $("vadsub").textContent = `speech ratio ${fmt(f.speech_ratio)}`;
   $("vadbar").style.width = Math.round(100 * Math.min(1, f.speech_ratio)) + "%";
 
+  // now-playing bar / shadow presentation (playback extras, M4 D4)
+  updatePlayback(f);
+
   // timeline
   timeline.push({ ts: f.timestamp, valence: f.valence, arousal: f.arousal });
   timeline = timeline.filter(p => f.timestamp - p.ts <= TIMELINE_S);
@@ -268,13 +296,39 @@ function drawTimeline(now) {
   $("tl-arousal").setAttribute("points", line("arousal"));
 }
 
+// ---- playback bar (M4 deliverable 4) -----------------------------------------
+function updatePlayback(f) {
+  // Contamination indicator: the RoomState stamp, not the controller status.
+  $("pbactive").textContent = f.playback_active ? "on" : "off";
+
+  const live = f.playback_status === "active" && f.now_playing;
+  document.body.classList.toggle("playback-on", !!live);
+  $("modebadge").textContent =
+    live ? "PLAYBACK LIVE" :
+    f.playback_status === "degraded" ? "PLAYBACK DEGRADED — SHADOW MODE" :
+    "SHADOW MODE — NOT PLAYING";
+  $("rectitle").textContent = live ? "Now playing" : "Shadow recommendation";
+
+  if (live) {
+    displayedNowPlaying = f.now_playing;
+    const t = f.now_playing.track;
+    $("nowplaying").textContent =
+      `${t.title} — ${t.artist}` +
+      (t.playlist_id ? ` · ${t.playlist_id}` : "") +
+      (f.queued_track ? ` · next: ${f.queued_track.title}` : "");
+  } else {
+    displayedNowPlaying = null;
+    $("nowplaying").textContent = "";
+  }
+}
+
 // ---- recommendation frame ---------------------------------------------------
 function onRecommendation(f) {
   displayedRec = f;
   $("recsummary").textContent = f.summary;
   $("recmeta").textContent =
     `confidence ${fmt(f.confidence)} · ${f.energy_action} energy · ` +
-    `cell [${f.matched_cell.join(" · ")}] · not playing`;
+    `cell [${f.matched_cell.join(" · ")}]`;
   $("genres").innerHTML =
     f.genre_pool.map(g => `<span class="genre"></span>`).join("");
   [...$("genres").children].forEach((el, i) => el.textContent = f.genre_pool[i]);
@@ -305,6 +359,48 @@ async function annotate(verdict) {
 }
 $("good").onclick = () => annotate("good");
 $("wrong").onclick = () => annotate("wrong");
+
+// ---- overrides (M4 deliverable 2: the strong labels) --------------------------
+async function override(action, chosen) {
+  if (!displayedRec || !displayedState || !displayedNowPlaying) return;
+  // The annotation convention: send EXACTLY what is being displayed.
+  const { type: _s, ...state } = displayedState;
+  const { type: _r, ...recommendation } = displayedRec;
+  const body = { action, state, recommendation, now_playing: displayedNowPlaying };
+  if (chosen) body.chosen = chosen;
+  try {
+    const res = await fetch("/overrides", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const out = res.ok ? await res.json() : null;
+    const acted = out && out.action_ok;
+    $("toast").textContent = !res.ok ? "failed ✗" : acted ? "logged ✓" : "logged (no action) ✓";
+    $("toast").style.color = res.ok ? "var(--good)" : "var(--bad)";
+  } catch {
+    $("toast").textContent = "failed ✗";
+    $("toast").style.color = "var(--bad)";
+  }
+  setTimeout(() => { $("toast").textContent = ""; }, 2500);
+}
+$("skip").onclick = () => override("skip");
+$("wrongvibe").onclick = () => override("wrong_vibe");
+$("mgo").onclick = () => {
+  if (!$("mpick").value) return;
+  const [genre, tier] = JSON.parse($("mpick").value);
+  override("manual", { genre, tier });
+};
+
+// Manual picker options: every curated (genre, tier) mapping.
+fetch("/playlists").then(r => r.json()).then(d => {
+  for (const m of d.mappings) {
+    const o = document.createElement("option");
+    o.value = JSON.stringify([m.genre, m.tier]);
+    o.textContent = `${m.genre} · ${m.tier}`;
+    $("mpick").appendChild(o);
+  }
+}).catch(() => {});
 
 // ---- websocket with reconnect/backoff ----------------------------------------
 let attempts = 0;

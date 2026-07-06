@@ -81,7 +81,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     # playback=None until a concrete provider lands (M4 D1): overrides are
     # still recorded in shadow mode, they just don't act on a player.
-    app = create_app(bridge, annotations_dir, overrides_dir)
+    from playback import PlaybackConfig
+
+    playback_config = PlaybackConfig.from_env()
+    app = create_app(
+        bridge,
+        annotations_dir,
+        overrides_dir,
+        playlists_path=Path(playback_config.playlists_path),
+    )
 
     engine_thread = threading.Thread(target=engine.run, daemon=True, name="engine")
     engine_thread.start()

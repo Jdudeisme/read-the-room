@@ -6,6 +6,7 @@ provider protocol, playlist-mapped selection, gentle-DJ queueing policy.
 
 from .config import PlaybackConfig
 from .controller import PlaybackController
+from .playlists import load_playlists
 from .provider import (
     ENERGY_TIERS,
     Device,
@@ -27,4 +28,5 @@ __all__ = [
     "Track",
     "TrackSelector",
     "derive_tier",
+    "load_playlists",
 ]

@@ -51,6 +51,10 @@ class TestWebsocket:
             ):
                 assert extra in frame
 
+            # shadow mode is the first-class default presentation
+            assert frame["playback_status"] == "shadow"
+            assert frame["now_playing"] is None
+
             rec = ws.receive_json()
             assert rec["type"] == "recommendation"
             assert rec["matched_cell"] == ["4", "high", "high"]
@@ -178,6 +182,73 @@ class TestAnnotations:
         assert parsed["ts"] == 5.0
 
 
+class TestPlaybackBridge:
+    def test_controller_receives_emissions_and_frames_carry_now_playing(self):
+        """M4 D4 wiring: the controller is a Mapper-emission consumer (slot
+        handoff on the engine thread) and its snapshot rides every frame."""
+
+        class StubPlayback:
+            def __init__(self):
+                self.recs = []
+
+            def on_recommendation(self, rec):
+                self.recs.append(rec)
+
+            def snapshot(self):
+                return {
+                    "playback_status": "active",
+                    "playback_error": None,
+                    "now_playing": {"track": {"id": "t1", "title": "Song"}},
+                    "queued_track": None,
+                }
+
+        stub = StubPlayback()
+        bridge = DashboardBridge(
+            Mapper(MappingConfig(min_dwell_s=0.0)), playback=stub
+        )
+        bridge.on_state(make_state(timestamp=1000.0))
+        frame = bridge.snapshot()[0][-1]
+        assert frame["playback_status"] == "active"
+        assert frame["now_playing"]["track"]["id"] == "t1"
+        assert len(stub.recs) == 1
+        assert stub.recs[0].genre_pool == ["Pop"]
+
+
+class TestPlaylistsEndpoint:
+    def test_no_path_means_no_mappings(self, client):
+        assert client.get("/playlists").json() == {"mappings": []}
+
+    def test_mappings_served_sorted(self, bridge, tmp_path):
+        path = tmp_path / "playlists.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "playlists": {
+                        "Pop": {"mid": "b", "high": "a"},
+                        "Jazz": {"low": "c"},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        app = create_app(
+            bridge,
+            annotations_dir=tmp_path / "annotations",
+            overrides_dir=tmp_path / "overrides",
+            playlists_path=path,
+        )
+        with TestClient(app) as client:
+            res = client.get("/playlists")
+        assert res.json() == {
+            "mappings": [
+                {"genre": "Jazz", "tier": "low"},
+                {"genre": "Pop", "tier": "high"},
+                {"genre": "Pop", "tier": "mid"},
+            ]
+        }
+
+
 class TestOverridesEndpoint:
     """M4 deliverable 2: the label is banked BEFORE the playback action is
     attempted — a dead provider degrades music, never loses a record."""
@@ -290,5 +361,11 @@ class TestIndexPage:
             "DISCONNECTED",
             "emostale",
             "hcstale",
+            # M4 now-playing bar + override controls + contamination chip
+            "nowplaying",
+            "Skip",
+            "Wrong vibe",
+            "mpick",
+            "pbactive",
         ):
             assert marker in html
