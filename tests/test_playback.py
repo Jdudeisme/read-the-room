@@ -314,7 +314,138 @@ class TestController:
         snap = controller.snapshot()
         assert snap["playback_status"] == "active"
         assert snap["now_playing"]["track"]["id"] == "track-1"
-        assert snap["queued_track"]["id"] == "track-1"
+        assert snap["queued_track"] is None  # bootstrap plays; nothing queued
+
+        controller.on_recommendation(_rec(genre_pool=("Jazz",), target_arousal=0.0))
+        assert _wait_until(
+            lambda: controller.snapshot()["queued_track"] is not None
+        )
+        assert controller.snapshot()["queued_track"]["id"] == "track-2"
+
+
+class TestOverrideActions:
+    """M4 deliverable 2: skip / wrong_vibe / manual_pick semantics, plus the
+    played_through weak positive at track boundaries."""
+
+    @pytest.fixture
+    def provider(self):
+        return FakeProvider(
+            library={
+                ("Pop", "high"): [_track(1), _track(4)],
+                ("Jazz", "mid"): [_track(2, "pl-jazz-mid")],
+                ("Hip-Hop", "high"): [_track(5, "pl-hh-high")],
+            }
+        )
+
+    def _controller(self, provider, sink=None):
+        c = PlaybackController(
+            provider,
+            TrackSelector(provider, seed=0),
+            PlaybackConfig(poll_interval_s=0.05),
+            on_played_through=sink,
+        )
+        c.start()
+        assert _wait_until(lambda: c.status == "active")
+        return c
+
+    def test_skip_prefers_the_queued_next_selection(self, provider):
+        c = self._controller(provider)
+        try:
+            provider.play(_track(99, playlist=None))
+            c.on_recommendation(_rec(genre_pool=("Jazz",), target_arousal=0.0))
+            assert _wait_until(lambda: provider.next_up is not None)
+            skipped_to = c.skip()
+            assert skipped_to.id == "track-2"
+            assert provider.now_playing().track.id == "track-2"
+        finally:
+            c.stop()
+
+    def test_skip_resamples_from_the_last_recommendation(self, provider):
+        c = self._controller(provider)
+        try:
+            c.on_recommendation(_rec())  # bootstrap: plays a Pop/high track
+            assert _wait_until(lambda: c.playback_state()[0])
+            first = provider.now_playing().track.id
+            replacement = c.skip()
+            assert replacement is not None
+            assert replacement.id != first  # recently-played suppression
+            assert provider.now_playing().track.id == replacement.id
+        finally:
+            c.stop()
+
+    def test_skip_with_nothing_to_go_to_pauses(self, provider):
+        c = self._controller(provider)
+        try:
+            provider.play(_track(99, playlist=None))  # not our selection
+            assert _wait_until(lambda: c.playback_state()[0])
+            assert c.skip() is None  # no queued track, no rec to resample
+            assert provider.now_playing().is_playing is False
+            assert c.playback_state() == (False, None)
+        finally:
+            c.stop()
+
+    def test_wrong_vibe_resamples_a_cell_adjacent_pool(self, provider):
+        c = self._controller(provider)
+        try:
+            c.on_recommendation(_rec())  # cell ("4","high","high"), pool Pop
+            assert _wait_until(lambda: c.playback_state()[0])
+            track = c.wrong_vibe()
+            # ("4","high","mid")/("4","mid","high") both map Hip-Hop
+            assert track.id == "track-5"
+            assert provider.now_playing().track.id == "track-5"
+        finally:
+            c.stop()
+
+    def test_wrong_vibe_without_history_is_a_noop(self, provider):
+        c = self._controller(provider)
+        try:
+            assert c.wrong_vibe() is None
+        finally:
+            c.stop()
+
+    def test_manual_pick_plays_immediately(self, provider):
+        c = self._controller(provider)
+        try:
+            provider.play(_track(99, playlist=None))
+            assert _wait_until(lambda: c.playback_state()[0])
+            track = c.manual_pick("Jazz", "mid")
+            assert track.id == "track-2"
+            assert provider.now_playing().track.id == "track-2"
+        finally:
+            c.stop()
+
+    def test_played_through_emits_the_weak_positive(self, provider):
+        events = []
+        c = self._controller(provider, sink=lambda np, rec: events.append((np, rec)))
+        try:
+            c.on_recommendation(_rec())
+            assert _wait_until(lambda: c.playback_state()[0])
+            played = provider.now_playing().track
+            # Natural boundary: the provider moves on to another track.
+            provider._now = NowPlaying(
+                track=_track(42, playlist=None),
+                progress_s=0.0,
+                is_playing=True,
+                device_id="dev-1",
+            )
+            assert _wait_until(lambda: len(events) == 1)
+            now_playing_dict, rec_dict = events[0]
+            assert now_playing_dict["track"]["id"] == played.id
+            assert rec_dict["matched_cell"] == ["4", "high", "high"]
+        finally:
+            c.stop()
+
+    def test_skipped_track_never_logs_played_through(self, provider):
+        events = []
+        c = self._controller(provider, sink=lambda np, rec: events.append((np, rec)))
+        try:
+            c.on_recommendation(_rec())
+            assert _wait_until(lambda: c.playback_state()[0])
+            c.skip()  # human veto: the transition this causes is not a positive
+            time.sleep(0.2)  # a few poll cycles
+            assert events == []
+        finally:
+            c.stop()
 
 
 class TestWireTypes:

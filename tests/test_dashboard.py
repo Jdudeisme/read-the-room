@@ -23,7 +23,11 @@ def bridge():
 
 @pytest.fixture
 def client(bridge, tmp_path):
-    app = create_app(bridge, annotations_dir=tmp_path / "annotations")
+    app = create_app(
+        bridge,
+        annotations_dir=tmp_path / "annotations",
+        overrides_dir=tmp_path / "overrides",
+    )
     with TestClient(app) as c:
         yield c
 
@@ -172,6 +176,104 @@ class TestAnnotations:
         assert parsed == record
         assert parsed["schema_version"] == 1
         assert parsed["ts"] == 5.0
+
+
+class TestOverridesEndpoint:
+    """M4 deliverable 2: the label is banked BEFORE the playback action is
+    attempted — a dead provider degrades music, never loses a record."""
+
+    _NOW_PLAYING = {
+        "track": {
+            "id": "t1",
+            "title": "Song",
+            "artist": "A",
+            "duration_s": 180.0,
+            "playlist_id": "pl-pop-high",
+        },
+        "progress_s": 10.0,
+        "is_playing": True,
+        "device_id": "dev-1",
+    }
+
+    def _payload(self, bridge, client, action="skip", **extra):
+        bridge.on_state(make_state(timestamp=1000.0))
+        with client.websocket_connect("/ws") as ws:
+            state = ws.receive_json()
+            rec = ws.receive_json()
+        state.pop("type")
+        rec.pop("type")
+        return {
+            "action": action,
+            "state": state,
+            "recommendation": rec,
+            "now_playing": self._NOW_PLAYING,
+            **extra,
+        }
+
+    def test_shadow_mode_records_without_acting(self, bridge, client, tmp_path):
+        res = client.post("/overrides", json=self._payload(bridge, client))
+        assert res.status_code == 201
+        body = res.json()
+        assert body["ok"] is True
+        assert body["action_ok"] is False  # no playback controller wired
+
+        files = list((tmp_path / "overrides").glob("*.jsonl"))
+        assert len(files) == 1
+        record = json.loads(files[0].read_text(encoding="utf-8"))
+        assert record["schema_version"] == 1
+        assert record["action"] == "skip"
+        assert record["now_playing"]["track"]["id"] == "t1"
+        assert record["recommendation"]["matched_cell"] == ["4", "high", "high"]
+        assert "playback_active" in record["state"]  # contamination-taggable
+
+    def test_manual_requires_chosen(self, bridge, client):
+        res = client.post(
+            "/overrides", json=self._payload(bridge, client, action="manual")
+        )
+        assert res.status_code == 400
+
+    def test_manual_with_chosen_records_it(self, bridge, client, tmp_path):
+        payload = self._payload(
+            bridge, client, action="manual", chosen={"genre": "Jazz", "tier": "mid"}
+        )
+        assert client.post("/overrides", json=payload).status_code == 201
+        record = json.loads(
+            list((tmp_path / "overrides").glob("*.jsonl"))[0].read_text(
+                encoding="utf-8"
+            )
+        )
+        assert record["chosen"] == {"genre": "Jazz", "tier": "mid"}
+
+    def test_unknown_action_rejected(self, bridge, client):
+        res = client.post(
+            "/overrides", json=self._payload(bridge, client, action="louder")
+        )
+        assert res.status_code == 422  # pydantic Literal
+
+    def test_action_dispatches_to_playback_controller(self, bridge, tmp_path):
+        from playback import Track
+
+        class StubPlayback:
+            def skip(self):
+                return Track(
+                    id="t2", title="Next", artist="B",
+                    duration_s=200.0, playlist_id="pl",
+                )
+
+        app = create_app(
+            bridge,
+            annotations_dir=tmp_path / "annotations",
+            overrides_dir=tmp_path / "overrides",
+            playback=StubPlayback(),
+        )
+        with TestClient(app) as client:
+            res = client.post(
+                "/overrides", json=self._payload(bridge, client)
+            )
+        assert res.status_code == 201
+        body = res.json()
+        assert body["action_ok"] is True
+        assert body["acted_track"]["id"] == "t2"
 
 
 class TestIndexPage:

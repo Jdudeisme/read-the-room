@@ -76,7 +76,12 @@ def main(argv: list[str] | None = None) -> int:
     annotations_dir = Path(
         os.environ.get("RTR_DASHBOARD_ANNOTATIONS_DIR", "data/annotations")
     )
-    app = create_app(bridge, annotations_dir)
+    overrides_dir = Path(
+        os.environ.get("RTR_DASHBOARD_OVERRIDES_DIR", "data/overrides")
+    )
+    # playback=None until a concrete provider lands (M4 D1): overrides are
+    # still recorded in shadow mode, they just don't act on a player.
+    app = create_app(bridge, annotations_dir, overrides_dir)
 
     engine_thread = threading.Thread(target=engine.run, daemon=True, name="engine")
     engine_thread.start()
