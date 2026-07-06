@@ -1,21 +1,27 @@
-"""Playback seam tests: the provider protocol and its wire types.
+"""Playback layer tests: provider seam, config/tiers, selector, controller.
 
 No network, no Spotify — per the M4 gate, providers are mocked at the seam.
-FakeProvider is the reference in-memory implementation the selector/policy
-tests will build on.
+FakeProvider is the reference in-memory implementation the policy tests
+build on.
 """
 
 import json
+import time
 
 import pytest
 
+from mapping.mapper import GUARD_CELL, Recommendation
 from playback import (
     ENERGY_TIERS,
     Device,
     NowPlaying,
+    PlaybackConfig,
+    PlaybackController,
     PlaybackProvider,
     ProviderError,
     Track,
+    TrackSelector,
+    derive_tier,
 )
 
 
@@ -135,6 +141,180 @@ class TestFakeProviderSemantics:
         ):
             with pytest.raises(ProviderError):
                 call()
+
+
+def _rec(
+    genre_pool=("Pop",),
+    target_arousal=0.5,
+    energy_action="hold",
+    matched_cell=("4", "high", "high"),
+) -> Recommendation:
+    return Recommendation(
+        energy_action=energy_action,
+        target_valence=0.5,
+        target_arousal=target_arousal,
+        genre_pool=list(genre_pool),
+        confidence=0.8,
+        summary="test",
+        matched_cell=matched_cell,
+        boundaries_snapshot={},
+        timestamp=1000.0,
+    )
+
+
+def _wait_until(predicate, timeout=3.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+class TestConfig:
+    def test_defaults_are_shadow_mode(self):
+        cfg = PlaybackConfig()
+        assert not cfg.enabled
+        assert cfg.client_id is None
+
+    def test_from_env_reads_playback_vars(self, monkeypatch):
+        monkeypatch.setenv("RTR_PLAYBACK_ENABLED", "1")
+        monkeypatch.setenv("RTR_PLAYBACK_CLIENT_ID", "abc123")
+        monkeypatch.setenv("RTR_PLAYBACK_DEVICE_NAME", "Living Room")
+        monkeypatch.setenv("RTR_PLAYBACK_RECENT_WINDOW", "5")
+        monkeypatch.setenv("RTR_PLAYBACK_TIER_HIGH_MIN", "0.4")
+        cfg = PlaybackConfig.from_env()
+        assert cfg.enabled
+        assert cfg.client_id == "abc123"
+        assert cfg.device_name == "Living Room"
+        assert cfg.recently_played_window == 5
+        assert cfg.tier_high_min == 0.4
+        assert cfg.tier_low_max == -0.25  # untouched default
+
+
+class TestTierDerivation:
+    @pytest.mark.parametrize(
+        "arousal, expected", [(0.5, "high"), (0.0, "mid"), (-0.5, "low")]
+    )
+    def test_base_bands_match_mapping_semantics(self, arousal, expected):
+        assert derive_tier(arousal, "hold", PlaybackConfig()) == expected
+
+    def test_energy_action_shifts_one_tier(self):
+        cfg = PlaybackConfig()
+        assert derive_tier(0.0, "raise", cfg) == "high"
+        assert derive_tier(0.0, "lower", cfg) == "low"
+
+    def test_shift_clamps_at_the_ladder_ends(self):
+        cfg = PlaybackConfig()
+        assert derive_tier(0.9, "raise", cfg) == "high"
+        assert derive_tier(-0.9, "lower", cfg) == "low"
+
+    def test_cutoffs_are_tunable_boundaries(self):
+        cfg = PlaybackConfig(tier_low_max=0.0, tier_high_min=0.6)
+        assert derive_tier(0.5, "hold", cfg) == "mid"
+        assert derive_tier(-0.1, "hold", cfg) == "low"
+
+
+class TestTrackSelector:
+    def test_pool_order_is_priority_order(self):
+        provider = FakeProvider(library={("Jazz", "mid"): [_track(1, "pl-jazz")]})
+        selector = TrackSelector(provider, seed=0)
+        chosen = selector.select(["Pop", "Jazz"], "mid")
+        assert chosen.playlist_id == "pl-jazz"
+
+    def test_recently_played_are_suppressed(self):
+        tracks = [_track(n) for n in range(3)]
+        provider = FakeProvider(library={("Pop", "high"): tracks})
+        selector = TrackSelector(provider, recently_played_window=10, seed=0)
+        picks = {selector.select(["Pop"], "high").id for _ in range(3)}
+        assert len(picks) == 3  # never repeats while fresh tracks remain
+
+    def test_exhausted_playlist_repeats_rather_than_silence(self):
+        provider = FakeProvider(library={("Pop", "high"): [_track(1)]})
+        selector = TrackSelector(provider, seed=0)
+        assert selector.select(["Pop"], "high").id == "track-1"
+        assert selector.select(["Pop"], "high").id == "track-1"
+
+    def test_unmapped_pool_returns_none(self):
+        selector = TrackSelector(FakeProvider(), seed=0)
+        assert selector.select(["Jazz"], "low") is None
+
+    def test_provider_error_propagates_to_caller(self):
+        provider = FakeProvider()
+        provider.failing = True
+        selector = TrackSelector(provider, seed=0)
+        with pytest.raises(ProviderError):
+            selector.select(["Pop"], "high")
+
+
+class TestController:
+    @pytest.fixture
+    def provider(self):
+        return FakeProvider(
+            library={
+                ("Pop", "high"): [_track(1)],
+                ("Jazz", "mid"): [_track(2, "pl-jazz-mid")],
+            }
+        )
+
+    @pytest.fixture
+    def controller(self, provider):
+        c = PlaybackController(
+            provider,
+            TrackSelector(provider, seed=0),
+            PlaybackConfig(poll_interval_s=0.05),
+        )
+        c.start()
+        assert _wait_until(lambda: c.status == "active")
+        yield c
+        c.stop()
+
+    def test_bootstrap_plays_when_nothing_is_audible(self, provider, controller):
+        controller.on_recommendation(_rec())
+        assert _wait_until(lambda: provider.now_playing() is not None)
+        assert provider.now_playing().track.id == "track-1"
+        assert _wait_until(lambda: controller.playback_state() == (True, "track-1"))
+
+    def test_recommendation_queues_and_never_interrupts(self, provider, controller):
+        provider.play(_track(99, playlist=None))  # something already playing
+        controller.on_recommendation(_rec(genre_pool=("Jazz",), target_arousal=0.0))
+        assert _wait_until(lambda: provider.next_up is not None)
+        assert provider.next_up.id == "track-2"
+        assert provider.now_playing().track.id == "track-99"  # uninterrupted
+
+    def test_guard_recommendation_holds(self, provider, controller):
+        controller.on_recommendation(
+            _rec(genre_pool=(), matched_cell=(GUARD_CELL, "no-speech"))
+        )
+        time.sleep(0.2)
+        assert provider.now_playing() is None
+        assert provider.next_up is None
+
+    def test_provider_error_degrades_then_recovers(self, provider, controller):
+        controller.on_recommendation(_rec())
+        assert _wait_until(lambda: controller.playback_state()[0])
+
+        provider.failing = True
+        assert _wait_until(lambda: controller.status == "degraded")
+        # Cache retained through the outage: for contamination tagging a
+        # stale "active" is safer than a false "clean".
+        assert controller.playback_state() == (True, "track-1")
+
+        provider.failing = False
+        controller.on_recommendation(_rec(genre_pool=("Jazz",), target_arousal=0.0))
+        assert _wait_until(lambda: controller.status == "active")
+        assert _wait_until(lambda: provider.next_up is not None)
+
+    def test_playback_state_false_when_idle(self, controller):
+        assert controller.playback_state() == (False, None)
+
+    def test_snapshot_carries_status_and_tracks(self, provider, controller):
+        controller.on_recommendation(_rec())
+        assert _wait_until(lambda: controller.snapshot()["now_playing"] is not None)
+        snap = controller.snapshot()
+        assert snap["playback_status"] == "active"
+        assert snap["now_playing"]["track"]["id"] == "track-1"
+        assert snap["queued_track"]["id"] == "track-1"
 
 
 class TestWireTypes:

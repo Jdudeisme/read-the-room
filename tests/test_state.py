@@ -144,3 +144,21 @@ class TestDsp:
     def test_empty_window(self):
         result = analyze(np.empty(0, dtype=np.float32), 16_000)
         assert result.rms_dbfs == -120.0
+
+
+class TestPlaybackAwareness:
+    def test_defaults_off_and_serialized(self):
+        """M4 deliverable 3: RoomState carries playback awareness; absent a
+        playback source the stamps default to inactive, and both fields ride
+        to_dict so every downstream artifact is tagged."""
+        from conftest import make_state
+
+        state = make_state()
+        assert state.playback_active is False
+        assert state.playback_track_id is None
+        d = state.to_dict()
+        assert d["playback_active"] is False
+        assert d["playback_track_id"] is None
+
+        tagged = make_state(playback_active=True, playback_track_id="track-9")
+        assert tagged.to_dict()["playback_track_id"] == "track-9"

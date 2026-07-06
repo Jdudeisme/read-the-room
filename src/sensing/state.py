@@ -98,6 +98,13 @@ class RoomState:
     mood: Mood | None  # quadrant of (valence, arousal); None when emotion is absent/stale
     trend: Trend  # energy direction over the trend horizon
 
+    # Playback awareness (M4): stamped from the hosted playback controller's
+    # cached state, so every downstream artifact (annotations, overrides,
+    # JSONL logs) tags evidence gathered while the system's own output was
+    # audible — contaminated evidence stays separable offline forever.
+    playback_active: bool = False
+    playback_track_id: str | None = None
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["headcount_bucket"] = self.headcount_bucket.value if self.headcount_bucket else None

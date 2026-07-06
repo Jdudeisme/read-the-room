@@ -38,6 +38,15 @@ class Consumer(Protocol):
     def on_state(self, state: RoomState) -> None: ...
 
 
+class PlaybackStateSource(Protocol):
+    """Where playback awareness comes from (M4): the hosted playback
+    controller satisfies this with a cached, non-blocking read. The engine
+    only ever stamps the answer onto RoomState — it must NEVER wait on
+    playback I/O, so implementations return cached state."""
+
+    def playback_state(self) -> tuple[bool, str | None]: ...
+
+
 class AudioSource(Protocol):
     sample_rate: int
     device_name: str
@@ -48,10 +57,17 @@ class AudioSource(Protocol):
 
 
 class Engine:
-    def __init__(self, source, config: Config, consumers: list[Consumer]):
+    def __init__(
+        self,
+        source,
+        config: Config,
+        consumers: list[Consumer],
+        playback_source: PlaybackStateSource | None = None,
+    ):
         self.source = source
         self.config = config
         self.consumers = list(consumers)
+        self.playback_source = playback_source
         self.vad = VadGate(config.sample_rate, config.window_s, config.vad_threshold)
         self.emotion: EmotionWorker | None = (
             EmotionWorker(
@@ -195,6 +211,17 @@ class Engine:
                 hc_bucket = hc_reading.bucket
                 hc_confidence = hc_reading.confidence
 
+        # Playback awareness (M4): a cached read, never provider I/O. A
+        # broken source must not take down the sensing heartbeat.
+        playback_active, playback_track_id = False, None
+        if self.playback_source is not None:
+            try:
+                playback_active, playback_track_id = (
+                    self.playback_source.playback_state()
+                )
+            except Exception:
+                log.exception("playback state source failed; stamping inactive")
+
         energy = energy_score(loudness, activity, speech_ratio, arousal)
         mood = None
         if (
@@ -221,4 +248,6 @@ class Engine:
             energy=round(energy, 3),
             mood=mood,
             trend=self._trend.update(energy, now),
+            playback_active=playback_active,
+            playback_track_id=playback_track_id,
         )
