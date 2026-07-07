@@ -1,7 +1,8 @@
-"""Tuning report: offline analysis of the M3 annotation log.
+"""Tuning report: offline analysis of the annotation + override logs.
 
     python scripts/tuning_report.py                       # data/annotations/*.jsonl
     python scripts/tuning_report.py path/to/*.jsonl ...   # explicit files
+    python scripts/tuning_report.py --overrides data/overrides/*.jsonl
 
 The human-in-the-loop precursor to learned tuning. Reads annotation JSONL
 records ({schema_version, ts, verdict, state, recommendation}) and reports:
@@ -14,12 +15,23 @@ records ({schema_version, ts, verdict, state, recommendation}) and reports:
      have flipped into a different cell (wrong flipped = evidence for the
      move; good flipped = evidence against).
 
+M4 adds the override log ({..., action, now_playing, chosen?}) — the strong
+labels — and three more sections:
+
+  4. overrides per rulebook cell, with the override rate
+     vetoes / (vetoes + played_through);
+  5. veto clustering near band boundaries (skip / wrong_vibe, same proximity
+     logic as section 2);
+  6. tier disagreement: manual picks whose chosen tier sits above/below the
+     tier the playback layer derived from the recommendation.
+
 OUTPUT ONLY: this script proposes; it never modifies the rulebook, .env, or
 any file. Guard records (matched_cell[0] == "guard") appear in the cell
 table but are excluded from boundary analysis — no rulebook cell fired.
 
 Annotations against never-played shadow recommendations are weak labels;
-apply suggestions by hand, if at all, and re-observe.
+overrides are strong ones but still human-scale corpora. Apply suggestions
+by hand, if at all, and re-observe.
 """
 
 from __future__ import annotations
@@ -27,6 +39,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -154,6 +167,139 @@ def suggest_adjustments(records: list[dict]) -> dict[str, dict]:
     return suggestions
 
 
+# -- overrides (M4): the strong labels ---------------------------------------
+
+# Actions that veto the system's choice; played_through is the implicit
+# weak positive the rate is measured against.
+VETO_ACTIONS = ("skip", "wrong_vibe", "manual")
+
+TIERS = ("low", "mid", "high")
+
+
+def override_cell_counts(records: list[dict]) -> dict[tuple, Counter]:
+    counts: dict[tuple, Counter] = {}
+    for r in records:
+        rec = r.get("recommendation", {})
+        cell = rec.get("matched_cell")
+        if not cell:
+            # played_through of a manual pick attributes to the human choice,
+            # not to any rulebook cell.
+            cell = ["manual"] if rec.get("source") == "manual" else ["?"]
+        counts.setdefault(tuple(cell), Counter())[r.get("action", "?")] += 1
+    return counts
+
+
+def override_rate(counts: Counter) -> float | None:
+    """vetoes / (vetoes + played_through); None when nothing completed or
+    was vetoed (rate undefined)."""
+    vetoes = sum(counts.get(a, 0) for a in VETO_ACTIONS)
+    total = vetoes + counts.get("played_through", 0)
+    return vetoes / total if total else None
+
+
+def veto_boundary_proximity(records: list[dict], tol: float = PROXIMITY_TOL) -> Counter:
+    """Per boundary: vetoes (skip/wrong_vibe) whose signal sits within tol.
+    Manual picks are excluded — they judge the replacement, not the cut."""
+    near = Counter()
+    for r in _signal_records(records):
+        if r.get("action") not in ("skip", "wrong_vibe"):
+            continue
+        snap = r["recommendation"]["boundaries_snapshot"]
+        for name, signal in BOUNDARIES:
+            if abs(r["state"][signal] - snap[name]) <= tol:
+                near[name] += 1
+    return near
+
+
+def _derived_tier(target_arousal: float, energy_action: str,
+                  low_max: float, high_min: float) -> str:
+    # Must mirror playback.selector.derive_tier (band + one-step shift).
+    if target_arousal > high_min:
+        base = "high"
+    elif target_arousal > low_max:
+        base = "mid"
+    else:
+        base = "low"
+    shift = {"raise": 1, "lower": -1}.get(energy_action, 0)
+    idx = max(0, min(len(TIERS) - 1, TIERS.index(base) + shift))
+    return TIERS[idx]
+
+
+def tier_disagreement(records: list[dict]) -> Counter:
+    """Manual picks: chosen tier vs the tier the playback layer derived.
+    Consistent 'higher'/'lower' means the RTR_PLAYBACK_TIER_* cutoffs (or
+    the arousal targets feeding them) sit in the wrong place.
+
+    Tier cutoffs are read from the environment (they are not in
+    boundaries_snapshot); if they moved between sessions the comparison is
+    approximate — noted in the output.
+    """
+    low_max = float(os.environ.get("RTR_PLAYBACK_TIER_LOW_MAX", -0.25))
+    high_min = float(os.environ.get("RTR_PLAYBACK_TIER_HIGH_MIN", 0.25))
+    out = Counter()
+    for r in records:
+        if r.get("action") != "manual":
+            continue
+        chosen_tier = (r.get("chosen") or {}).get("tier")
+        rec = r.get("recommendation", {})
+        target_arousal = rec.get("target_arousal")
+        if chosen_tier not in TIERS or target_arousal is None:
+            continue
+        derived = _derived_tier(
+            target_arousal, rec.get("energy_action", "hold"), low_max, high_min
+        )
+        diff = TIERS.index(chosen_tier) - TIERS.index(derived)
+        out["higher" if diff > 0 else "lower" if diff < 0 else "same"] += 1
+    return out
+
+
+def print_overrides_report(records: list[dict]) -> None:
+    total = Counter(r.get("action", "?") for r in records)
+    print("=" * 64)
+    print("OVERRIDES - playback strong labels")
+    print("=" * 64)
+    print(
+        f"records: {len(records)}  ("
+        f"skip {total.get('skip', 0)}, wrong_vibe {total.get('wrong_vibe', 0)}, "
+        f"manual {total.get('manual', 0)}, "
+        f"played_through {total.get('played_through', 0)})"
+    )
+
+    print("\n-- 4. overrides per rulebook cell ------------------------------")
+    print(f"{'cell':<30} {'skip':>5} {'vibe':>5} {'man':>5} {'thru':>5} {'rate':>6}")
+    for cell, counts in sorted(override_cell_counts(records).items()):
+        label = " / ".join(str(c) for c in cell)
+        rate = override_rate(counts)
+        print(
+            f"{label:<30} {counts.get('skip', 0):>5} "
+            f"{counts.get('wrong_vibe', 0):>5} {counts.get('manual', 0):>5} "
+            f"{counts.get('played_through', 0):>5} "
+            f"{'—' if rate is None else f'{rate:.0%}':>6}"
+        )
+
+    print("\n-- 5. vetoes near a band boundary (within "
+          f"{PROXIMITY_TOL:.2f}) ------------")
+    near = veto_boundary_proximity(records)
+    if not near:
+        print("none - vetoes (if any) are not boundary-clustered")
+    for name, _ in BOUNDARIES:
+        if near.get(name):
+            print(f"{name:<14} {near[name]} veto(es) within {PROXIMITY_TOL:.2f}")
+
+    print("\n-- 6. tier disagreement (manual picks vs derived tier) ---------")
+    tiers = tier_disagreement(records)
+    if not tiers:
+        print("no manual picks with a chosen tier")
+    else:
+        print(
+            f"higher {tiers.get('higher', 0)} / "
+            f"lower {tiers.get('lower', 0)} / same {tiers.get('same', 0)}"
+        )
+        print("(derived with the CURRENT RTR_PLAYBACK_TIER_* cutoffs; if the")
+        print(" cutoffs moved between sessions this comparison is approximate)")
+    print("=" * 64)
+
+
 def print_report(records: list[dict]) -> None:
     total = Counter(r["verdict"] for r in records)
     print("=" * 64)
@@ -199,7 +345,8 @@ def print_report(records: list[dict]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Offline tuning report over M3 annotation logs (stdout only)."
+        description="Offline tuning report over annotation + override logs "
+        "(stdout only)."
     )
     parser.add_argument(
         "paths",
@@ -207,18 +354,39 @@ def main(argv: list[str] | None = None) -> int:
         default=["data/annotations/*.jsonl"],
         help="annotation JSONL files or globs (default: data/annotations/*.jsonl)",
     )
+    parser.add_argument(
+        "--overrides",
+        nargs="*",
+        default=["data/overrides/*.jsonl"],
+        help="override JSONL files or globs (default: data/overrides/*.jsonl)",
+    )
     args = parser.parse_args(argv)
 
     files = sorted({Path(p) for pattern in args.paths for p in glob.glob(str(pattern))})
-    if not files:
-        print(f"no annotation files match {args.paths} - nothing to report")
+    override_files = sorted(
+        {Path(p) for pattern in args.overrides for p in glob.glob(str(pattern))}
+    )
+    records = load_annotations(files) if files else []
+    override_records = load_annotations(override_files) if override_files else []
+
+    if not records and not override_records:
+        print(
+            f"no annotation files match {args.paths} and no override files "
+            f"match {args.overrides} - nothing to report"
+        )
         return 1
-    records = load_annotations(files)
-    if not records:
-        print("annotation files are empty - nothing to report")
-        return 1
-    print(f"reading {len(files)} file(s): {', '.join(str(f) for f in files)}")
-    print_report(records)
+
+    if records:
+        print(f"reading {len(files)} file(s): {', '.join(str(f) for f in files)}")
+        print_report(records)
+    else:
+        print("no annotation records - skipping sections 1-3")
+    if override_records:
+        print(
+            f"reading {len(override_files)} override file(s): "
+            f"{', '.join(str(f) for f in override_files)}"
+        )
+        print_overrides_report(override_records)
     return 0
 
 
