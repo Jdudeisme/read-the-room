@@ -38,13 +38,15 @@ class FakeSpotify:
             {"id": "dev-mac", "name": "MacBook Pro", "is_active": False},
             {"id": "dev-spk", "name": "Living Room Speaker", "is_active": True},
         ]
+        # /playlists/{id}/items shape (post-Nov-2024 apps): entries keyed
+        # "item", not "track" — the /tracks endpoint 403s for this app.
         self.playlist_items = [
-            {"track": {"uri": "spotify:track:a", "name": "Alpha",
-                       "artists": [{"name": "X"}], "duration_ms": 200000}},
-            {"track": {"uri": "spotify:track:b", "name": "Beta",
-                       "artists": [{"name": "Y"}, {"name": "Z"}],
-                       "duration_ms": 100000}},
-            {"track": None},  # removed entry: must be skipped
+            {"item": {"uri": "spotify:track:a", "name": "Alpha",
+                      "artists": [{"name": "X"}], "duration_ms": 200000}},
+            {"item": {"uri": "spotify:track:b", "name": "Beta",
+                      "artists": [{"name": "Y"}, {"name": "Z"}],
+                      "duration_ms": 100000}},
+            {"item": None},  # removed entry: must be skipped
         ]
         self.fail_all = False
         self.reject_token = False  # force 401 once per request until refreshed
@@ -123,7 +125,7 @@ class TestSeam:
         assert tracks[1].artist == "Y, Z"
         assert tracks[0].playlist_id == "spotify:playlist:PL1"
         # the request used the bare id, not the uri
-        assert "/v1/playlists/PL1/tracks" in str(fake.requests[-1].url)
+        assert "/v1/playlists/PL1/items" in str(fake.requests[-1].url)
 
     def test_tracks_for_unmapped_is_empty_without_a_request(self, config, fake):
         assert _provider(config, fake).tracks_for("Jazz", "low") == []

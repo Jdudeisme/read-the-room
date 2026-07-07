@@ -271,19 +271,22 @@ class SpotifyProvider:
         configured = self._playlists.get((genre, tier))
         if configured is None:
             return []
+        # /playlists/{id}/items with entries keyed "item" — apps registered
+        # after Spotify's Nov 2024 API changes get a hard 403 from the older
+        # /tracks endpoint ("track" entries), even on the user's own playlists.
         res = self._request(
             "GET",
-            f"/playlists/{bare_playlist_id(configured)}/tracks",
+            f"/playlists/{bare_playlist_id(configured)}/items",
             params={
                 # First 100 tracks: curated playlists are human-scale, and
                 # the selector only needs a pool, not completeness.
                 "limit": 100,
-                "fields": "items(track(uri,name,artists(name),duration_ms))",
+                "fields": "items(item(uri,name,artists(name),duration_ms))",
             },
         )
         tracks = []
         for entry in res.json().get("items", []):
-            t = entry.get("track") or {}
+            t = entry.get("item") or {}
             if not t.get("uri"):
                 continue  # removed or local-file entries
             tracks.append(
