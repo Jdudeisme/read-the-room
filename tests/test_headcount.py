@@ -176,6 +176,63 @@ class TestSpeechSegments:
 
 
 # ---------------------------------------------------------------------------
+# Contamination gate v1 (M4): floor-relative saturation during playback
+# ---------------------------------------------------------------------------
+
+
+class TestContaminationGateV1:
+    def _smeared_estimator(self) -> HeadcountEstimator:
+        """Reverb-smeared single blob — the acoustics that false-fired at
+        the pool (high dispersion, saturated speech, loud)."""
+        est = HeadcountEstimator()
+        est.add(_synthetic_speakers(1, 80, seed=4, spread=0.09), [1.25] * 80, now=0.0)
+        return est
+
+    def test_music_raised_floor_no_longer_false_fires(self):
+        """The gating scenario: continuous music pins absolute loudness
+        inside the [-45, -20] ramp for the whole session. With playback
+        active and a seeded floor, loudness barely above that floor must
+        contribute ~zero saturation — no phantom 16 from two people talking
+        over the music. The same acoustics WITHOUT playback still fire the
+        absolute ramp (the gate never changes clean-path behavior)."""
+        est = self._smeared_estimator()
+        contaminated = est.estimate(
+            speech_ratio=1.0,
+            loudness_dbfs=-15.0,
+            playback_active=True,
+            noise_floor_dbfs=-17.0,  # only +2 dB above the music's floor
+        )
+        assert contaminated.crowd_weight < 0.25
+        clean = est.estimate(speech_ratio=1.0, loudness_dbfs=-15.0)
+        assert clean.crowd_weight > 0.5
+
+    def test_real_crowd_rides_well_above_the_floor(self):
+        """A packed talking room sits 10+ dB over whatever floor the music
+        set — the crowd regime must still engage during playback."""
+        est = self._smeared_estimator()
+        result = est.estimate(
+            speech_ratio=1.0,
+            loudness_dbfs=-15.0,
+            playback_active=True,
+            noise_floor_dbfs=-32.0,  # +17 dB above floor
+        )
+        assert result.crowd_weight > 0.5
+
+    def test_unseeded_floor_falls_back_to_absolute_ramp(self):
+        """Playback starting before any quiescent window: no floor yet.
+        Falling back to the absolute ramp keeps the babble path gated the
+        old way rather than un-gating it entirely."""
+        est = self._smeared_estimator()
+        result = est.estimate(
+            speech_ratio=1.0,
+            loudness_dbfs=-15.0,
+            playback_active=True,
+            noise_floor_dbfs=None,
+        )
+        assert result.crowd_weight > 0.5
+
+
+# ---------------------------------------------------------------------------
 # Bucket ladder + smoothing
 # ---------------------------------------------------------------------------
 
@@ -284,6 +341,38 @@ class TestRegimes:
         assert result.raw_clusters == 1
         assert result.crowd_weight < 0.5
         assert result.log2_count < 1.0  # still reads ~solo
+
+    def test_observability_fields_expose_raw_smear_signals(self):
+        """M4 deliverable 3: dispersion/fragmentation ride the Estimate so a
+        smoothed-bucket anomaly (the pool session's pair -> 16, FIELD-NOTES
+        2026-07-06) is attributable from the log alone.
+
+        Raw signals, pre-ramp: a tight solo speaker reads low dispersion and
+        zero fragmentation; a smeared blob reads dispersion up the ramp."""
+        tight = _synthetic_speakers(1, 20, seed=9, spread=0.02)
+        est = HeadcountEstimator()
+        est.add(tight, [1.25] * 20, now=0.0)
+        result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
+        assert result.dispersion < 0.2
+        assert result.fragmentation == 0.0
+
+        blob = _synthetic_speakers(1, 80, seed=4, spread=0.09)
+        est = HeadcountEstimator()
+        est.add(blob, [1.25] * 80, now=0.0)
+        smeared = est.estimate(speech_ratio=1.0, loudness_dbfs=-15.0)
+        assert smeared.dispersion > 0.35  # inside the [0.35, 0.70] ramp
+
+    def test_fragmentation_counts_mass_failing_stray_evidence(self):
+        """Same inputs as the heavy-fragments regression above: two 3-segment
+        far-tail fragments fail min-mass, so 6 of 36 segments are strays."""
+        dominant = _synthetic_speakers(1, 30, seed=2, spread=0.02)
+        frag_a = _synthetic_speakers(1, 3, seed=3, spread=0.02)
+        frag_b = _synthetic_speakers(1, 3, seed=4, spread=0.02)
+        est = HeadcountEstimator()
+        est.add(np.vstack([dominant, frag_a, frag_b]), [1.25] * 36, now=0.0)
+        result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
+        assert result.raw_clusters == 1
+        assert result.fragmentation == pytest.approx(6 / 36)
 
     def test_buffer_evicts_by_time_and_cap(self):
         est = HeadcountEstimator(buffer_s=10.0, buffer_cap=5)

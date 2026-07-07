@@ -296,6 +296,12 @@ class Estimate:
     confidence: float  # 0..1
     raw_clusters: int  # min-mass-passing cluster count (diagnostic)
     crowd_weight: float  # 0 = pure count regime, 1 = pure babble regime
+    # M4 observability (FIELD-NOTES 2026-07-06 debuggability gap): the raw
+    # smear signals behind crowd_weight, pre-ramp, so a smoothed-bucket
+    # anomaly is attributable from the log alone. The ramps are pure
+    # functions of these plus config, so raw values lose nothing.
+    dispersion: float  # segment-weighted mean within-cluster cosine distance
+    fragmentation: float  # fraction of segments in mass-failing stray clusters
 
 
 class HeadcountEstimator:
@@ -350,12 +356,26 @@ class HeadcountEstimator:
         """Total buffered speech seconds — how much the estimate rests on."""
         return float(sum(self._durations))
 
-    def estimate(self, speech_ratio: float, loudness_dbfs: float) -> Estimate | None:
+    def estimate(
+        self,
+        speech_ratio: float,
+        loudness_dbfs: float,
+        playback_active: bool = False,
+        noise_floor_dbfs: float | None = None,
+    ) -> Estimate | None:
         """Estimate occupancy from the current buffer. None if no evidence.
 
         `speech_ratio` and `loudness_dbfs` come from the engine's existing
         VAD/DSP layers and drive the crowd-regime babble heuristic — no new
         signal processing is duplicated here.
+
+        Contamination gate v1 (M4): while `playback_active` and a noise
+        floor exists, the saturation loudness term keys on loudness RELATIVE
+        to that rolling floor instead of absolute dBFS. Continuous music
+        pins absolute loudness inside the [-45, -20] ramp permanently, so
+        the absolute form would false-fire for the whole session (the pool
+        fan produced exactly this, FIELD-NOTES 2026-07-06); a real crowd
+        still rides well above the floor the music itself set.
         """
         if not self._embeddings:
             return None
@@ -419,17 +439,24 @@ class HeadcountEstimator:
         # (~8-16) blends rather than jumps.
         count_pressure = _ramp(raw, self.count_reliable_max, self.count_regime_max)
         sep_collapse = 1.0 - max(0.0, min(1.0, separation / 0.25))
-        saturation = _ramp(speech_ratio, 0.6, 0.95) * _ramp(loudness_dbfs, -45.0, -20.0)
+        if playback_active and noise_floor_dbfs is not None:
+            # Floor-relative ramp: quiet conversation over music sits a few
+            # dB above the floor the music set; a packed talking crowd sits
+            # 10+ dB above it. Absent a seeded floor (session just started)
+            # we fall back to the absolute ramp rather than un-gating.
+            loud_term = _ramp(loudness_dbfs - noise_floor_dbfs, 3.0, 12.0)
+        else:
+            loud_term = _ramp(loudness_dbfs, -45.0, -20.0)
+        saturation = _ramp(speech_ratio, 0.6, 0.95) * loud_term
         # Same-speaker segment dispersion runs ~0.1-0.2 cosine distance;
         # signal ramps over the upper half of the clustering threshold.
-        dispersion = _ramp(
-            _mean_intra_cluster_distance(emb, labels),
-            0.5 * self.cluster_threshold,
-            self.cluster_threshold,
+        dispersion = _mean_intra_cluster_distance(emb, labels)
+        dispersion_signal = _ramp(
+            dispersion, 0.5 * self.cluster_threshold, self.cluster_threshold
         )
         # A solo speaker sheds up to ~20-30% strays; only heavier
         # fragmentation reads as babble confetti.
-        smear = max(dispersion, _ramp(fragmentation, 0.3, 0.8))
+        smear = max(dispersion_signal, _ramp(fragmentation, 0.3, 0.8))
         crowd_weight = max(
             0.0, min(1.0, sep_collapse * max(count_pressure, saturation * smear))
         )
@@ -456,6 +483,8 @@ class HeadcountEstimator:
             confidence=max(0.0, min(1.0, conf)),
             raw_clusters=raw,
             crowd_weight=crowd_weight,
+            dispersion=dispersion,
+            fragmentation=fragmentation,
         )
 
 
@@ -525,6 +554,9 @@ class HeadcountReading:
     confidence: float  # 0..1
     raw_clusters: int
     crowd_weight: float
+    dispersion: float  # raw estimator signals, see Estimate (M4 observability)
+    fragmentation: float
+    smoothed_log2: float  # the BucketSmoother EMA value that produced `bucket`
     at: float  # time.monotonic() when the estimate finished
 
 
@@ -554,8 +586,12 @@ class HeadcountWorker:
         self._sample_rate = sample_rate
         self._torch_threads = torch_threads
         self._os_truststore = os_truststore
-        # job = (window, speech_mask, speech_ratio, loudness_dbfs, now)
-        self._job: tuple[np.ndarray, np.ndarray, float, float, float] | None = None
+        # job = (window, speech_mask, speech_ratio, loudness_dbfs, now,
+        #        playback_active, noise_floor_dbfs)
+        self._job: (
+            tuple[np.ndarray, np.ndarray, float, float, float, bool, float | None]
+            | None
+        ) = None
         self._job_event = threading.Event()
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -581,6 +617,8 @@ class HeadcountWorker:
         speech_ratio: float,
         loudness_dbfs: float,
         now: float,
+        playback_active: bool = False,
+        noise_floor_dbfs: float | None = None,
     ) -> None:
         """Offer a speech-certified window plus its VAD mask. Dropped if
         rate-limited or busy (latest-wins replacement, never a queue)."""
@@ -595,6 +633,8 @@ class HeadcountWorker:
                 speech_ratio,
                 loudness_dbfs,
                 now,
+                playback_active,
+                noise_floor_dbfs,
             )
         self._job_event.set()
 
@@ -626,7 +666,7 @@ class HeadcountWorker:
                 job, self._job = self._job, None
             if job is None:
                 continue
-            window, mask, speech_ratio, loudness, submitted_at = job
+            window, mask, speech_ratio, loudness, submitted_at, pb_active, floor = job
             started = time.monotonic()
             try:
                 segments = speech_segments(window, mask, self._sample_rate)
@@ -634,7 +674,9 @@ class HeadcountWorker:
                     embeddings = embed(segments)
                     durations = [s.size / self._sample_rate for s in segments]
                     self._estimator.add(embeddings, durations, submitted_at)
-                estimate = self._estimator.estimate(speech_ratio, loudness)
+                estimate = self._estimator.estimate(
+                    speech_ratio, loudness, pb_active, floor
+                )
             except Exception:
                 log.exception("headcount estimation failed; window skipped")
                 continue
@@ -642,12 +684,19 @@ class HeadcountWorker:
             if estimate is None:
                 continue
             bucket = self._smoother.update(estimate.log2_count, submitted_at)
+            # update() always seeds the EMA, so smoothed_log2 is non-None here.
+            smoothed_log2 = self._smoother.smoothed_log2
             with self._lock:
                 self._latest = HeadcountReading(
                     bucket=bucket,
                     confidence=estimate.confidence,
                     raw_clusters=estimate.raw_clusters,
                     crowd_weight=estimate.crowd_weight,
+                    dispersion=estimate.dispersion,
+                    fragmentation=estimate.fragmentation,
+                    smoothed_log2=(
+                        smoothed_log2 if smoothed_log2 is not None else estimate.log2_count
+                    ),
                     at=self._last_infer_at,
                 )
             log.debug(

@@ -86,6 +86,19 @@ class TestWorker:
         assert second == first  # identical reading object — held, not recomputed
         assert s1 > s0
 
+    def test_reading_carries_observability_fields(self, worker):
+        """M4 deliverable 3: the reading exposes the estimator's raw smear
+        signals plus the smoother's EMA value, for the bridge to attach to
+        dashboard frames. The fake embedder is one tight 'speaker', so
+        dispersion is tiny, nothing fragments, and the smoothed log2 sits
+        near 0 (solo)."""
+        window, mask = _speech_window()
+        worker.submit(window, mask, 0.8, -30.0, now=time.monotonic())
+        reading, _ = _wait_for_reading(worker)
+        assert reading.dispersion < 0.1
+        assert reading.fragmentation == 0.0
+        assert reading.smoothed_log2 == pytest.approx(0.0, abs=0.5)
+
     def test_all_silence_mask_never_produces_a_reading(self, worker):
         """Even if a window is submitted, an all-False mask (no certified
         speech) must yield no segments, no embeddings, and no reading."""

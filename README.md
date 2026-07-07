@@ -8,9 +8,14 @@ rolling **RoomState** — loudness, activity, speech presence, and emotional ton
 **Milestone 2:** headcount estimation — ECAPA speaker embeddings +
 clustering, published as power-of-2 occupancy buckets with confidence and
 staleness.
-**Milestone 3 (this branch):** shadow-mode mapping layer (RoomState → music
+**Milestone 3:** shadow-mode mapping layer (RoomState → music
 recommendation, never played), live web dashboard, and a Good/Wrong
 annotation loop feeding an offline tuning report.
+**Milestone 4 (this branch):** playback — recommendations select tracks
+from human-curated Spotify playlists (gentle-DJ: transitions on track
+boundaries only), human override capture (the strong labels), and
+contamination handling v1 now that the mic can hear the system's own
+output.
 
 ## Architecture
 
@@ -127,10 +132,10 @@ targets, confidence, and full attribution: the rulebook cell that fired and
 every boundary value in effect). Band cutoffs and dwell times are
 `RTR_MAPPING_*` env vars ([.env.example](.env.example)).
 
-**Shadow mode** means nothing is ever played: there is no playback layer
-yet, so the mic never hears the system's own output. The recommendation bar
-is labeled "not playing" — the point of M3 is to *watch* the mapping be
-right or wrong before any speaker gets involved.
+**Shadow mode** is the default: unless playback is explicitly enabled
+(M4, below), nothing is ever played and the mic never hears the system's
+own output. Shadow remains a first-class state — the dashboard reverts to
+it whenever playback is off, unconfigured, or degraded.
 
 The page shows the valence/arousal quadrant (with a ~2 min trail),
 headcount / regime / voice-activity cards, live `emotion age` /
@@ -155,15 +160,76 @@ the label always describes what the human actually saw.
 ### Tuning report
 
 ```bash
-python scripts/tuning_report.py          # reads data/annotations/*.jsonl
+python scripts/tuning_report.py          # data/annotations + data/overrides
 ```
 
 Prints verdict counts per rulebook cell, wrong-call clustering near band
 boundaries, and suggested boundary shifts with the number of past verdicts
-each would have flipped. Output only — it never modifies anything; apply
-suggestions by editing `RTR_MAPPING_*` in `.env` and re-observing. Learned
-(automatic) tuning is deliberately deferred until playback exists — see
-[docs/M3-PROPOSAL.md](docs/M3-PROPOSAL.md).
+each would have flipped. With override logs present (M4) it adds override
+rate per cell (`vetoes / (vetoes + played_through)`), veto clustering near
+boundaries, and manual-pick tier disagreement. Output only — it never
+modifies anything; apply suggestions by editing `RTR_MAPPING_*` /
+`RTR_PLAYBACK_TIER_*` in `.env` and re-observing. Learned (automatic)
+tuning is deliberately deferred until the override corpus exists — see
+[docs/M4-PROPOSAL.md](docs/M4-PROPOSAL.md).
+
+## Playback (M4)
+
+Recommendations become actual music through **Spotify Connect** (control
+traffic only — playback decode/output never happens in this process, so the
+engine's performance budget is untouched). Requires Spotify **Premium**.
+
+One-time setup:
+
+1. Register an app at [developer.spotify.com](https://developer.spotify.com/dashboard)
+   with redirect URI `http://127.0.0.1:8912/callback` (the port is
+   `RTR_PLAYBACK_REDIRECT_PORT`). No client secret is needed (PKCE).
+2. In `.env`: `RTR_PLAYBACK_ENABLED=1`, `RTR_PLAYBACK_CLIENT_ID=<id>`, and
+   optionally `RTR_PLAYBACK_DEVICE_NAME=<name substring>` to pin a device
+   (default: whatever device is active).
+3. Authorize once: `read-the-room-spotify-auth` — the token cache in
+   `data/` refreshes itself afterwards.
+4. Curate playlists and map them in `data/playlists.json` (gitignored),
+   keyed by rulebook genre and energy tier:
+
+   ```json
+   {"schema_version": 1,
+    "playlists": {
+      "Pop":  {"high": "spotify:playlist:...", "mid": "spotify:playlist:..."},
+      "Jazz": {"low": "https://open.spotify.com/playlist/..."}}}
+   ```
+
+   Partial coverage is fine — unmapped cells simply hold. Track selection is
+   **playlist-mapped, not algorithmic**: human curation stays in the loop,
+   and nothing is built on Spotify's deprecated recommendation endpoints.
+
+Then run `read-the-room-dashboard` as usual. The shadow bar becomes a
+**now-playing bar**. Behavior is *gentle-DJ*: a new recommendation never
+interrupts the playing track (it replaces what plays next, on the track
+boundary); tiers move with `target_arousal` + `energy_action`
+(`RTR_PLAYBACK_TIER_*` cutoffs); volume stays human-owned. Only the human
+override controls cut mid-track:
+
+- **Skip** — veto the playing track (plays the queued next, or resamples);
+- **Wrong vibe** — veto the *selection*: resample from a cell-adjacent
+  rulebook pool;
+- **manual picker** — play any mapped (genre, tier) outright.
+
+Every override appends one line to `data/overrides/YYYY-MM-DD.jsonl` with
+the tap-time state/recommendation snapshot; a track that plays to
+completion logs a `played_through` weak positive. These are the strong
+labels the learned-tuning work (M5+) has been waiting for. Provider
+failures (token expiry, device gone, rate limit) surface on the dashboard
+and degrade to shadow mode; the label capture never depends on the
+provider being alive.
+
+**Contamination handling v1:** while playback is active, RoomState carries
+`playback_active`/`playback_track_id` (so all downstream evidence is
+taggable), evidence certification uses a stricter VAD threshold
+(`RTR_VAD_PLAYBACK_THRESHOLD`), and the crowd/babble heuristic keys on
+loudness relative to a rolling noise floor rather than absolute dBFS — see
+[docs/M4-PROPOSAL.md](docs/M4-PROPOSAL.md) and the pool-session analysis in
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 
 ## Performance budget (run this on the MacBook first)
 

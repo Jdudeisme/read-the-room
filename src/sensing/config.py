@@ -53,6 +53,17 @@ class Config:
 
     # VAD gate.
     vad_threshold: float = 0.5  # per-chunk speech probability cutoff
+    # Contamination gate v1 (M4): while playback is active, evidence
+    # certification (emotion/headcount gating, speech ratio) requires this
+    # stricter per-chunk cutoff — vocal music sits lower on Silero's speech
+    # probability than live room speech, so raising the bar sheds most of it.
+    vad_playback_threshold: float = 0.75
+    # Rolling noise-floor EMA (loudness of quiescent windows). During
+    # playback the babble saturation heuristic keys on loudness RELATIVE to
+    # this floor instead of absolute dBFS — continuous music raises the
+    # room's absolute floor permanently (FIELD-NOTES 2026-07-06: the fan
+    # produced exactly this signature and a phantom 16).
+    noise_floor_tau_s: float = 60.0
 
     # Emotion layer.
     emotion_enabled: bool = True
@@ -112,6 +123,12 @@ class Config:
             ),
             emotion_min_speech_ratio=_env_float(
                 "RTR_EMOTION_MIN_SPEECH_RATIO", cls.emotion_min_speech_ratio
+            ),
+            vad_playback_threshold=_env_float(
+                "RTR_VAD_PLAYBACK_THRESHOLD", cls.vad_playback_threshold
+            ),
+            noise_floor_tau_s=_env_float(
+                "RTR_NOISE_FLOOR_TAU_S", cls.noise_floor_tau_s
             ),
             headcount_enabled=_env_bool("RTR_HEADCOUNT_ENABLED", cls.headcount_enabled),
             headcount_model=_env_str("RTR_HEADCOUNT_MODEL", cls.headcount_model),
