@@ -1,9 +1,57 @@
-# Field notes — live M3 sessions outside the apartment
+# Field notes — live sessions
 
-Informal, non-gating observations from running M3 in real environments.
-The gate lives in `M3-TEST-PLAN.md`; this file records what the tool did
-in the wild, what the annotation log captured, and which hypotheses that
+Informal, non-gating observations from running RTR in real environments.
+The gates live in the milestone test plans; this file records what the
+tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
+
+## 2026-07-06 — M4 gate part (c): first real playback (apartment, evening)
+
+Two live sessions on the Mac, ~30 min (21:07–21:37) + ~17 min re-check
+(21:40–21:57), solo speaker, Spotify playing through the MacBook speakers.
+All override types round-tripped, degrade/recover on quitting Spotify
+worked (engine never gapped), and `tuning_report.py` read all 13 override
+records back. Two real bugs found, fixed between the sessions
+(commit `8438264`):
+
+1. **Stale-queue pile-up.** The controller pushed every selection to
+   Spotify's queue assuming replacement, but the queue is **append-only**
+   (no replace/remove). With recommendations firing at the 30 s dwell
+   floor, 12 selections queued in 8 minutes; boundaries played the OLDEST
+   while the "next" label showed the newest (observed live: bar promised
+   Classical, boundary delivered the jazz queued 13 minutes earlier). The
+   FakeProvider in the test suite modeled the wished-for replace
+   semantics, so 185 green tests had validated fiction — the fake now
+   appends, and the controller holds selections locally (latest-wins) and
+   pushes exactly one track inside the final `RTR_PLAYBACK_QUEUE_LEAD_S`
+   (15 s) of the playing track. Re-check confirmed: 5–6 selections
+   superseded each other per track, one push per boundary, label and
+   boundary agreed.
+2. **False played_through on provider death.** Quitting Spotify mid-track
+   (the degrade test) logged a played_through weak positive for a track
+   last seen at 90 s of 246 — "vanished" counted as "ended". Completion
+   now requires the last observation inside the boundary window of the
+   track's own end. Re-check: all four played_through lines show real
+   completions (67/68, 298/302, 255/259, 219/219 s).
+
+Sensing observations under real playback (expected, now seen live):
+
+- **Vocal-music mood contamination is real and visible.** Hip-hop/pop
+  playback pushed valence/arousal into the excited quadrant even while
+  the human was deliberately mellow. This is the known v1 gap — the
+  certification gate can reject non-speech, but sung vocals that pass VAD
+  carry the song's emotion, not the room's. Part (d) phases 5/6 will
+  quantify it; feeds the M5 music-detection decision.
+- **Headcount blipped to 4** once, coinciding with the air conditioner
+  starting plus laptop/body movement — consistent with the pool session's
+  finding that broadband noise onset perturbs the estimator. One blip in
+  ~50 min with music playing is much better than the pool baseline;
+  worth a deliberate AC-on phase in a future controlled session.
+
+Session hygiene notes: hard-refresh the dashboard after every milestone
+(the browser cached the M3 page and hid the M4 UI — consider a no-cache
+header); clear the Spotify queue before a session that follows a
+pre-fix run.
 
 ## 2026-07-06 — UofA pool (large reverberant space, loud ventilation fan)
 

@@ -305,9 +305,12 @@ round-trip verified against `tuning_report.py` — were also confirmed live.
 ### Milestone 4 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
 
 Gate progress — see [docs/M4-TEST-PLAN.md](docs/M4-TEST-PLAN.md) for the
-full checklist. Parts (a) benchmark regression and (b) `pytest`
-(185 passed) are green; parts (c) live playback session and (d) the
-contamination measurement protocol are pending.
+full checklist. Parts (a) benchmark regression, (b) `pytest`
+(190 passed), and (c) live playback session are green; part (d), the
+contamination measurement protocol, is pending. Part (c) surfaced and
+fixed two real bugs — an append-only-queue pile-up and a false
+played_through on provider death — see the 2026-07-06 entry in
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 
 | Benchmark | Scenario | mean | p95 | Budget | Verdict |
 |---|---|---|---|---|---|
