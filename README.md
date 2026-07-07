@@ -179,6 +179,10 @@ Recommendations become actual music through **Spotify Connect** (control
 traffic only — playback decode/output never happens in this process, so the
 engine's performance budget is untouched). Requires Spotify **Premium**.
 
+First time on the Mac? [docs/M4-TEST-PLAN.md](docs/M4-TEST-PLAN.md) is a
+step-by-step walkthrough (setup + the milestone gate) written to be run
+with Claude Code — ask it to walk you through the M4 test plan.
+
 One-time setup:
 
 1. Register an app at [developer.spotify.com](https://developer.spotify.com/dashboard)
