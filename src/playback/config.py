@@ -46,6 +46,13 @@ class PlaybackConfig:
     # between recommendations (track boundaries are observed at this rate).
     poll_interval_s: float = 5.0
 
+    # Boundary window (seconds). The held next-up selection is pushed to the
+    # provider's APPEND-ONLY queue when the playing track's remaining time
+    # drops under this, and a track only counts as played-through when its
+    # last observed progress is inside this window of its end. Keep
+    # comfortably above poll_interval_s or boundaries get missed.
+    queue_lead_s: float = 15.0
+
     @classmethod
     def from_env(cls) -> "PlaybackConfig":
         load_dotenv()  # no-op if no .env file
@@ -68,4 +75,5 @@ class PlaybackConfig:
             poll_interval_s=_env_float(
                 "RTR_PLAYBACK_POLL_INTERVAL_S", cls.poll_interval_s
             ),
+            queue_lead_s=_env_float("RTR_PLAYBACK_QUEUE_LEAD_S", cls.queue_lead_s),
         )

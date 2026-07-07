@@ -105,7 +105,10 @@ class PlaybackProvider(Protocol):
         ...
 
     def queue(self, track: Track) -> None:
-        """Set `track` as the next-up; transitions happen on track boundaries."""
+        """Append `track` to the device's play queue. APPEND-ONLY: the real
+        Spotify API offers no replace or remove, so queued tracks play FIFO
+        and callers must keep at most one selection outstanding (the
+        controller defers its push to the boundary window for this reason)."""
         ...
 
     def pause(self) -> None:

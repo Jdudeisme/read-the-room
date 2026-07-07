@@ -7,10 +7,15 @@ EmotionWorker pattern) or on the HTTP threadpool for human overrides; the
 sensing side reads playback state from a cache, never over the network.
 
 Gentle-DJ policy (M4 proposal deliverable 1):
-- a new Recommendation NEVER interrupts the playing track; it replaces the
-  queued next track, and transitions happen on track boundaries;
+- a new Recommendation NEVER interrupts the playing track. The selection is
+  held locally in a latest-wins slot and pushed to the provider queue only
+  inside the final `queue_lead_s` of the playing track — the Spotify queue
+  is APPEND-ONLY (no replace, no remove), so pushing eagerly would pile up
+  every stale selection and play them FIFO while the "next" label lied;
 - the one exception is bootstrap: when nothing is audible at all, the
-  selected track starts immediately (there is nothing to interrupt);
+  selected track starts immediately (there is nothing to interrupt) — and
+  likewise when a track runs out into silence before any near-end poll
+  could push the held selection, the selection starts;
 - guard recommendations (insufficient signal) hold — no selection, no queue;
 - volume is never touched; energy moves only through tier selection;
 - only a HUMAN override (skip / wrong_vibe / manual_pick) cuts mid-track.
@@ -18,8 +23,10 @@ Gentle-DJ policy (M4 proposal deliverable 1):
 Override capture (deliverable 2): the controller keeps track-id ->
 recommendation attribution for everything it selects, marks overridden
 tracks, and emits an implicit weak-positive via `on_played_through` when a
-selected track crosses a boundary with no override — the caller (dashboard)
-owns writing the record.
+selected track OBSERVABLY COMPLETES — last seen inside the boundary window
+of its own end — with no override. A track that merely vanishes mid-flight
+(provider quit, external skip from the Spotify app) is not a positive. The
+caller (dashboard) owns writing the record.
 
 Failure isolation: any ProviderError logs, flips status to "degraded" (the
 dashboard surfaces it and presents shadow mode), and the next event retries.
@@ -96,7 +103,8 @@ class PlaybackController:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._now: NowPlaying | None = None
-        self._queued: Track | None = None  # selected but not yet playing
+        self._intent: Track | None = None  # held selection, not yet pushed
+        self._queued: Track | None = None  # pushed to the provider, unplayed
         self._last_rec: Recommendation | None = None  # for override resamples
         self._attribution: dict[str, dict] = {}  # track id -> rec/choice dict
         self._overridden: dict[str, None] = {}  # ordered set of track ids
@@ -136,9 +144,11 @@ class PlaybackController:
         return True, now.track.id
 
     def snapshot(self) -> dict:
-        """Dashboard frame extras: status + what is playing/queued."""
+        """Dashboard frame extras: status + what is playing/next. The
+        `queued_track` key carries the EFFECTIVE next-up — the held
+        selection if one is waiting, else the already-pushed track."""
         with self._lock:
-            now, queued = self._now, self._queued
+            now, queued = self._now, (self._intent or self._queued)
         return {
             "playback_status": self.status,
             "playback_error": self.error,
@@ -150,11 +160,16 @@ class PlaybackController:
     #    ProviderError propagates — the endpoint already banked the label) --
 
     def skip(self) -> Track | None:
-        """Veto the playing track NOW. Prefers the already-queued next
-        selection; otherwise resamples from the last handled recommendation.
-        With nothing to go to, pauses — a veto means silence beats it."""
+        """Veto the playing track NOW. Prefers the next-up selection (held
+        or already pushed); otherwise resamples from the last handled
+        recommendation. With nothing to go to, pauses — a veto means
+        silence beats it."""
         with self._lock:
-            now, queued, last_rec = self._now, self._queued, self._last_rec
+            now, queued, last_rec = (
+                self._now,
+                (self._intent or self._queued),
+                self._last_rec,
+            )
         if now is None:
             return None
         self._mark_overridden(now.track.id)
@@ -254,45 +269,99 @@ class PlaybackController:
         bootstrap = now is None or not now.is_playing
         if bootstrap:
             self._provider.play(track)  # nothing audible to interrupt
-        else:
-            self._provider.queue(track)  # replaces next-up; boundary transition
         self._attribute(track.id, rec.to_dict())
         with self._lock:
             self._last_rec = rec
-            self._queued = None if bootstrap else track
+            if bootstrap:
+                self._intent = None
+                self._queued = None
+            else:
+                # Held locally, latest-wins; _observe pushes it to the
+                # provider's append-only queue inside the boundary window.
+                self._intent = track
         log.info(
             "selected %r (%s / %s) for cell %s -> %s",
             track.title,
             track.artist,
             tier,
             rec.matched_cell,
-            "play" if bootstrap else "queue",
+            "play" if bootstrap else "next-up",
         )
 
     def _observe(self, new: NowPlaying | None) -> None:
-        """Cache fresh provider state and do boundary bookkeeping: clear the
-        queued slot once its track starts, and emit the played_through weak
-        positive when a selected, non-overridden track ends."""
+        """Cache fresh provider state and do the boundary work: push the
+        held selection to the provider once the playing track enters the
+        boundary window (append-only queue — exactly one track outstanding),
+        emit the played_through weak positive when a selected, non-overridden
+        track observably completes, and start the held selection when a
+        track runs out into silence before any near-end poll could push."""
+        push: Track | None = None
+        start: Track | None = None
+        emit: tuple[dict, dict] | None = None
         with self._lock:
             prev = self._now
             self._now = new
-            if (
+            took_over = (
                 new is not None
                 and self._queued is not None
                 and new.track.id == self._queued.id
-            ):
-                self._queued = None  # next-up crossed the boundary
-            ended = (
-                prev is not None
-                and (new is None or new.track.id != prev.track.id)
-                and prev.track.id not in self._overridden
             )
-            attribution = self._attribution.get(prev.track.id) if ended else None
-        if ended and attribution is not None and self.on_played_through is not None:
+            if took_over:
+                self._queued = None  # next-up crossed the boundary
+            boundary = prev is not None and (
+                new is None or new.track.id != prev.track.id
+            )
+            # Completion requires the track's last observation inside the
+            # boundary window of its own end: a track that vanishes
+            # mid-flight (provider quit, external skip) never "ended".
+            completed = boundary and self._near_end(prev)
+            if (
+                completed
+                and prev.track.id not in self._overridden
+                and prev.track.id in self._attribution
+            ):
+                emit = (prev.to_dict(), self._attribution[prev.track.id])
+            if (
+                completed
+                and not took_over
+                and self._intent is not None
+                and (new is None or not new.is_playing)
+            ):
+                # Ran out into silence with a selection still in hand:
+                # bootstrap semantics — nothing audible to interrupt.
+                start, self._intent = self._intent, None
+            if (
+                start is None
+                and new is not None
+                and new.is_playing
+                and self._intent is not None
+                and self._queued is None
+                and self._near_end(new)
+            ):
+                push = self._intent
+        if push is not None:
+            self._provider.queue(push)  # the one outstanding queue slot
+            with self._lock:
+                if self._intent is push:
+                    self._queued, self._intent = push, None
+            log.info("pushed next-up %r inside the boundary window", push.title)
+        if start is not None:
+            self._play_now(start)
+            log.info("boundary landed in silence; starting %r", start.title)
+        if emit is not None and self.on_played_through is not None:
             try:
-                self.on_played_through(prev.to_dict(), attribution)
+                self.on_played_through(*emit)
             except Exception:
                 log.exception("played_through sink failed; label lost")
+
+    def _near_end(self, np: NowPlaying) -> bool:
+        """Inside the boundary window of the track's end, as last observed.
+        Unknown durations are never near the end — a track we cannot place
+        earns no played_through and triggers no push."""
+        return (
+            np.track.duration_s > 0
+            and np.progress_s >= np.track.duration_s - self._config.queue_lead_s
+        )
 
     # -- shared bookkeeping ----------------------------------------------------
 
@@ -305,6 +374,8 @@ class PlaybackController:
             )
             if self._queued is not None and self._queued.id == track.id:
                 self._queued = None
+            if self._intent is not None and self._intent.id == track.id:
+                self._intent = None
 
     def _attribute(self, track_id: str, chose_it: dict) -> None:
         with self._lock:

@@ -38,14 +38,21 @@ def _track(n: int, playlist: str = "pl-pop-high") -> Track:
 
 class FakeProvider:
     """In-memory provider honoring the seam's semantics: play interrupts,
-    queue replaces next-up, tracks_for resolves a (genre, tier) mapping."""
+    queue APPENDS (the real Spotify queue has no replace/remove — modeling
+    it as replaceable is exactly how the M4 stale-queue bug shipped),
+    tracks_for resolves a (genre, tier) mapping."""
 
     def __init__(self, library: dict[tuple[str, str], list[Track]] | None = None):
         self.library = library or {}
         self._device = Device(id="dev-1", name="Living Room", active=True)
         self._now: NowPlaying | None = None
-        self.next_up: Track | None = None
+        self.queued: list[Track] = []  # append-only, FIFO — like the real API
         self.failing = False
+
+    @property
+    def next_up(self) -> Track | None:
+        """What would actually play at the boundary: the FIFO head."""
+        return self.queued[0] if self.queued else None
 
     def _check(self):
         if self.failing:
@@ -63,7 +70,7 @@ class FakeProvider:
 
     def queue(self, track: Track) -> None:
         self._check()
-        self.next_up = track  # replaces, never appends: gentle-DJ semantics
+        self.queued.append(track)  # append-only: Spotify offers no replace
 
     def pause(self) -> None:
         self._check()
@@ -112,14 +119,17 @@ class TestFakeProviderSemantics:
         p.pause()
         assert not p.now_playing().is_playing
 
-    def test_queue_replaces_next_up(self):
-        """Gentle-DJ: a new Recommendation replaces the QUEUED track, never
-        the playing one."""
+    def test_queue_is_append_only_fifo(self):
+        """The real Spotify queue offers no replace/remove: everything
+        queued plays, oldest first. The gentle-DJ latest-wins behavior must
+        live in the CONTROLLER (deferred push), never be assumed of the
+        provider."""
         p = FakeProvider()
         p.play(_track(1))
         p.queue(_track(2))
-        p.queue(_track(3))  # new recommendation before the boundary
-        assert p.next_up.id == "track-3"
+        p.queue(_track(3))
+        assert [t.id for t in p.queued] == ["track-2", "track-3"]
+        assert p.next_up.id == "track-2"  # FIFO head, not the newest
         assert p.now_playing().track.id == "track-1"  # uninterrupted
 
     def test_tracks_for_unmapped_cell_is_empty_not_an_error(self):
@@ -276,11 +286,14 @@ class TestController:
         assert provider.now_playing().track.id == "track-1"
         assert _wait_until(lambda: controller.playback_state() == (True, "track-1"))
 
-    def test_recommendation_queues_and_never_interrupts(self, provider, controller):
+    def test_recommendation_holds_next_up_without_pushing(self, provider, controller):
         provider.play(_track(99, playlist=None))  # something already playing
         controller.on_recommendation(_rec(genre_pool=("Jazz",), target_arousal=0.0))
-        assert _wait_until(lambda: provider.next_up is not None)
-        assert provider.next_up.id == "track-2"
+        assert _wait_until(
+            lambda: controller.snapshot()["queued_track"] is not None
+        )
+        assert controller.snapshot()["queued_track"]["id"] == "track-2"
+        assert provider.queued == []  # far from the boundary: nothing pushed
         assert provider.now_playing().track.id == "track-99"  # uninterrupted
 
     def test_guard_recommendation_holds(self, provider, controller):
@@ -289,7 +302,8 @@ class TestController:
         )
         time.sleep(0.2)
         assert provider.now_playing() is None
-        assert provider.next_up is None
+        assert provider.queued == []
+        assert controller.snapshot()["queued_track"] is None
 
     def test_provider_error_degrades_then_recovers(self, provider, controller):
         controller.on_recommendation(_rec())
@@ -304,7 +318,9 @@ class TestController:
         provider.failing = False
         controller.on_recommendation(_rec(genre_pool=("Jazz",), target_arousal=0.0))
         assert _wait_until(lambda: controller.status == "active")
-        assert _wait_until(lambda: provider.next_up is not None)
+        assert _wait_until(
+            lambda: controller.snapshot()["queued_track"] is not None
+        )
 
     def test_playback_state_false_when_idle(self, controller):
         assert controller.playback_state() == (False, None)
@@ -349,12 +365,12 @@ class TestOverrideActions:
         assert _wait_until(lambda: c.status == "active")
         return c
 
-    def test_skip_prefers_the_queued_next_selection(self, provider):
+    def test_skip_prefers_the_held_next_selection(self, provider):
         c = self._controller(provider)
         try:
             provider.play(_track(99, playlist=None))
             c.on_recommendation(_rec(genre_pool=("Jazz",), target_arousal=0.0))
-            assert _wait_until(lambda: provider.next_up is not None)
+            assert _wait_until(lambda: c.snapshot()["queued_track"] is not None)
             skipped_to = c.skip()
             assert skipped_to.id == "track-2"
             assert provider.now_playing().track.id == "track-2"
@@ -422,7 +438,16 @@ class TestOverrideActions:
             c.on_recommendation(_rec())
             assert _wait_until(lambda: c.playback_state()[0])
             played = provider.now_playing().track
-            # Natural boundary: the provider moves on to another track.
+            # Ride the track to its final seconds (completion requires the
+            # last observation inside the boundary window of the end)...
+            provider._now = NowPlaying(
+                track=played, progress_s=172.0, is_playing=True, device_id="dev-1"
+            )
+            assert _wait_until(
+                lambda: (c.snapshot()["now_playing"] or {}).get("progress_s")
+                == 172.0
+            )
+            # ...then a natural boundary: the provider moves on.
             provider._now = NowPlaying(
                 track=_track(42, playlist=None),
                 progress_s=0.0,
@@ -447,6 +472,90 @@ class TestOverrideActions:
             assert events == []
         finally:
             c.stop()
+
+
+class TestBoundaryWindow:
+    """Deferred queue push against the append-only provider queue: the
+    controller holds the latest selection and pushes exactly one track,
+    inside the final queue_lead_s of whatever is playing. Direct calls to
+    _handle/_observe — no worker thread — so every observation step is
+    deterministic."""
+
+    @pytest.fixture
+    def provider(self):
+        return FakeProvider(
+            library={
+                ("Pop", "high"): [_track(1)],
+                ("Jazz", "mid"): [_track(2, "pl-jazz-mid")],
+            }
+        )
+
+    def _controller(self, provider, sink=None):
+        return PlaybackController(
+            provider,
+            TrackSelector(provider, seed=0),
+            PlaybackConfig(poll_interval_s=0.05, queue_lead_s=15.0),
+            on_played_through=sink,
+        )
+
+    @staticmethod
+    def _playing(track: Track, progress: float) -> NowPlaying:
+        return NowPlaying(
+            track=track, progress_s=progress, is_playing=True, device_id="dev-1"
+        )
+
+    def test_push_happens_only_inside_the_boundary_window(self, provider):
+        c = self._controller(provider)
+        current = _track(99, playlist=None)
+        provider.play(current)
+        c._handle(_rec(genre_pool=("Jazz",), target_arousal=0.0))
+        assert provider.queued == []  # held, not pushed
+        c._observe(self._playing(current, 100.0))  # 80s left: hold
+        assert provider.queued == []
+        c._observe(self._playing(current, 170.0))  # 10s left: push
+        assert [t.id for t in provider.queued] == ["track-2"]
+        # The pushed track takes over at the boundary; next-up slot clears.
+        c._observe(self._playing(_track(2, "pl-jazz-mid"), 0.0))
+        assert c.snapshot()["queued_track"] is None
+
+    def test_latest_selection_wins_with_a_single_push(self, provider):
+        c = self._controller(provider)
+        current = _track(99, playlist=None)
+        provider.play(current)
+        c._handle(_rec(genre_pool=("Jazz",), target_arousal=0.0))
+        c._handle(_rec())  # fresher rec while far from the boundary: Pop
+        assert c.snapshot()["queued_track"]["id"] == "track-1"
+        c._observe(self._playing(current, 170.0))
+        # One push total, and it is the freshest selection — never a pile-up.
+        assert [t.id for t in provider.queued] == ["track-1"]
+
+    def test_boundary_into_silence_starts_the_held_selection(self, provider):
+        c = self._controller(provider)
+        current = _track(99, playlist=None)
+        provider.play(current)
+        c._observe(self._playing(current, 170.0))  # near end, nothing held yet
+        c._handle(_rec(genre_pool=("Jazz",), target_arousal=0.0))  # last-second rec
+        provider._now = None  # the track ran out; nothing queued, silence
+        c._observe(None)
+        # Bootstrap semantics: nothing audible to interrupt, so it starts.
+        assert provider.now_playing().track.id == "track-2"
+
+    def test_vanishing_mid_track_is_not_played_through(self, provider):
+        events = []
+        c = self._controller(provider, sink=lambda np, rec: events.append((np, rec)))
+        c._handle(_rec())  # bootstrap: plays and attributes track-1
+        c._observe(self._playing(_track(1), 90.0))  # mid-flight
+        c._observe(None)  # provider quit / external skip: not a completion
+        assert events == []
+
+    def test_observed_completion_is_played_through(self, provider):
+        events = []
+        c = self._controller(provider, sink=lambda np, rec: events.append((np, rec)))
+        c._handle(_rec())  # bootstrap: plays and attributes track-1
+        c._observe(self._playing(_track(1), 172.0))  # last seen near its end
+        c._observe(self._playing(_track(42, playlist=None), 0.0))
+        assert len(events) == 1
+        assert events[0][0]["track"]["id"] == "track-1"
 
 
 class TestPlaylistMapping:
