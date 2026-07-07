@@ -302,6 +302,27 @@ regression check, not a new cost. The other three gate parts — 10-minute
 live dashboard run, `pytest` (102 passed), and a real button-tap annotation
 round-trip verified against `tuning_report.py` — were also confirmed live.
 
+### Milestone 4 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
+
+Gate progress — see [docs/M4-TEST-PLAN.md](docs/M4-TEST-PLAN.md) for the
+full checklist. Parts (a) benchmark regression and (b) `pytest`
+(185 passed) are green; parts (c) live playback session and (d) the
+contamination measurement protocol are pending.
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback` | headcount, contended hops | 1.08 s | 1.11 s | < 1.37 s | PASS |
+| `bench_headcount.py --fallback` | emotion, overall | 0.95 s | 1.16 s | < 1.2 s absolute | PASS |
+
+Playback is control-plane I/O on its own thread (no audio decode
+in-process), so this too is the M2 gate re-run as a regression check; the
+numbers sit within run-to-run variance of the M2/M3 rows. Setup on this
+machine surfaced one real API-shape bug — Spotify hard-403s
+`GET /playlists/{id}/tracks` for apps registered after its Nov 2024 API
+changes; fixed by moving the provider to `GET /playlists/{id}/items`
+(entries keyed `item`), verified live against all eight mapped playlist
+cells.
+
 The live runs on this machine surfaced a real M2 calibration bug — a solo
 speaker ratcheted solo → pair → 4 → 8 as the evidence buffer filled — which
 was then root-caused offline: measured same-voice ECAPA distances on 1.25s
