@@ -16,6 +16,7 @@ from .provider import (
     Track,
 )
 from .selector import TrackSelector, derive_tier
+from .spotify import SpotifyProvider
 
 __all__ = [
     "ENERGY_TIERS",
@@ -25,6 +26,7 @@ __all__ = [
     "PlaybackController",
     "PlaybackProvider",
     "ProviderError",
+    "SpotifyProvider",
     "Track",
     "TrackSelector",
     "derive_tier",
