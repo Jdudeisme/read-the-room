@@ -103,7 +103,8 @@ solo/pair/4, mood mostly excited/chill during a test session):
 | Lofi Beats | low |
 | Classical | low |
 
-Then write `data/playlists.json` (gitignored; Claude: offer to write this
+Then write `data/playlists.json` (committed as the founder's baseline —
+edit locally without committing to override it; Claude: offer to write this
 file from the user's pasted playlist links):
 
 ```json

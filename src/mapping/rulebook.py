@@ -96,3 +96,18 @@ RULEBOOK: dict[tuple[str, str, str], list[str]] = {
 
 # --- Per-cell overrides (tuning lands here, one line each) -----------------
 # Example: RULEBOOK[("16", "high", "high")] = ["Dance", "House"]
+
+# Tense quadrant (low valence, high arousal): Rock appended as pool fallback —
+# the seed genres (Soft Rock / Hard Rock) keep priority if curated later, but
+# Rock is the only one with a mapped playlist today. ("8" already seeds Rock.)
+RULEBOOK[("solo", "low", "high")] = ["Soft Rock", "Rock"]
+RULEBOOK[("pair", "low", "high")] = ["Soft Rock", "Rock"]
+RULEBOOK[("4", "low", "high")] = ["Soft Rock", "Rock"]
+RULEBOOK[("16", "low", "high")] = ["Hard Rock", "Rock"]
+RULEBOOK[("32", "low", "high")] = ["Hard Rock", "Rock"]
+RULEBOOK[("64", "low", "high")] = ["Hard Rock", "Rock"]
+RULEBOOK[("128", "low", "high")] = ["Hard Rock", "Rock"]
+RULEBOOK[("256", "low", "high")] = ["Hard Rock", "Rock"]
+RULEBOOK[("512", "low", "high")] = ["Hard Rock", "Rock"]
+RULEBOOK[("1024", "low", "high")] = ["Hard Rock", "Rock"]
+RULEBOOK[("crowd", "low", "high")] = ["Hard Rock", "Rock"]

@@ -1,5 +1,6 @@
-"""The curated playlist mapping: data/playlists.json (gitignored, like
-annotations — human-owned local data).
+"""The curated playlist mapping: data/playlists.json. The committed copy is
+the founder's baseline; a user running their own instance overrides it by
+editing the file locally without committing.
 
 Format (schema_version 1):
 

@@ -35,7 +35,8 @@ class TestRulebookSeed:
             (("solo", "high", "high"), ["Pop"]),
             (("4", "high", "high"), ["Pop"]),
             (("4", "mid", "mid"), ["Jazz"]),
-            (("4", "low", "high"), ["Soft Rock"]),
+            # tense-quadrant cells carry the Rock fallback override
+            (("4", "low", "high"), ["Soft Rock", "Rock"]),
             (("solo", "low", "low"), ["Lofi Beats"]),
             (("8", "high", "high"), ["Dance"]),
             (("8", "high", "low"), ["Soul"]),
@@ -43,7 +44,7 @@ class TestRulebookSeed:
             (("8", "low", "low"), ["Blues"]),
             (("16", "high", "high"), ["Electronic Dance Music"]),
             (("64", "mid", "mid"), ["R&B"]),
-            (("crowd", "low", "high"), ["Hard Rock"]),
+            (("crowd", "low", "high"), ["Hard Rock", "Rock"]),
             (("crowd", "low", "low"), ["Jazz"]),
         ],
     )

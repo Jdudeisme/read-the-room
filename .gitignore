@@ -30,3 +30,6 @@ Thumbs.db
 # M3 annotation logs — local data, never committed
 data/*
 !data/.gitkeep
+# Curated playlist mapping: the committed copy is the founder's baseline;
+# users may edit locally without committing to override it.
+!data/playlists.json

@@ -30,7 +30,8 @@ therefore not an optional hardening pass; it is a gating deliverable.
   for new apps (Nov 2024), so we do not build on them. Instead the user
   curates playlists keyed by `(genre, energy tier)` — e.g.
   `RTR · Pop · high` — and a mapping file
-  (`data/playlists.json`, gitignored like annotations) binds rulebook
+  (`data/playlists.json`, committed as the founder's baseline; users
+  override by editing locally without committing) binds rulebook
   genre pools to playlist IDs. The selector takes the Recommendation's
   `genre_pool` + a tier derived from `target_arousal`, picks a
   not-recently-played track from the mapped playlist, and queues it. Human

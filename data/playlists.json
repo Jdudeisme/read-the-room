@@ -1,0 +1,13 @@
+{"schema_version": 1,
+ "playlists": {
+   "Pop":        {"high": "https://open.spotify.com/playlist/5lrMrkxRivuglZGa2NRQbH",
+                  "mid":  "https://open.spotify.com/playlist/2v3jMB3Zr82g6bsr6kGBqr"},
+   "Hip-Hop":    {"high": "https://open.spotify.com/playlist/1MiyxQSYttrTMxtoR4cCgE",
+                  "mid":  "https://open.spotify.com/playlist/0TEViUr4u33L2YCG53EOGR"},
+   "Jazz":       {"mid":  "https://open.spotify.com/playlist/1Si81CZnvwkVnp9HJ6DZWH",
+                  "low":  "https://open.spotify.com/playlist/7BikZAhkrQrE38oPP39Wav"},
+   "Rock":       {"high": "https://open.spotify.com/playlist/36u9xgPY79JjlonB3H5hSI",
+                  "mid":  "https://open.spotify.com/playlist/36u9xgPY79JjlonB3H5hSI",
+                  "low":  "https://open.spotify.com/playlist/36u9xgPY79JjlonB3H5hSI"},
+   "Lofi Beats": {"low":  "https://open.spotify.com/playlist/4x2i5tvbdHIlNwKn793wUz"},
+   "Classical":  {"low":  "https://open.spotify.com/playlist/4E5cSVHCPcreUA4Zg4gj3T"}}}

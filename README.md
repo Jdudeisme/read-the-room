@@ -193,8 +193,9 @@ One-time setup:
    (default: whatever device is active).
 3. Authorize once: `read-the-room-spotify-auth` — the token cache in
    `data/` refreshes itself afterwards.
-4. Curate playlists and map them in `data/playlists.json` (gitignored),
-   keyed by rulebook genre and energy tier:
+4. Curate playlists and map them in `data/playlists.json` (the committed
+   copy is the founder's baseline — edit locally without committing to
+   use your own), keyed by rulebook genre and energy tier:
 
    ```json
    {"schema_version": 1,
