@@ -11,11 +11,18 @@ staleness.
 **Milestone 3:** shadow-mode mapping layer (RoomState → music
 recommendation, never played), live web dashboard, and a Good/Wrong
 annotation loop feeding an offline tuning report.
-**Milestone 4 (this branch):** playback — recommendations select tracks
+**Milestone 4:** playback — recommendations select tracks
 from human-curated Spotify playlists (gentle-DJ: transitions on track
 boundaries only), human override capture (the strong labels), and
 contamination handling v1 now that the mic can hear the system's own
 output.
+**Milestone 5 (this branch):** the loop learns — a presence gate so
+empty-room `played_through` lines can't pollute the corpus, learned
+tuning v1 as inspectable proposals (boundary, tier-cutoff, and pool
+weighting sections in the tuning report), the build-or-defer
+music-detection memo (defer; see [docs/M5-PROPOSAL.md](docs/M5-PROPOSAL.md)),
+an envelope advisory when music out-reads the room, and noise-floor
+observability.
 
 ## Architecture
 
@@ -167,11 +174,23 @@ Prints verdict counts per rulebook cell, wrong-call clustering near band
 boundaries, and suggested boundary shifts with the number of past verdicts
 each would have flipped. With override logs present (M4) it adds override
 rate per cell (`vetoes / (vetoes + played_through)`), veto clustering near
-boundaries, and manual-pick tier disagreement. Output only — it never
-modifies anything; apply suggestions by editing `RTR_MAPPING_*` /
-`RTR_PLAYBACK_TIER_*` in `.env` and re-observing. Learned (automatic)
-tuning is deliberately deferred until the override corpus exists — see
-[docs/M4-PROPOSAL.md](docs/M4-PROPOSAL.md).
+boundaries, and manual-pick tier disagreement.
+
+M5 makes this the learning loop, still at counting sophistication and
+still proposals-only. The corpus is **gated first**: `played_through`
+lines that fail the presence criterion (empty room — schema-v2 records
+carry a stamped `presence` block, older records get the same criterion
+retroactively with same-day taps cross-referenced) and vetoes banked
+while the system was blind (the beyond-envelope volume signature) are
+flagged, listed, and excluded from every rate — never deleted. On the
+gated corpus the report then proposes: boundary shifts from the strong
+labels (vetoes read as wrong calls, occupied completions as good ones,
+reported separately from the annotation-based section), tier-cutoff
+shifts scored by how many past manual picks each would have agreed
+with, and per-cell pool weighting once records carry the selection
+genre (stamped from M5 onward). Output only — apply anything by editing
+`RTR_MAPPING_*` / `RTR_PLAYBACK_TIER_*` in `.env` and re-observing;
+nothing adjusts itself, ever.
 
 ## Playback (M4)
 
@@ -222,11 +241,25 @@ override controls cut mid-track:
 
 Every override appends one line to `data/overrides/YYYY-MM-DD.jsonl` with
 the tap-time state/recommendation snapshot; a track that plays to
-completion logs a `played_through` weak positive. These are the strong
-labels the learned-tuning work (M5+) has been waiting for. Provider
+completion logs a `played_through` weak positive — since M5 stamped with
+a `presence` evidence block (schema v2), because an empty room can't
+veto: a completion only reads as an occupied-room positive when speech
+was certified near the track's end, or the room was occupied at handoff
+and never audibly emptied, or a human tapped during the track
+(`RTR_PLAYBACK_PRESENCE_*`). Gated lines are still written, marked.
+These are the strong labels the learned-tuning loop feeds on. Provider
 failures (token expiry, device gone, rate limit) surface on the dashboard
 and degrade to shadow mode; the label capture never depends on the
 provider being alive.
+
+M5 also adds an **envelope advisory**: when music out-reads the room at
+the mic (playback active, loudness well over the rolling noise floor,
+zero certified speech for ~20 s — the 93%-output limit cycle from the
+2026-07-10 session), the dashboard shows a "turn it down if you want me
+listening" banner (`RTR_PLAYBACK_ADVISORY_*`). Banner only; volume stays
+human-owned. The ML music-detection gate remains deliberately deferred —
+the measured case for and against, and what would flip the decision, is
+in [docs/M5-PROPOSAL.md](docs/M5-PROPOSAL.md).
 
 **Contamination handling v1:** while playback is active, RoomState carries
 `playback_active`/`playback_track_id` (so all downstream evidence is
