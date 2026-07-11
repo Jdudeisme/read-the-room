@@ -200,6 +200,165 @@ class TestOverridesAnalysis:
         assert counts[("manual",)] == {"played_through": 1}
 
 
+def played_through(staleness=4.0, duration=180.0, ts=1000.0, presence=None):
+    r = override_record("played_through")
+    r["ts"] = ts
+    r["state"]["headcount_staleness_s"] = staleness
+    r["now_playing"]["track"]["duration_s"] = duration
+    if presence is not None:
+        r["presence"] = presence
+    return r
+
+
+class TestPresenceGateRetro:
+    """M5 section 4a: v2 stamps are honored, v1 records get the mirrored
+    criterion, taps rescue, and gated lines leave every rate/proposal."""
+
+    def test_stamped_record_is_honored_not_recomputed(self):
+        # the stamp says absent even though the numbers read fresh — the
+        # live gate saw something the retro pass can't; trust the stamp
+        r = played_through(
+            staleness=3.0, presence={"occupied": False, "basis": "absent"}
+        )
+        p = tuning_report.assess_presence_retro(r, [])
+        assert p["occupied"] is False
+        assert p["stamped"] is True
+
+    def test_retro_fresh_handoff_middle_absent(self, monkeypatch):
+        monkeypatch.delenv("RTR_PLAYBACK_PRESENCE_FRESH_S", raising=False)
+        monkeypatch.delenv("RTR_PLAYBACK_PRESENCE_HANDOFF_S", raising=False)
+        cases = [
+            (3.2, 67.7, True, "fresh"),
+            (244.0, 219.5, True, "handoff"),   # Minor Blues
+            (211.7, 220.7, False, "absent"),   # Just the Way You Are
+            (485.0, 357.8, False, "absent"),   # Thriller
+        ]
+        for staleness, duration, occupied, basis in cases:
+            p = tuning_report.assess_presence_retro(
+                played_through(staleness, duration), []
+            )
+            assert (p["occupied"], p["basis"], p["stamped"]) == (
+                occupied, basis, False,
+            ), (staleness, duration)
+
+    def test_same_day_tap_inside_the_window_rescues(self):
+        r = played_through(staleness=150.0, duration=180.0, ts=1000.0)
+        assert tuning_report.assess_presence_retro(r, [900.0])["occupied"] is True
+        assert tuning_report.assess_presence_retro(r, [700.0])["occupied"] is False
+
+    def test_missing_staleness_without_tap_is_unknown(self):
+        r = played_through(duration=180.0)
+        del r["state"]["headcount_staleness_s"]
+        p = tuning_report.assess_presence_retro(r, [])
+        assert (p["occupied"], p["basis"]) == (False, "unknown")
+
+    def test_gate_overrides_partitions_and_never_deletes(self):
+        records = [
+            played_through(staleness=3.0),                    # occupied
+            played_through(staleness=400.0, duration=180.0),  # empty room
+            override_record("skip"),                          # normal veto
+        ]
+        blind = override_record("wrong_vibe")
+        blind["state"].update(
+            {"speech_ratio": 0.0, "emotion_staleness_s": 218.9,
+             "playback_active": True}
+        )
+        records.append(blind)
+        usable, suspects, blind_out = tuning_report.gate_overrides(records, [])
+        assert len(usable) == 2
+        assert len(suspects) == 1 and suspects[0][1]["basis"] == "absent"
+        assert blind_out == [blind]
+        assert len(usable) + len(suspects) + len(blind_out) == len(records)
+
+    def test_blind_signature_requires_all_three_conditions(self):
+        base = override_record("skip")
+        base["state"].update(
+            {"speech_ratio": 0.0, "emotion_staleness_s": 200.0,
+             "playback_active": True}
+        )
+        assert tuning_report.is_blind_veto(base) is True
+        for patch in (
+            {"playback_active": False},
+            {"speech_ratio": 0.4},
+            {"emotion_staleness_s": 5.0},
+        ):
+            r = override_record("skip")
+            r["state"].update(
+                {"speech_ratio": 0.0, "emotion_staleness_s": 200.0,
+                 "playback_active": True, **patch}
+            )
+            assert tuning_report.is_blind_veto(r) is False, patch
+        # played_through is judged by the presence gate, never this filter
+        thru = played_through(staleness=3.0)
+        thru["state"].update({"speech_ratio": 0.0, "emotion_staleness_s": 200.0})
+        assert tuning_report.is_blind_veto(thru) is False
+
+
+class TestStrongLabelProposals:
+    def test_vetoes_read_as_wrong_thrus_as_good(self):
+        # three skips hugging valence_high from above, two occupied
+        # played_throughs comfortably inside the band — same shape as the
+        # annotation fixture, so the same +0.05 suggestion must appear
+        records = [override_record("skip", valence=0.28) for _ in range(3)] + [
+            played_through(staleness=3.0),
+            played_through(staleness=3.0),
+        ]
+        for r in records[3:]:
+            r["state"]["valence"] = 0.60
+        pseudo = tuning_report._as_pseudo_annotations(records)
+        assert [p["verdict"] for p in pseudo] == ["wrong"] * 3 + ["good"] * 2
+        s = tuning_report.suggest_adjustments(pseudo)["valence_high"]
+        assert s["shift"] == pytest.approx(0.05)
+        assert (s["wrong_flipped"], s["good_flipped"]) == (3, 0)
+
+    def test_manual_picks_never_feed_boundary_proposals(self):
+        records = [
+            override_record("manual", valence=0.28,
+                            chosen={"genre": "Jazz", "tier": "mid"})
+        ]
+        assert tuning_report._as_pseudo_annotations(records) == []
+
+    def test_tier_cutoff_shift_scored_by_manual_agreement(self, monkeypatch):
+        monkeypatch.delenv("RTR_PLAYBACK_TIER_LOW_MAX", raising=False)
+        monkeypatch.delenv("RTR_PLAYBACK_TIER_HIGH_MIN", raising=False)
+        # three picks at target_arousal 0.28 (derived: high) where the human
+        # chose mid — lowering high_min can't help; RAISING it to 0.30 makes
+        # the derived tier mid for all three
+        records = [
+            override_record("manual", target_arousal=0.28,
+                            chosen={"genre": "Pop", "tier": "mid"})
+            for _ in range(3)
+        ]
+        s = tuning_report.suggest_tier_cutoffs(records)["tier_high_min"]
+        assert s["shift"] == pytest.approx(0.05)
+        assert (s["agree_gained"], s["agree_lost"]) == (3, 0)
+
+    def test_no_tier_shift_when_picks_already_agree(self, monkeypatch):
+        monkeypatch.delenv("RTR_PLAYBACK_TIER_LOW_MAX", raising=False)
+        monkeypatch.delenv("RTR_PLAYBACK_TIER_HIGH_MIN", raising=False)
+        records = [
+            override_record("manual", target_arousal=0.5,
+                            chosen={"genre": "Pop", "tier": "high"})
+        ]
+        for s in tuning_report.suggest_tier_cutoffs(records).values():
+            assert s["shift"] is None
+
+    def test_pool_weighting_needs_the_selection_stamp(self):
+        unstamped = override_record("skip")
+        stamped = override_record("skip")
+        stamped["now_playing"]["track"]["genre"] = "Jazz"
+        thru = played_through(staleness=3.0)
+        thru["now_playing"]["track"]["genre"] = "Jazz"
+        manual = override_record("manual", chosen={"genre": "Pop", "tier": "mid"})
+        manual["now_playing"]["track"]["genre"] = "Jazz"
+        counts = tuning_report.pool_weighting_counts(
+            [unstamped, stamped, thru, manual]
+        )
+        assert counts == {
+            (("4", "high", "high"), "Jazz"): {"veto": 1, "thru": 1}
+        }
+
+
 class TestScript:
     def test_report_output_and_no_writes(self, log_dir, capsys, monkeypatch):
         def tree_snapshot():
@@ -257,3 +416,38 @@ class TestScript:
         assert "valence_high" in out  # the 0.28 skips hug the boundary
         assert "tier disagreement" in out
         assert "higher 1" in out
+        # M5 sections render: the gate audit line plus proposals 7-9. The
+        # played_throughs here carry no staleness but same-file taps land
+        # inside their windows, so nothing is excluded.
+        assert "gated: 0 played_through excluded" in out
+        assert "presence gate - flagged, never deleted" in out
+        assert "boundary adjustments from the strong labels" in out
+        assert "tier-cutoff proposals" in out
+        assert "per-cell pool weighting" in out
+        assert "collecting" in out  # no selection genre in M4-era records
+
+    def test_empty_room_thrus_leave_the_rates(self, tmp_path, capsys, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("RTR_PLAYBACK_PRESENCE_FRESH_S", raising=False)
+        monkeypatch.delenv("RTR_PLAYBACK_PRESENCE_HANDOFF_S", raising=False)
+        d = tmp_path / "overrides"
+        d.mkdir()
+        records = [
+            played_through(staleness=3.0, ts=1000.0),
+            played_through(staleness=400.0, duration=180.0, ts=5000.0),
+        ]
+        (d / "2026-07-10.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in records), encoding="utf-8"
+        )
+        exit_code = tuning_report.main(
+            [str(tmp_path / "nope*.jsonl"), "--overrides", str(d / "*.jsonl")]
+        )
+        assert exit_code == 0
+        out = capsys.readouterr().out
+        assert "gated: 1 played_through excluded (1 empty-room" in out
+        assert "absent" in out and "(retro)" in out
+        # the surviving completion still counts; the flagged one is listed,
+        # not deleted — and the source file is untouched
+        assert (d / "2026-07-10.jsonl").read_text(encoding="utf-8").count(
+            "played_through"
+        ) == 2
