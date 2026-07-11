@@ -104,11 +104,13 @@ me reading the room."
 
 ## Data
 
-`data/*` is deliberately never committed (public repo, local data — the
-gitignore comment is founder policy). The corpus travels via the
-founder's Google Drive as `rtr-corpus-2026-07-11.tar.gz`; extract it so
-the files land under `data/annotations/` and `data/overrides/` on the
-PC and verify parity by running `python scripts/tuning_report.py` —
+`data/*` is deliberately never committed to THIS repo (public repo,
+local data — the gitignore comment is founder policy). The corpus lives
+in the founder's **private** repo `Jdudeisme/read-the-room-data`
+(annotations/ and overrides/ at its root, with a README covering layout
+and provenance). Clone it and copy the files under `data/annotations/`
+and `data/overrides/` on the PC, then verify parity by running
+`python scripts/tuning_report.py` —
 expect 113 annotation records (104 good / 9 wrong) and 60 override
 records, matching the Mac's output. Development and the test suite stay
 on synthetic logs as always; the real corpus is for validating whatever
