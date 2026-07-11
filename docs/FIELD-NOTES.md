@@ -5,6 +5,245 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-07-10 — Trio free-form DJ evening: indoor, porch, silent room (non-gating)
+
+**Setup.** Followed the part (d) gate the same evening. One dashboard run
+with the real playlist mapping (11 cells), founder + 2 friends, laptop
+carried between rooms. Segments (wall-clock): **indoor trio DJ**
+20:16:49–20:45:53; **porch 1 (trio, outdoor)** 20:55:54–21:17:16;
+**silent living room (laptop alone, music playing)** 21:17:16–21:34:47;
+**porch 2 (trio, outdoor)** 21:34:47–21:48:20; **full volume (output
+93%) indoor** 21:48:20–22:08:12, **then outdoor** 22:08:12–22:27:23;
+**empty room, AC on, charging** 22:27:23–23:02:07; **trio goodbye**
+23:02:07–~23:10; **solo close-out (calming classical)** to shutdown
+~23:14. First-ever data for: three real voices, outdoor acoustics, and
+full-volume playback. 83 annotation frames and 41 override-log lines on
+the day (both files also carry the part (d) gate phases).
+
+**Observations.**
+
+1. **Trio undercount is systematic — the first real multi-voice test of
+   the 0.70 threshold.** Across indoor and both porch segments, the
+   bucket read solo or pair for essentially the entire trio
+   conversation (raw_clusters 1–4, crowd_weight ≈ 0); it touched 4 only
+   twice, briefly, in porch 2. The founder deliberately tapped **Wrong
+   call** on undercount frames (e.g. 21:10:28 `solo` during three-way
+   porch chat) — first session where wrong-verdicts mark headcount
+   ground truth. Consistent with the known similar-voices-merge
+   trade-off of the 0.70 threshold plus intermittent per-speaker
+   airtime; the opposite failure direction from the crowd-path
+   overcounts (pool `16`, tonight's phase-2b `8`). The estimator
+   currently has no stable middle: animated pairs can overcount, real
+   trios undercount.
+2. **Outdoor acoustics are friendly, not hostile.** Porch speech
+   certified at speech_ratio up to 0.92 at −25…−30 dBFS — full VAD
+   reach, no fan-masking, none of the pool session's reverb pathology.
+   Open air (no reflections, low noise floor) looks like an easier
+   regime than either the pool or a music-filled room. Mood tracked
+   plausibly throughout: excited porch chatter early, flat/chill as the
+   evening wound down, honest `None` in silence.
+3. **`played_through` weak positives are banked by empty rooms.** Music
+   kept playing while everyone sat outside (by design — silence is
+   absence of evidence), and tracks that completed logged
+   played_through "weak positive" lines with nobody present to veto:
+   Thriller at 20:44:53, Just the Way You Are + Just In Time in the
+   silent-living-room segment. **An empty room can't veto, so these are
+   mislabeled approvals.** Before M5 learns from the override corpus,
+   played_through lines need a presence gate (e.g. require speech
+   evidence / low headcount staleness within the track's window) — or
+   the corpus rewards whatever plays to an empty room.
+4. **DJ mechanics round-tripped under real group use:** 6 manual picks
+   honored (including genre pivots Hip-Hop→Jazz→Lofi as the group
+   mellowed), 3 wrong_vibe vetoes each followed by a different-pool
+   pick, boundary-only transitions, played_through only on real
+   completions while occupied. The `guard/uncertain-regime` cell
+   appeared at low headcount confidence — guards holding rather than
+   guessing.
+
+5. **Full volume revealed the gate's over-suppression limit — and a
+   self-correcting cascade.** At 93% output the music read −22 dBFS at
+   the mic, *louder than the participants' voices* (−25…−30 all night),
+   and `speech_ratio` pinned to 0: the strict `vad_playback_threshold`
+   that rejected sung vocals in part (d) phase 5 now rejected everyone.
+   The cascade, all from the logs: blind system → guard recommendations
+   → nothing selected/queued (last selection 22:06:07) → track completed
+   into silence at 22:12:00 → **silence flipped `playback_active` off,
+   the VAD reverted to its normal threshold, speech certified within
+   ~30 s** (sr 0.33 by 22:12:28) → real recommendation fired →
+   controller bootstrapped 'April Showers' at 22:13:13. No crash, no
+   intervention — but at volumes where music out-shouts the room the
+   system is a limit cycle (music blinds → starves → silence heals →
+   repeats), not a DJ. Founder banked Wrong-call taps during the blind
+   window (22:11:46, 22:12:01: stale 200+ s, sr 0, −22 dBFS) and Good
+   taps on recovery — a clean before/after pair. **Operating envelope
+   finding: voices must out-read music at the mic; ~60–70% output on
+   this hardware.** After recovery, speech certified at 0.6–0.8 over
+   playback for the rest of the segment.
+6. **AC-on empty room: no phantom growth.** The deliberate AC phase the
+   2026-07-06 notes asked for, opportunistically: 35 min of AC broadband
+   + playback, nobody home. The one banked frame (22:59:06) shows the
+   bucket holding stale (pair, 84 s), raw_clusters frozen, sr 0 — the
+   contamination gate held against AC + music together. The 07-06 blip
+   suspect (AC *onset* during active estimation) remains untested; this
+   covers steady-state AC under playback.
+7. **Participant-validated emotion accuracy.** All three participants —
+   the first group to watch it live, and the first informal validation
+   not done by the founder alone — reported being genuinely impressed by
+   how accurately the valence/arousal readings tracked the room across
+   the evening. The frame record agrees: excited through the animated
+   porch conversation, chill/flat as the night wound down, a tense blip
+   or two, and honest `None` whenever the room went quiet. Still
+   informal (no per-frame verdicts on mood specifically, and the earlier
+   phases-4/6 excitement confound stands), but the strongest
+   multi-person endorsement of the emotion layer to date.
+8. **The goodbye produced the night's most accurate group read.** Three
+   people talking animatedly at 23:02 finally drove the bucket to 4 —
+   the nearest bucket to a true 3 after an evening of solo/pair
+   undercounts (suggesting simultaneous/overlapping speech, not just
+   more speech, is what separates the clusters). When the friends left
+   and calming classical took over, the gate certified nothing and the
+   bucket froze at 4 with growing staleness — observed live by the
+   founder as "still says 4 even though it's just me": correct hold
+   semantics, informally the bookend of phase 1's held `pair`.
+
+Session ended ~23:14 (dashboard stopped; Spotify kept playing the
+close-out classical — the provider owning playback across shutdown, as
+designed). `tuning_report.py` read the full corpus back cleanly: 113
+annotations (104 good / 9 wrong) and 60 override records (4 skip,
+10 wrong_vibe, 16 manual, 30 played_through) across all sessions, no
+boundary adjustments suggested. Segment detail lives in
+`data/annotations/2026-07-10.jsonl` and `data/overrides/2026-07-10.jsonl`
+(timeline timestamps above segment the files cleanly).
+
+## 2026-07-10 — M4 gate part (d) phases 2–6: contamination protocol (apartment, evening)
+
+**Setup.** Two known participants (founder + 1 friend) for phases 2–3;
+**correction, learned post-session: a third participant was present from
+phase 4 onward** (arrival not caught on the phase clock; speech
+participation in phases 4/6 unconfirmed — ground truth for those phases
+is 2–3 speakers, not a clean pair). Same closed quiet apartment room as
+phase 1, AC/fans off, mic input 34%. One continuous
+dashboard run (started 19:40) with playback **enabled** but pointed at an
+empty playlist mapping via `RTR_PLAYBACK_PLAYLISTS_PATH` — the controller
+polls Spotify honestly (so `playback_active` tags evidence and the
+stricter `vad_playback_threshold` engages) but every genre pool is
+unmapped, so the DJ can never start or swap a track ("silence beats wrong
+guess" doing measurement duty). Phase music was started by hand in
+Spotify: instrumental = RTR · Lofi Beats · low, vocal = RTR · Pop · high,
+volume set once at phase 3 and untouched through phase 6 (mic-side it
+read −35…−45 dBFS — results are conditional on this moderate volume).
+2-min quiet re-seed 19:41:57–19:43:57 preceded phase 2 (noise floor is a
+60 s in-memory EMA; phase 1 ran in an earlier process — see entry below).
+24 frames banked via taps.
+
+Phase windows: 2 = 19:44:09–19:49:35 (solo half → both from 19:46:51);
+3 = 19:49:35–19:55:00; 4 = 19:55:00–20:00:09; 5 = 20:00:09–20:05:33;
+6 = 20:05:33–20:10:33.
+
+Representative frames (full set in `data/annotations/2026-07-10.jsonl`):
+
+| phase | frames | bucket range | raw | crowd_wt | frag | speech_ratio | dBFS | playback_active |
+|---|---|---|---|---|---|---|---|---|
+| 2a solo speech | 2 | solo→pair | 1 | 0.15–0.17 | 0–0.11 | 0.83–0.85 | −27 | false |
+| 2b pair speech | 2 | pair→**8** | 3 | 0.26–0.27 | 0.23–0.32 | 0.95 | −25…−30 | false |
+| 3 instr, silent | 6 | held 4 (stale 40→298 s) | frozen | 0 | frozen | **0.000–0.002** | −38…−45 | **true** |
+| 4 instr + speech | 6 | solo/pair (one 4-blip) | 1–2 | 0–0.28 | 0.59–0.89 | 0.69–0.92 | −26…−35 | **true** |
+| 5 vocal, silent | 4 | held pair (stale 30→298 s) | frozen | 0 | frozen | **0.000–0.003** | −36…−44 | **true** |
+| 6 vocal + speech | 4 | solo/pair | 1–2 | 0–0.23 | 0.64–1.0 | 0.74–0.91 | −25…−31 | **true** |
+
+**Findings.**
+
+1. **The v1 contamination gate passed its hardest test.** Phase 5 — vocal
+   music (Pop with sung vocals), silent room — certified essentially zero
+   speech for 5 straight minutes (`speech_ratio` ≤ 0.003), so the
+   headcount received no submissions (honest staleness growth to 298 s),
+   the bucket held, and the mood went stale rather than absorbing the
+   song. Zero phantom clusters, zero bucket creep. Per protocol, the
+   `RTR_VAD_PLAYBACK_THRESHOLD=0.85` repeat was **not** run — no phantom
+   growth to knock down. Same result in phase 3 (instrumental).
+2. **Speech stayed certified under both music types.** Phases 4/6:
+   speech_ratio 0.69–0.92 while music played, no phantom growth, and
+   phase-6-vs-4 drift ≈ none (vocal penalty on headcount: not observed
+   at this volume). `playback_active: true` on every music-phase frame.
+   Caveat per the setup correction: true occupancy in 4/6 was 3, so if
+   the third participant was talking, the solo/pair buckets are an
+   **undercount** (consistent with the known similar-voices-merge
+   trade-off at threshold 0.70) rather than a clean pair match — the
+   no-phantom-growth conclusion stands either way, the accuracy claim
+   doesn't.
+3. **The night's real overcount came from the clean baseline.** Phase 2b —
+   two animated people, NO music — hit bucket 8 (raw_clusters 3,
+   crowd_weight 0.27, speech_ratio 0.95): the crowd/babble path engaging
+   on excited pair conversation in a quiet room, a small-magnitude cousin
+   of the pool session's pair→16. In a quiet apartment at moderate music
+   volume, **the headcount's enemy is animated conversation, not
+   playback**. The known crowd-regime misfire (separation_score=0 →
+   sep_collapse=1) remains the suspect.
+4. **Fragmentation runs hot under music + speech** (0.59–1.0 in phases
+   4/6 vs ≤0.32 without music) — the proportional min-mass floor
+   (`min_cluster_evidence_frac`) is what kept that debris from counting.
+   Worth watching at higher music volumes.
+5. **Mood contamination went unquantified tonight** — phases 4/6 read
+   `excited` over genuinely excited conversation, so the song's emotion
+   and the room's were confounded. The 2026-07-06 observation
+   (deliberately mellow human read excited under hip-hop) remains the
+   datapoint; a deliberately-flat-affect phase over vocal music is the
+   missing measurement.
+6. Solo speech (2a) blipped solo→pair (crowd_weight ~0.16), consistent
+   with known solo behavior; mood tracked excited with one tense blip.
+
+**M4 part (d): complete.** Measure-first baseline recorded; with (a)–(c)
+green on 2026-07-06, the M4 gate is fully passed. Baseline numbers for
+the M5 music-detection decision: at quiet-apartment volumes the VAD-side
+gate already rejects vocals outright; M5's case must rest on louder
+playback, valence contamination during speech, or harder rooms.
+
+## 2026-07-10 — M4 gate part (d) phase 1: baseline quiet (apartment, evening)
+
+**Setup.** Solo occupant (phases 2–6 with known participants run later
+tonight), closed quiet apartment room, AC/fans off, mic input volume 34%,
+dashboard fresh-started 19:25:23 with `RTR_PLAYBACK_ENABLED=0` for this
+run — deliberate, so a bootstrap recommendation could not start music
+during the no-playback phase (startup line confirmed shadow mode). Phase
+window **19:27:23–19:32:23**; four frames banked via Good-call taps.
+
+Protocol deviation, noted: phase 1 ran standalone ahead of phases 2–6
+(separate engine run). The noise floor is an in-memory 60 s EMA
+(`engine.py`, `Ema(noise_floor_tau_s)`) fed by quiescent windows, so it
+does not persist across restarts — tonight's session will prepend ~2 min
+of quiet before phase 2 to re-seed. Phase 1's own observations (hold /
+staleness / no phantom growth) are restart-independent.
+
+| time | bucket | stale (s) | raw_clusters | crowd_weight | speech_ratio | dBFS | playback_active | matched_cell |
+|---|---|---|---|---|---|---|---|---|
+| 19:28:56 | pair | 105.5 | 4 | 0 | 0 | −45.7 | false | guard/no-speech |
+| 19:30:35 | pair | 205.5 | 4 | 0 | 0 | −44.3 | false | guard/no-speech |
+| 19:31:36 | pair | 265.5 | 4 | 0 | 0 | −47.7 | false | guard/no-speech |
+| 19:32:11 | pair | 299.5 | 4 | 0 | 0 | −54.4 | false | guard/no-speech |
+
+**Result: expected phase 1 behavior on every axis.**
+
+- **Bucket holds, staleness honest.** No headcount submissions in
+  silence; staleness grew linearly 105→299 s while the bucket held.
+  The last-window diagnostics (`raw_clusters` 4, `dispersion` 0.579,
+  `fragmentation` 0.429, `smoothed_log2` 1.672) were frozen across all
+  four frames — residue of the final pre-phase submission (~19:27:11,
+  incidental pre-"go" audio), not live estimates. The held `pair` on a
+  solo-occupant silent room is the designed "silence is absence of
+  evidence" semantics, not an error.
+- **VAD certified zero speech** (`speech_ratio` 0 on every frame) and the
+  recommender stayed on the no-speech guard throughout — no
+  recommendation fired in 5 min of silence.
+- **Quiescent floor is low**: −44…−54 dBFS, far below the pool session's
+  fan-inflated −10…−20 and below the prior quiet-room −28 reference.
+  With `raw_ratio < 0.1` the entire phase, the 60 s-tau floor EMA was
+  fully seeded well before phase end.
+- **Debuggability gap (small, same family as the fixed `smoothed_log2`
+  one):** the seeded `noise_floor_dbfs` isn't exposed in state or
+  annotation frames, so "noise floor seeds" is inferred from quiescent
+  loudness rather than read directly. Worth exposing before/during M5,
+  since part (d)'s phases 3–6 lean on floor-relative terms.
+
 ## 2026-07-06 — M4 gate part (c): first real playback (apartment, evening)
 
 Two live sessions on the Mac, ~30 min (21:07–21:37) + ~17 min re-check
