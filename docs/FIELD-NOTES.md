@@ -5,6 +5,77 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-07-11 (afternoon) — M6 gate: five parts pass, part (c) fails honestly
+
+**Gate context** (`docs/M6-TEST-PLAN.md`, Mac, quiet apartment): (a)
+bench p95 1.04 s / 1.09 s — reference taps didn't move the contended
+profile; (b) 270 tests green; (d) positive control PASS; (e) anchor
+persistence PASS; (f) 30-min live sweep PASS. **(c) — the milestone's
+reason to exist — FAILED: ΔV +0.325 / ΔA +0.274 against a < 0.2 target
+(baseline +0.26 / +0.39).** Per protocol, no in-session tuning; the
+numbers below are the calibration record the PC asked for.
+
+**Part (c) detail.** Warm-up fingerprinted the phase track
+(`…5ynNMdW7`) at V +0.15 / A +0.36 from 44 reference taps (redone once:
+the AC ran during the first attempt's opening minute — signature wiped,
+room corrected, clean re-run). Flat-reading phases 15:46:22–15:49:41
+(no music, mean V −0.125 / A −0.606 — replicates yesterday's baseline
+almost exactly) and 15:49:55–15:53:05 (same track, same delivery, mean
+V +0.200 / A −0.332). The machinery all worked as designed: the
+"hearing through music" chip showed, dominance tracked voice-vs-music
+competition faithfully (0.50→1.0 as the monotone lost to the record;
+0.17–0.33 once animated speech won), corrections scaled with it
+(corrA up to 0.37 ≈ the full signature at dominance 1).
+
+**Why it still failed — the estimator, not the knob.** The correction
+subtracts the record's *standalone* signature scaled by dominance. But
+the measured valence push on mixed speech (+0.33) is ~4× the record's
+own valence signature (+0.09…0.15), while the arousal push (~0.5 raw)
+is ~1.5× its signature. Cancelling arousal needs β≈1.5–2; cancelling
+valence needs β≈4, which would over-correct arousal into the floor. **A
+single scalar β on the standalone signature cannot satisfy both axes:
+the model's valence read of speech-over-music is super-additive — it
+hears flat speech + mildly-positive music as "chill" beyond what the
+music alone carries.** Candidate directions for the PC: per-axis β
+(cheap, calibratable from this session's numbers); or estimate the
+pull from mixed windows rather than music-only windows (the reference
+architecture already exists; a "contaminated-speech tap" during the
+warm-up would measure the interaction directly).
+
+**Part (d) — the fix doesn't mute the room.** Same track still playing,
+genuinely animated talking: mean V +0.043 / A +0.352, moods
+excited/tense, arousal separation from the monotone-over-music phase
+**+0.68**, confidence 0.91–0.97. Shift-not-mute holds live; whatever
+part (c)'s next iteration does, part (d)'s bar is set.
+
+**Part (e) — anchor persistence, decisive evidence.** Quiet re-seed
+saved `advisory_anchor.json` at −45.3 dBFS (a mid-seed notification
+chime didn't distort it — 60 s EMA re-converged). Loud-first
+mid-playback start: banner rose ~10 hops in while the live floor sat at
+−19.9 against −21 loudness — a zero-to-negative live gap; only the
+restored anchor (24 dB gap) could have judged it. Anchor deleted:
+same session shape stayed dark for 45 s (fallback as documented).
+
+**Part (f) — 30-min normal-evening sweep (16:05–16:35), all green:**
+15 tracks fingerprinted (refs 1–77, signatures plausibly ranked from
+A +0.62 bangers to A −0.52 ballads); corrected readings fed non-guard
+recommendation cells; 6 played_throughs all occupied (5 fresh, 1
+tap-rescued in a quiet stretch — sensible); zero advisory frames at
+normal volume; 22 controller selections; report reads the full corpus
+back cleanly (160 annotations / 81 overrides, presence gate math
+coherent).
+
+Protocol notes: the AC-contamination restart above is the third
+time-of-day hazard this room has taught us (AC onset 07-06, AC
+steady-state 07-10, AC-in-warm-up today); the test plan's checkpoint
+text mentions a "reference tap" log line that doesn't exist — the
+signatures file is the real evidence (doc nit for the PC).
+
+**Gate verdict: NOT passed — (c) is the milestone.** Branch stays
+unmerged; the calibration record above goes back to the PC for the β/
+estimator iteration, then (c) re-runs on the Mac. Parts (d), (e), (f)
+established regression bars the iteration must not break.
+
 ## 2026-07-11 — M5 gate day (apartment, afternoon): part (f) flat-affect measurement + the part (e) advisory bug
 
 **Gate context.** M5 gated per `docs/M5-TEST-PLAN.md` on the Mac: parts

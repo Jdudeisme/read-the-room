@@ -439,6 +439,29 @@ advisory) and additive state fields, so this is again the M2 gate re-run
 as a regression check; the numbers sit within run-to-run variance of the
 prior rows.
 
+### Milestone 6 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
+
+Gate progress — see [docs/M6-TEST-PLAN.md](docs/M6-TEST-PLAN.md) for the
+full checklist. **2026-07-11: parts (a), (b), (d), (e), (f) pass; part
+(c) — the contamination pull — FAILED at ΔV +0.325 / ΔA +0.274 against
+the < 0.2 target.** The mechanism (per-track signatures, dominance
+scaling, shift-not-mute) works as designed; the estimator is short: a
+single scalar β on the record's standalone signature can't cancel both
+axes because the valence pull on mixed speech measures ~4× the record's
+own signature while arousal measures ~1.5×. Full calibration record in
+the 2026-07-11 afternoon entry of
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md); the gate re-runs after the
+next iteration.
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback` | headcount, contended hops | 1.00 s | 1.04 s | < 1.37 s | PASS |
+| `bench_headcount.py --fallback` | emotion, overall | 0.88 s | 1.09 s | < 1.2 s absolute | PASS |
+
+Reference taps ride the existing emotion worker at its existing rate
+limit and only fire in speech-idle windows, so the contended profile is
+unchanged — within run-to-run variance of every prior row.
+
 ## Tests
 
 ```bash
