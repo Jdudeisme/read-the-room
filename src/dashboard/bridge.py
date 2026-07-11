@@ -24,15 +24,55 @@ from sensing.state import RoomState
 log = logging.getLogger(__name__)
 
 
+class EnvelopeAdvisory:
+    """Blind-signature detector (M5 deliverable 3, the non-ML piece): while
+    the system's own output is audible, sustained loudness well over the
+    rolling noise floor with zero certified speech means the music is
+    out-reading the room — the 2026-07-10 full-volume limit cycle. The
+    dashboard renders the verdict as a "turn it down" banner; nothing else
+    acts on it. Hop-streak hysteresis so a single quiet-in-the-groove
+    window can't flap the banner."""
+
+    def __init__(
+        self,
+        db_over_floor: float = 10.0,
+        speech_eps: float = 0.05,
+        hops: int = 10,
+    ):
+        self.db_over_floor = db_over_floor
+        self.speech_eps = speech_eps
+        self.hops = max(1, hops)
+        self._streak = 0
+
+    def update(self, frame: dict) -> bool:
+        floor = frame.get("noise_floor_dbfs")
+        blind = (
+            frame.get("playback_active") is True
+            and floor is not None
+            and frame.get("loudness_dbfs", floor) - floor >= self.db_over_floor
+            and frame.get("speech_ratio", 1.0) <= self.speech_eps
+        )
+        self._streak = self._streak + 1 if blind else 0
+        return self._streak >= self.hops
+
+
 class DashboardBridge:
     def __init__(
-        self, mapper: Mapper, history_maxlen: int = 300, engine=None, playback=None
+        self,
+        mapper: Mapper,
+        history_maxlen: int = 300,
+        engine=None,
+        playback=None,
+        advisory: EnvelopeAdvisory | None = None,
     ):
         self._mapper = mapper
         self.engine = engine  # optional; read for regime extras + statuses
         # Optional PlaybackController (M4): receives every Mapper emission
         # (non-blocking slot handoff) and contributes now-playing extras.
         self.playback = playback
+        # Envelope advisory (M5): evaluated per frame on the engine thread;
+        # None (shadow mode) pins the frame field to False.
+        self.advisory = advisory
         self._history: deque[dict] = deque(maxlen=history_maxlen)
         self._current_rec: dict | None = None
         self._clients: dict[int, tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = {}
@@ -48,6 +88,9 @@ class DashboardBridge:
             **self._engine_extras(),
             **self._playback_extras(),
         }
+        frame["envelope_advisory"] = (
+            self.advisory.update(frame) if self.advisory is not None else False
+        )
         rec = self._mapper.update(state)
         if rec is not None and self.playback is not None:
             try:
@@ -77,6 +120,7 @@ class DashboardBridge:
             "headcount_dispersion": None,
             "headcount_fragmentation": None,
             "headcount_smoothed_log2": None,
+            "headcount_recent_raw_log2": None,
             "emotion_status": None,
             "headcount_status": None,
         }
@@ -93,6 +137,9 @@ class DashboardBridge:
                 extras["headcount_dispersion"] = round(reading.dispersion, 3)
                 extras["headcount_fragmentation"] = round(reading.fragmentation, 3)
                 extras["headcount_smoothed_log2"] = round(reading.smoothed_log2, 3)
+                extras["headcount_recent_raw_log2"] = [
+                    round(x, 3) for x in reading.recent_raw_log2
+                ]
         return extras
 
     def _playback_extras(self) -> dict:

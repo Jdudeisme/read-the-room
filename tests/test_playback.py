@@ -257,6 +257,18 @@ class TestTrackSelector:
         with pytest.raises(ProviderError):
             selector.select(["Pop"], "high")
 
+    def test_selection_stamps_genre_and_tier(self):
+        """M5: the pick carries which (genre, tier) it answered, so every
+        downstream record has genre-level evidence for pool weighting."""
+        provider = FakeProvider(library={("Jazz", "mid"): [_track(1, "pl-jazz")]})
+        selector = TrackSelector(provider, seed=0)
+        chosen = selector.select(["Pop", "Jazz"], "mid")
+        assert chosen.genre == "Jazz"
+        assert chosen.tier == "mid"
+        assert chosen.to_dict()["genre"] == "Jazz"
+        # tracks straight off the provider are unstamped
+        assert provider.tracks_for("Jazz", "mid")[0].genre is None
+
 
 class TestController:
     @pytest.fixture

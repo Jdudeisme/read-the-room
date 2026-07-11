@@ -53,11 +53,15 @@ import logging
 import math
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
 
 from .state import HeadcountBucket, bucket_from_log2
+
+# Raw log2 estimates kept on the reading for attribution (M5 observability).
+RECENT_RAW_KEEP = 5
 
 log = logging.getLogger(__name__)
 
@@ -558,6 +562,10 @@ class HeadcountReading:
     fragmentation: float
     smoothed_log2: float  # the BucketSmoother EMA value that produced `bucket`
     at: float  # time.monotonic() when the estimate finished
+    # M5 observability (the pool session's pair -> 16 attribution gap): the
+    # last few raw log2 estimates, newest last, so a smoothed-bucket anomaly
+    # is attributable from a single frame even after the raw inputs subside.
+    recent_raw_log2: tuple[float, ...] = ()
 
 
 class HeadcountWorker:
@@ -596,6 +604,7 @@ class HeadcountWorker:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._latest: HeadcountReading | None = None
+        self._recent_raw: deque[float] = deque(maxlen=RECENT_RAW_KEEP)
         self._last_infer_at = -1e9
         self.status = "loading"  # loading | ready | failed | stopped
         self.error: str | None = None
@@ -686,6 +695,7 @@ class HeadcountWorker:
             bucket = self._smoother.update(estimate.log2_count, submitted_at)
             # update() always seeds the EMA, so smoothed_log2 is non-None here.
             smoothed_log2 = self._smoother.smoothed_log2
+            self._recent_raw.append(estimate.log2_count)
             with self._lock:
                 self._latest = HeadcountReading(
                     bucket=bucket,
@@ -698,6 +708,7 @@ class HeadcountWorker:
                         smoothed_log2 if smoothed_log2 is not None else estimate.log2_count
                     ),
                     at=self._last_infer_at,
+                    recent_raw_log2=tuple(self._recent_raw),
                 )
             log.debug(
                 "headcount took %.2fs (clusters=%d, crowd_w=%.2f, bucket=%s)",

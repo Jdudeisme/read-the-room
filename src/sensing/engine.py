@@ -271,4 +271,9 @@ class Engine:
             trend=self._trend.update(energy, now),
             playback_active=playback_active,
             playback_track_id=playback_track_id,
+            noise_floor_dbfs=(
+                None
+                if self._noise_floor.value is None
+                else round(self._noise_floor.value, 1)
+            ),
         )

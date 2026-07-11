@@ -59,6 +59,12 @@ class Track:
     artist: str
     duration_s: float | None
     playlist_id: str | None  # the mapped playlist it was drawn from, if any
+    # Selection attribution (M5): which rulebook genre + energy tier the
+    # selector drew this track for. Stamped by TrackSelector, None straight
+    # off the provider. Rides every override/played_through record so
+    # per-cell pool weighting has genre-level evidence going forward.
+    genre: str | None = None
+    tier: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)

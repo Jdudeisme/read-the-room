@@ -7,6 +7,15 @@ forks or modifies the engine.
 
 from .annotations import append_annotation, build_record
 from .app import create_app
-from .bridge import DashboardBridge
+from .bridge import DashboardBridge, EnvelopeAdvisory
+from .presence import PresenceGate, assess_presence
 
-__all__ = ["DashboardBridge", "append_annotation", "build_record", "create_app"]
+__all__ = [
+    "DashboardBridge",
+    "EnvelopeAdvisory",
+    "PresenceGate",
+    "append_annotation",
+    "assess_presence",
+    "build_record",
+    "create_app",
+]

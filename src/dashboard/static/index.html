@@ -90,6 +90,14 @@
   .legend { display: flex; gap: 14px; font-size: 12px; color: var(--dim); margin-top: 4px; }
   .dotkey { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; }
 
+  /* Envelope advisory (M5): music is out-reading the room. */
+  #advisory {
+    display: none; margin-bottom: 12px; padding: 9px 14px;
+    border: 1px solid var(--warn); border-radius: 8px; color: var(--warn);
+    background: rgba(224,166,58,.10); font-weight: 600; font-size: 13px;
+  }
+  body.advisory-on #advisory { display: block; }
+
   #overlay {
     position: fixed; inset: 0; background: rgba(16,19,24,.82); display: none;
     align-items: center; justify-content: center; z-index: 10; backdrop-filter: blur(2px);
@@ -113,6 +121,10 @@
     <span id="conn" title="websocket"></span>
   </div>
 </header>
+
+<div id="advisory">⚠ music is out-reading the room — lower the volume if you
+want me listening (no certified speech while playback runs loud over the
+noise floor)</div>
 
 <div class="grid">
   <div class="panel">
@@ -300,6 +312,9 @@ function drawTimeline(now) {
 function updatePlayback(f) {
   // Contamination indicator: the RoomState stamp, not the controller status.
   $("pbactive").textContent = f.playback_active ? "on" : "off";
+
+  // Envelope advisory (M5): server-computed blind signature, banner only.
+  document.body.classList.toggle("advisory-on", f.envelope_advisory === true);
 
   const live = f.playback_status === "active" && f.now_playing;
   document.body.classList.toggle("playback-on", !!live);

@@ -45,9 +45,15 @@ def create_app(
     overrides_dir: Path | None = None,
     playback=None,  # PlaybackController | None; None = shadow mode
     playlists_path: Path | None = None,  # curated mapping for the manual picker
+    presence_gate=None,  # PresenceGate | None; taps are presence evidence (M5)
 ) -> FastAPI:
     app = FastAPI(title="Read the Room — shadow dashboard")
     overrides_dir = overrides_dir or Path("data/overrides")
+
+    def note_tap() -> None:
+        # Every human tap is presence evidence for the played_through gate.
+        if presence_gate is not None:
+            presence_gate.note_tap()
 
     @app.get("/")
     async def index() -> FileResponse:
@@ -81,6 +87,7 @@ def create_app(
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        note_tap()
         path = append_annotation(annotations_dir, record)
         log.info("annotation %s -> %s", payload.verdict, path)
         return {"ok": True, "ts": record["ts"], "path": str(path)}
@@ -100,6 +107,7 @@ def create_app(
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        note_tap()
         path = append_override(overrides_dir, record)
         log.info("override %s -> %s", payload.action, path)
 
