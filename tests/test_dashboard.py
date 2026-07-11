@@ -139,6 +139,53 @@ class TestEnvelopeAdvisoryFrames:
         # noise_floor_dbfs is a RoomState field now — it rides the frame
         assert frames[-1]["noise_floor_dbfs"] == -44.0
 
+    def test_floor_chase_does_not_blank_the_banner(self):
+        """The live floor absorbs sustained playback (its M3 semantics), so
+        the advisory must judge against the quiet anchor, not the chasing
+        floor — the 2026-07-11 gate failure signature."""
+        adv = EnvelopeAdvisory(db_over_floor=10.0, speech_eps=0.05, hops=2)
+        # quiet, playback-free stretch anchors the floor at -44
+        for _ in range(3):
+            assert adv.update(
+                dict(playback_active=False, noise_floor_dbfs=-44.0,
+                     loudness_dbfs=-44.0, speech_ratio=0.0)
+            ) is False
+        # loud playback while the live floor chases up toward the music:
+        # gap to the LIVE floor shrinks below threshold, gap to the anchor
+        # stays huge — banner must rise and stay risen
+        chased = [-40.0, -34.0, -28.0, -24.0, -23.0]
+        results = [
+            adv.update(
+                dict(playback_active=True, noise_floor_dbfs=floor,
+                     loudness_dbfs=-22.0, speech_ratio=0.0)
+            )
+            for floor in chased
+        ]
+        assert results == [False, True, True, True, True]
+
+    def test_mid_playback_start_falls_back_to_live_floor(self):
+        """No anchor yet (session began with music playing): the advisory
+        keeps the old step-detection behavior rather than staying blind."""
+        adv = EnvelopeAdvisory(db_over_floor=10.0, speech_eps=0.05, hops=2)
+        loud = dict(playback_active=True, noise_floor_dbfs=-44.0,
+                    loudness_dbfs=-22.0, speech_ratio=0.0)
+        assert [adv.update(dict(loud)) for _ in range(3)] == [False, True, True]
+
+    def test_quiet_playback_free_stretch_refreshes_the_anchor(self):
+        """The anchor tracks the room, not one moment: a later playback-off
+        stretch (e.g. the AC came on) re-anchors at the new quiet level."""
+        adv = EnvelopeAdvisory(db_over_floor=10.0, speech_eps=0.05, hops=1)
+        adv.update(dict(playback_active=False, noise_floor_dbfs=-44.0,
+                        loudness_dbfs=-44.0, speech_ratio=0.0))
+        # room got louder while idle (AC): anchor follows to -30
+        adv.update(dict(playback_active=False, noise_floor_dbfs=-30.0,
+                        loudness_dbfs=-30.0, speech_ratio=0.0))
+        # music at -22 is only 8 dB over the new anchor: no banner
+        assert adv.update(
+            dict(playback_active=True, noise_floor_dbfs=-30.0,
+                 loudness_dbfs=-22.0, speech_ratio=0.0)
+        ) is False
+
 
 class TestAnnotations:
     def test_post_writes_displayed_snapshot(self, bridge, client, tmp_path):

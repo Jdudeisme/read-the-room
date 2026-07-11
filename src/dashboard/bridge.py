@@ -27,11 +27,23 @@ log = logging.getLogger(__name__)
 class EnvelopeAdvisory:
     """Blind-signature detector (M5 deliverable 3, the non-ML piece): while
     the system's own output is audible, sustained loudness well over the
-    rolling noise floor with zero certified speech means the music is
+    room's quiet floor with zero certified speech means the music is
     out-reading the room — the 2026-07-10 full-volume limit cycle. The
     dashboard renders the verdict as a "turn it down" banner; nothing else
     acts on it. Hop-streak hysteresis so a single quiet-in-the-groove
-    window can't flap the banner."""
+    window can't flap the banner.
+
+    The reference is a quiet-anchored floor, not the live rolling floor:
+    the engine's noise floor deliberately absorbs "whatever the room
+    sounds like when nobody is talking" — including our own playback — so
+    comparing against it self-erases within one EMA tau of sustained
+    loudness (observed live 2026-07-11: floor chased a 90%-volume ramp and
+    kept the gap under threshold; the same chase would have blanked the
+    banner ~60 s into the 07-10 blind window this class exists to catch).
+    We remember the floor from playback-inactive frames and judge loud
+    playback against that. A session that starts mid-playback has no
+    anchor yet and falls back to the live floor (step-detection only)
+    until its first quiet, playback-free stretch."""
 
     def __init__(
         self,
@@ -43,13 +55,20 @@ class EnvelopeAdvisory:
         self.speech_eps = speech_eps
         self.hops = max(1, hops)
         self._streak = 0
+        self._anchor: float | None = None
 
     def update(self, frame: dict) -> bool:
         floor = frame.get("noise_floor_dbfs")
+        if frame.get("playback_active") is not True:
+            if floor is not None:
+                self._anchor = floor
+            self._streak = 0
+            return False
+        reference = self._anchor if self._anchor is not None else floor
         blind = (
-            frame.get("playback_active") is True
-            and floor is not None
-            and frame.get("loudness_dbfs", floor) - floor >= self.db_over_floor
+            reference is not None
+            and frame.get("loudness_dbfs", reference) - reference
+            >= self.db_over_floor
             and frame.get("speech_ratio", 1.0) <= self.speech_eps
         )
         self._streak = self._streak + 1 if blind else 0
