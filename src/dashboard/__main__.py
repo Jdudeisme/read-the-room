@@ -110,34 +110,36 @@ def main(argv: list[str] | None = None) -> int:
 
     # ~10 minutes of frames — exactly what the page timeline needs on load.
     history_maxlen = max(1, int(600.0 / config.hop_s))
+    from .bridge import EnvelopeAdvisory
+
+    advisory = (
+        EnvelopeAdvisory(
+            db_over_floor=playback_config.advisory_db_over_floor,
+            speech_eps=playback_config.advisory_speech_eps,
+            hops=playback_config.advisory_hops,
+        )
+        if controller is not None
+        else None
+    )
     bridge = DashboardBridge(
-        mapper, history_maxlen=history_maxlen, playback=controller
+        mapper, history_maxlen=history_maxlen, playback=controller,
+        advisory=advisory,
     )
     engine = Engine(source, config, consumers=[bridge], playback_source=controller)
     bridge.engine = engine  # regime extras + worker statuses on each frame
 
+    presence_gate = None
     if controller is not None:
-        from .overrides import append_override, build_override_record
+        from .overrides import make_played_through_sink
+        from .presence import PresenceGate
 
-        def played_through_sink(now_playing: dict, recommendation: dict) -> None:
-            """Implicit weak positive: stamped with the latest frame (there
-            is no tap to snapshot at)."""
-            frames, _ = bridge.snapshot()
-            state = {k: v for k, v in (frames[-1] if frames else {}).items()
-                     if k != "type"} or {"unavailable": True}
-            try:
-                append_override(
-                    overrides_dir,
-                    build_override_record(
-                        "played_through", state, recommendation, now_playing
-                    ),
-                )
-            except Exception:
-                logging.getLogger(__name__).exception(
-                    "failed to log played_through; label lost"
-                )
-
-        controller.on_played_through = played_through_sink
+        presence_gate = PresenceGate(
+            fresh_s=playback_config.presence_fresh_s,
+            handoff_s=playback_config.presence_handoff_s,
+        )
+        controller.on_played_through = make_played_through_sink(
+            bridge, overrides_dir, presence_gate
+        )
         controller.start()
 
     app = create_app(
@@ -146,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         overrides_dir,
         playback=controller,
         playlists_path=Path(playback_config.playlists_path),
+        presence_gate=presence_gate,
     )
 
     engine_thread = threading.Thread(target=engine.run, daemon=True, name="engine")

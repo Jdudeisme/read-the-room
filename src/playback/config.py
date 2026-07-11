@@ -53,6 +53,22 @@ class PlaybackConfig:
     # comfortably above poll_interval_s or boundaries get missed.
     queue_lead_s: float = 15.0
 
+    # Presence gate for played_through weak positives (M5 deliverable 1).
+    # Occupied iff staleness <= fresh_s at completion, or the track was a
+    # warm handoff (duration <= staleness <= duration + handoff_s), or a
+    # human tap landed inside its play window. Defaults derived from the
+    # 2026-07 corpus (docs/M5-PROPOSAL.md).
+    presence_fresh_s: float = 60.0
+    presence_handoff_s: float = 30.0
+
+    # Envelope advisory (M5 deliverable 3): the dashboard warns when music
+    # out-reads the room — playback active, loudness at least db_over_floor
+    # over the rolling noise floor, and certified speech at or below
+    # speech_eps, sustained for advisory_hops consecutive frames.
+    advisory_db_over_floor: float = 10.0
+    advisory_speech_eps: float = 0.05
+    advisory_hops: int = 10
+
     @classmethod
     def from_env(cls) -> "PlaybackConfig":
         load_dotenv()  # no-op if no .env file
@@ -76,4 +92,19 @@ class PlaybackConfig:
                 "RTR_PLAYBACK_POLL_INTERVAL_S", cls.poll_interval_s
             ),
             queue_lead_s=_env_float("RTR_PLAYBACK_QUEUE_LEAD_S", cls.queue_lead_s),
+            presence_fresh_s=_env_float(
+                "RTR_PLAYBACK_PRESENCE_FRESH_S", cls.presence_fresh_s
+            ),
+            presence_handoff_s=_env_float(
+                "RTR_PLAYBACK_PRESENCE_HANDOFF_S", cls.presence_handoff_s
+            ),
+            advisory_db_over_floor=_env_float(
+                "RTR_PLAYBACK_ADVISORY_DB_OVER_FLOOR", cls.advisory_db_over_floor
+            ),
+            advisory_speech_eps=_env_float(
+                "RTR_PLAYBACK_ADVISORY_SPEECH_EPS", cls.advisory_speech_eps
+            ),
+            advisory_hops=_env_int(
+                "RTR_PLAYBACK_ADVISORY_HOPS", cls.advisory_hops
+            ),
         )

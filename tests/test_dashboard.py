@@ -10,7 +10,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import make_state
-from dashboard import DashboardBridge, build_record, create_app
+from dashboard import (
+    DashboardBridge,
+    EnvelopeAdvisory,
+    PresenceGate,
+    build_record,
+    create_app,
+)
 from mapping import Mapper, MappingConfig
 from sensing.headcount import HeadcountReading
 from sensing.state import HeadcountBucket
@@ -89,6 +95,7 @@ class TestEngineExtras:
                     fragmentation=0.25,
                     smoothed_log2=1.23456,
                     at=0.0,
+                    recent_raw_log2=(1.0, 1.58496, 2.0),
                 )
                 return reading, 0.0
 
@@ -106,7 +113,78 @@ class TestEngineExtras:
         assert frame["headcount_dispersion"] == 0.457
         assert frame["headcount_fragmentation"] == 0.25
         assert frame["headcount_smoothed_log2"] == 1.235
+        assert frame["headcount_recent_raw_log2"] == [1.0, 1.585, 2.0]
         assert frame["headcount_status"] == "ready"
+
+
+class TestEnvelopeAdvisoryFrames:
+    def test_no_advisory_pins_the_frame_field_false(self, bridge):
+        bridge.on_state(make_state(timestamp=1000.0))
+        assert bridge.snapshot()[0][-1]["envelope_advisory"] is False
+
+    def test_blind_signature_flags_frames_after_the_streak(self):
+        bridge = DashboardBridge(
+            Mapper(MappingConfig(min_dwell_s=0.0)),
+            advisory=EnvelopeAdvisory(db_over_floor=10.0, speech_eps=0.05, hops=2),
+        )
+        blind = dict(
+            playback_active=True, noise_floor_dbfs=-44.0,
+            loudness_dbfs=-22.0, speech_ratio=0.0,
+            valence=None, arousal=None, mood=None,
+        )
+        for _ in range(3):
+            bridge.on_state(make_state(timestamp=1000.0, **blind))
+        frames = bridge.snapshot()[0]
+        assert [f["envelope_advisory"] for f in frames] == [False, True, True]
+        # noise_floor_dbfs is a RoomState field now — it rides the frame
+        assert frames[-1]["noise_floor_dbfs"] == -44.0
+
+    def test_floor_chase_does_not_blank_the_banner(self):
+        """The live floor absorbs sustained playback (its M3 semantics), so
+        the advisory must judge against the quiet anchor, not the chasing
+        floor — the 2026-07-11 gate failure signature."""
+        adv = EnvelopeAdvisory(db_over_floor=10.0, speech_eps=0.05, hops=2)
+        # quiet, playback-free stretch anchors the floor at -44
+        for _ in range(3):
+            assert adv.update(
+                dict(playback_active=False, noise_floor_dbfs=-44.0,
+                     loudness_dbfs=-44.0, speech_ratio=0.0)
+            ) is False
+        # loud playback while the live floor chases up toward the music:
+        # gap to the LIVE floor shrinks below threshold, gap to the anchor
+        # stays huge — banner must rise and stay risen
+        chased = [-40.0, -34.0, -28.0, -24.0, -23.0]
+        results = [
+            adv.update(
+                dict(playback_active=True, noise_floor_dbfs=floor,
+                     loudness_dbfs=-22.0, speech_ratio=0.0)
+            )
+            for floor in chased
+        ]
+        assert results == [False, True, True, True, True]
+
+    def test_mid_playback_start_falls_back_to_live_floor(self):
+        """No anchor yet (session began with music playing): the advisory
+        keeps the old step-detection behavior rather than staying blind."""
+        adv = EnvelopeAdvisory(db_over_floor=10.0, speech_eps=0.05, hops=2)
+        loud = dict(playback_active=True, noise_floor_dbfs=-44.0,
+                    loudness_dbfs=-22.0, speech_ratio=0.0)
+        assert [adv.update(dict(loud)) for _ in range(3)] == [False, True, True]
+
+    def test_quiet_playback_free_stretch_refreshes_the_anchor(self):
+        """The anchor tracks the room, not one moment: a later playback-off
+        stretch (e.g. the AC came on) re-anchors at the new quiet level."""
+        adv = EnvelopeAdvisory(db_over_floor=10.0, speech_eps=0.05, hops=1)
+        adv.update(dict(playback_active=False, noise_floor_dbfs=-44.0,
+                        loudness_dbfs=-44.0, speech_ratio=0.0))
+        # room got louder while idle (AC): anchor follows to -30
+        adv.update(dict(playback_active=False, noise_floor_dbfs=-30.0,
+                        loudness_dbfs=-30.0, speech_ratio=0.0))
+        # music at -22 is only 8 dB over the new anchor: no banner
+        assert adv.update(
+            dict(playback_active=True, noise_floor_dbfs=-30.0,
+                 loudness_dbfs=-22.0, speech_ratio=0.0)
+        ) is False
 
 
 class TestAnnotations:
@@ -214,6 +292,41 @@ class TestPlaybackBridge:
         assert stub.recs[0].genre_pool == ["Pop"]
 
 
+class TestTapNoting:
+    """M5: every human POST is presence evidence for the played_through gate."""
+
+    def _app(self, bridge, tmp_path, gate):
+        return create_app(
+            bridge,
+            annotations_dir=tmp_path / "annotations",
+            overrides_dir=tmp_path / "overrides",
+            presence_gate=gate,
+        )
+
+    def test_annotation_post_notes_a_tap(self, bridge, tmp_path):
+        gate = PresenceGate()
+        with TestClient(self._app(bridge, tmp_path, gate)) as client:
+            bridge.on_state(make_state(timestamp=1000.0))
+            with client.websocket_connect("/ws") as ws:
+                state, rec = ws.receive_json(), ws.receive_json()
+            state.pop("type"), rec.pop("type")
+            assert gate._last_tap_ts is None
+            client.post(
+                "/annotations",
+                json={"verdict": "good", "state": state, "recommendation": rec},
+            )
+        assert gate._last_tap_ts is not None
+
+    def test_rejected_post_is_not_a_tap(self, bridge, tmp_path):
+        gate = PresenceGate()
+        with TestClient(self._app(bridge, tmp_path, gate)) as client:
+            client.post(
+                "/annotations",
+                json={"verdict": "good", "state": {"x": 1}, "recommendation": {}},
+            )
+        assert gate._last_tap_ts is None  # 400: no human saw a valid frame
+
+
 class TestPlaylistsEndpoint:
     def test_no_path_means_no_mappings(self, client):
         assert client.get("/playlists").json() == {"mappings": []}
@@ -291,7 +404,7 @@ class TestOverridesEndpoint:
         files = list((tmp_path / "overrides").glob("*.jsonl"))
         assert len(files) == 1
         record = json.loads(files[0].read_text(encoding="utf-8"))
-        assert record["schema_version"] == 1
+        assert record["schema_version"] == 2
         assert record["action"] == "skip"
         assert record["now_playing"]["track"]["id"] == "t1"
         assert record["recommendation"]["matched_cell"] == ["4", "high", "high"]
@@ -367,5 +480,8 @@ class TestIndexPage:
             "Wrong vibe",
             "mpick",
             "pbactive",
+            # M5 envelope advisory banner
+            "advisory",
+            "out-reading the room",
         ):
             assert marker in html

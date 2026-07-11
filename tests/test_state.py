@@ -163,6 +163,16 @@ class TestPlaybackAwareness:
         tagged = make_state(playback_active=True, playback_track_id="track-9")
         assert tagged.to_dict()["playback_track_id"] == "track-9"
 
+    def test_noise_floor_defaults_none_and_serializes(self):
+        """M5 observability: the rolling quiescent-window floor rides
+        RoomState (None until the EMA seeds), so floor-relative terms are
+        auditable from any frame."""
+        from conftest import make_state
+
+        assert make_state().noise_floor_dbfs is None
+        seeded = make_state(noise_floor_dbfs=-44.3)
+        assert seeded.to_dict()["noise_floor_dbfs"] == -44.3
+
 
 class TestVadCertificationThreshold:
     def test_read_time_threshold_override(self):

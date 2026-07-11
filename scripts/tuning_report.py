@@ -25,6 +25,27 @@ labels — and three more sections:
   6. tier disagreement: manual picks whose chosen tier sits above/below the
      tier the playback layer derived from the recommendation.
 
+M5 gates the corpus before anything learns from it, and turns the counts
+into proposals:
+
+  4a. presence gate: played_through lines from plausibly empty rooms are
+      flagged (schema-v2 records carry a stamped `presence` block; v1
+      records get the same criterion retroactively, cross-referencing
+      same-day tap timestamps) and EXCLUDED from every rate/proposal
+      below. Vetoes banked while the system was blind (playback active,
+      zero certified speech, stale emotion — the beyond-envelope volume
+      signature) are likewise excluded: they judge the operating
+      envelope, not the music. Everything excluded is listed, never
+      deleted.
+  7. boundary adjustments from the strong labels: the section-3 machinery
+     over vetoes (wrong-equivalents) + occupied played_throughs
+     (good-equivalents), reported separately from the annotation-based
+     suggestions so the two evidence grades never silently blend;
+  8. tier-cutoff proposals: candidate RTR_PLAYBACK_TIER_* shifts scored by
+     how many past manual picks each would have agreed with;
+  9. per-cell pool weighting: veto/thru counts per (cell, genre) — only
+     for records that carry the selection genre (stamped from M5 onward).
+
 OUTPUT ONLY: this script proposes; it never modifies the rulebook, .env, or
 any file. Guard records (matched_cell[0] == "guard") appear in the cell
 table but are excluded from boundary analysis — no rulebook cell fired.
@@ -175,6 +196,90 @@ VETO_ACTIONS = ("skip", "wrong_vibe", "manual")
 
 TIERS = ("low", "mid", "high")
 
+# -- presence gate (M5): an empty room can't veto -----------------------------
+
+# Basis values that count as occupied. Occupied iff staleness <= fresh at
+# completion, or the track was a warm handoff (duration <= staleness <=
+# duration + handoff: quiet listener), or a human tap landed inside its play
+# window. Defaults and env names match the live gate.
+OCCUPIED_BASES = ("fresh", "handoff", "tap")
+
+
+def _presence_basis(
+    staleness_s: float | None,
+    duration_s: float | None,
+    fresh_s: float,
+    handoff_s: float,
+    tap_in_window: bool,
+) -> str:
+    # Must mirror dashboard.presence.assess_presence (the live gate).
+    if staleness_s is None:
+        return "tap" if tap_in_window else "unknown"
+    if staleness_s <= fresh_s:
+        return "fresh"
+    if (
+        duration_s is not None
+        and duration_s > 0
+        and duration_s <= staleness_s <= duration_s + handoff_s
+    ):
+        return "handoff"
+    if tap_in_window:
+        return "tap"
+    return "absent"
+
+
+def assess_presence_retro(record: dict, tap_times: list[float]) -> dict:
+    """Presence for one played_through record: the stamped block when the
+    record carries one (schema v2), otherwise the same criterion applied
+    retroactively — staleness and duration from the record itself, taps
+    cross-referenced against every same-corpus tap timestamp."""
+    stamped = record.get("presence")
+    if isinstance(stamped, dict) and "occupied" in stamped:
+        return {**stamped, "stamped": True}
+    fresh_s = float(os.environ.get("RTR_PLAYBACK_PRESENCE_FRESH_S", 60.0))
+    handoff_s = float(os.environ.get("RTR_PLAYBACK_PRESENCE_HANDOFF_S", 30.0))
+    state = record.get("state", {})
+    staleness = state.get("headcount_staleness_s")
+    if staleness is None:
+        staleness = state.get("emotion_staleness_s")
+    track = (record.get("now_playing") or {}).get("track") or {}
+    duration = track.get("duration_s")
+    ts = record.get("ts")
+    tap_in_window = bool(
+        ts is not None
+        and duration
+        and any(ts - duration <= tap <= ts for tap in tap_times)
+    )
+    basis = _presence_basis(staleness, duration, fresh_s, handoff_s, tap_in_window)
+    return {
+        "occupied": basis in OCCUPIED_BASES,
+        "basis": basis,
+        "staleness_s": staleness,
+        "track_duration_s": duration,
+        "stamped": False,
+    }
+
+
+# Blind-window vetoes (M5): banked while playback ran loud enough that the
+# system certified no speech and the emotion reading went stale — the
+# beyond-envelope volume signature (FIELD-NOTES 2026-07-10, 21:48-22:27).
+# They judge the operating envelope, not the music.
+BLIND_SPEECH_EPS = 0.05
+BLIND_STALENESS_S = 60.0
+
+
+def is_blind_veto(record: dict) -> bool:
+    if record.get("action") not in VETO_ACTIONS:
+        return False
+    state = record.get("state", {})
+    staleness = state.get("emotion_staleness_s")
+    return (
+        state.get("playback_active") is True
+        and state.get("speech_ratio", 1.0) <= BLIND_SPEECH_EPS
+        and staleness is not None
+        and staleness > BLIND_STALENESS_S
+    )
+
 
 def override_cell_counts(records: list[dict]) -> dict[tuple, Counter]:
     counts: dict[tuple, Counter] = {}
@@ -253,8 +358,127 @@ def tier_disagreement(records: list[dict]) -> Counter:
     return out
 
 
-def print_overrides_report(records: list[dict]) -> None:
+def _manual_picks(records: list[dict]) -> list[tuple[str, float, str]]:
+    """(chosen tier, target_arousal, energy_action) for scoreable manual
+    picks — same eligibility as tier_disagreement."""
+    picks = []
+    for r in records:
+        if r.get("action") != "manual":
+            continue
+        chosen_tier = (r.get("chosen") or {}).get("tier")
+        rec = r.get("recommendation", {})
+        target_arousal = rec.get("target_arousal")
+        if chosen_tier not in TIERS or target_arousal is None:
+            continue
+        picks.append((chosen_tier, target_arousal, rec.get("energy_action", "hold")))
+    return picks
+
+
+def suggest_tier_cutoffs(records: list[dict]) -> dict[str, dict]:
+    """Per tier cutoff, the candidate shift that would have made the derived
+    tier agree with the most past manual picks while breaking the fewest
+    existing agreements — section 3's idiom over the strong labels. The
+    cutoffs come from the environment (they are not snapshotted per record),
+    so the comparison is approximate if they moved between sessions."""
+    low_max = float(os.environ.get("RTR_PLAYBACK_TIER_LOW_MAX", -0.25))
+    high_min = float(os.environ.get("RTR_PLAYBACK_TIER_HIGH_MIN", 0.25))
+    picks = _manual_picks(records)
+    suggestions: dict[str, dict] = {}
+    for name in ("tier_low_max", "tier_high_min"):
+        best = {"shift": None, "agree_gained": 0, "agree_lost": 0}
+        for shift in CANDIDATE_SHIFTS:
+            moved_low = low_max + (shift if name == "tier_low_max" else 0.0)
+            moved_high = high_min + (shift if name == "tier_high_min" else 0.0)
+            if moved_low >= moved_high:
+                continue  # degenerate band; skip this candidate
+            gained = lost = 0
+            for chosen, target_arousal, energy_action in picks:
+                before = _derived_tier(target_arousal, energy_action, low_max, high_min)
+                after = _derived_tier(
+                    target_arousal, energy_action, moved_low, moved_high
+                )
+                if before != chosen and after == chosen:
+                    gained += 1
+                elif before == chosen and after != chosen:
+                    lost += 1
+            score = gained - lost
+            best_score = best["agree_gained"] - best["agree_lost"]
+            if score > best_score and score > 0:
+                best = {"shift": shift, "agree_gained": gained, "agree_lost": lost}
+        suggestions[name] = best
+    return suggestions
+
+
+def pool_weighting_counts(records: list[dict]) -> dict[tuple, Counter]:
+    """(cell, selection genre) -> veto/thru counts, for records whose
+    now_playing track carries the M5 selection stamp. Manual picks are
+    excluded — they judge the replacement, not the selection."""
+    counts: dict[tuple, Counter] = {}
+    for r in records:
+        action = r.get("action")
+        if action not in ("skip", "wrong_vibe", "played_through"):
+            continue
+        genre = ((r.get("now_playing") or {}).get("track") or {}).get("genre")
+        if not genre:
+            continue
+        cell = tuple(r.get("recommendation", {}).get("matched_cell") or ["?"])
+        key = (cell, genre)
+        counts.setdefault(key, Counter())[
+            "thru" if action == "played_through" else "veto"
+        ] += 1
+    return counts
+
+
+def gate_overrides(
+    records: list[dict], tap_times: list[float] | None = None
+) -> tuple[list[dict], list[tuple[dict, dict]], list[dict]]:
+    """(usable, suspect_played_throughs, blind_vetoes).
+
+    `usable` is what every rate/proposal below runs on: occupied
+    played_throughs plus non-blind tap actions. Suspects come back with
+    their presence assessment for the audit listing. Nothing is deleted —
+    the gate labels."""
+    tap_times = tap_times or []
+    usable: list[dict] = []
+    suspects: list[tuple[dict, dict]] = []
+    blind: list[dict] = []
+    for r in records:
+        if r.get("action") == "played_through":
+            presence = assess_presence_retro(r, tap_times)
+            if presence["occupied"]:
+                usable.append(r)
+            else:
+                suspects.append((r, presence))
+        elif is_blind_veto(r):
+            blind.append(r)
+        else:
+            usable.append(r)
+    return usable, suspects, blind
+
+
+def _as_pseudo_annotations(usable: list[dict]) -> list[dict]:
+    """Strong labels -> section-3-shaped records: vetoes read as wrong
+    calls, occupied played_throughs as good ones. Manual picks are left
+    out (they judge the replacement, not the cut); guard/manual-source
+    records fall out of _signal_records naturally."""
+    pseudo = []
+    for r in usable:
+        action = r.get("action")
+        if action in ("skip", "wrong_vibe"):
+            verdict = "wrong"
+        elif action == "played_through":
+            verdict = "good"
+        else:
+            continue
+        pseudo.append({**r, "verdict": verdict})
+    return pseudo
+
+
+def print_overrides_report(
+    records: list[dict], tap_times: list[float] | None = None
+) -> None:
     total = Counter(r.get("action", "?") for r in records)
+    usable, suspects, blind = gate_overrides(records, tap_times)
     print("=" * 64)
     print("OVERRIDES - playback strong labels")
     print("=" * 64)
@@ -264,10 +488,17 @@ def print_overrides_report(records: list[dict]) -> None:
         f"manual {total.get('manual', 0)}, "
         f"played_through {total.get('played_through', 0)})"
     )
+    unknown = sum(1 for _, p in suspects if p["basis"] == "unknown")
+    print(
+        f"gated: {len(suspects)} played_through excluded "
+        f"({len(suspects) - unknown} empty-room, {unknown} unknown-presence), "
+        f"{len(blind)} blind-window veto(es) excluded; "
+        f"{len(usable)} record(s) feed the sections below"
+    )
 
-    print("\n-- 4. overrides per rulebook cell ------------------------------")
+    print("\n-- 4. overrides per rulebook cell (gated corpus) ---------------")
     print(f"{'cell':<30} {'skip':>5} {'vibe':>5} {'man':>5} {'thru':>5} {'rate':>6}")
-    for cell, counts in sorted(override_cell_counts(records).items()):
+    for cell, counts in sorted(override_cell_counts(usable).items()):
         label = " / ".join(str(c) for c in cell)
         rate = override_rate(counts)
         print(
@@ -277,9 +508,31 @@ def print_overrides_report(records: list[dict]) -> None:
             f"{'—' if rate is None else f'{rate:.0%}':>6}"
         )
 
+    print("\n-- 4a. presence gate - flagged, never deleted ------------------")
+    if not suspects and not blind:
+        print("nothing flagged - every completion had presence evidence and")
+        print("no veto landed in a blind window")
+    for r, presence in suspects:
+        track = (r.get("now_playing") or {}).get("track") or {}
+        stamp = "stamped" if presence.get("stamped") else "retro"
+        print(
+            f"played_through {_fmt_ts(r.get('ts'))}  {presence['basis']:<8}"
+            f" ({stamp})  stale={_fmt_num(presence.get('staleness_s'))}s"
+            f" dur={_fmt_num(presence.get('track_duration_s'))}s"
+            f"  {track.get('title', '?')}"
+        )
+    for r in blind:
+        state = r.get("state", {})
+        print(
+            f"{r.get('action', '?'):<14} {_fmt_ts(r.get('ts'))}  blind-window"
+            f"  sr={state.get('speech_ratio')}"
+            f" emo_stale={_fmt_num(state.get('emotion_staleness_s'))}s"
+            f" dbfs={_fmt_num(state.get('loudness_dbfs'))}"
+        )
+
     print("\n-- 5. vetoes near a band boundary (within "
           f"{PROXIMITY_TOL:.2f}) ------------")
-    near = veto_boundary_proximity(records)
+    near = veto_boundary_proximity(usable)
     if not near:
         print("none - vetoes (if any) are not boundary-clustered")
     for name, _ in BOUNDARIES:
@@ -287,7 +540,7 @@ def print_overrides_report(records: list[dict]) -> None:
             print(f"{name:<14} {near[name]} veto(es) within {PROXIMITY_TOL:.2f}")
 
     print("\n-- 6. tier disagreement (manual picks vs derived tier) ---------")
-    tiers = tier_disagreement(records)
+    tiers = tier_disagreement(usable)
     if not tiers:
         print("no manual picks with a chosen tier")
     else:
@@ -297,7 +550,66 @@ def print_overrides_report(records: list[dict]) -> None:
         )
         print("(derived with the CURRENT RTR_PLAYBACK_TIER_* cutoffs; if the")
         print(" cutoffs moved between sessions this comparison is approximate)")
+
+    print("\n-- 7. boundary adjustments from the strong labels --------------")
+    print("(proposals only - vetoes read as wrong calls, occupied")
+    print(" played_throughs as good; apply by editing RTR_MAPPING_* in .env)")
+    any_suggestion = False
+    for name, s in suggest_adjustments(_as_pseudo_annotations(usable)).items():
+        if s["shift"] is None:
+            continue
+        any_suggestion = True
+        print(
+            f"{name:<14} shift {s['shift']:+.2f}  ->  would flip "
+            f"{s['wrong_flipped']} veto(es) / {s['good_flipped']} "
+            f"played_through(s) to a different cell"
+        )
+    if not any_suggestion:
+        print("no adjustment suggested by the current overrides")
+
+    print("\n-- 8. tier-cutoff proposals (from manual picks) ----------------")
+    print("(proposals only - apply by editing RTR_PLAYBACK_TIER_* in .env)")
+    any_suggestion = False
+    for name, s in suggest_tier_cutoffs(usable).items():
+        if s["shift"] is None:
+            continue
+        any_suggestion = True
+        print(
+            f"{name:<14} shift {s['shift']:+.2f}  ->  would agree with "
+            f"{s['agree_gained']} more manual pick(s), lose "
+            f"{s['agree_lost']} existing agreement(s)"
+        )
+    if not any_suggestion:
+        print("no shift would improve manual-pick agreement")
+
+    print("\n-- 9. per-cell pool weighting (selection genre) ----------------")
+    pool = pool_weighting_counts(usable)
+    if not pool:
+        print("no records carry the selection genre yet (stamped from M5")
+        print("onward) - collecting")
+    else:
+        print(f"{'cell / genre':<38} {'veto':>5} {'thru':>5} {'rate':>6}")
+        for (cell, genre), counts in sorted(pool.items()):
+            label = " / ".join(str(c) for c in cell) + f"  ·  {genre}"
+            vetoes, thrus = counts.get("veto", 0), counts.get("thru", 0)
+            rate = vetoes / (vetoes + thrus) if (vetoes + thrus) else None
+            print(
+                f"{label:<38} {vetoes:>5} {thrus:>5} "
+                f"{'—' if rate is None else f'{rate:.0%}':>6}"
+            )
     print("=" * 64)
+
+
+def _fmt_ts(ts) -> str:
+    if ts is None:
+        return "?"
+    import time as _time
+
+    return _time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(ts))
+
+
+def _fmt_num(x) -> str:
+    return "?" if x is None else f"{x:.1f}"
 
 
 def print_report(records: list[dict]) -> None:
@@ -386,7 +698,15 @@ def main(argv: list[str] | None = None) -> int:
             f"reading {len(override_files)} override file(s): "
             f"{', '.join(str(f) for f in override_files)}"
         )
-        print_overrides_report(override_records)
+        # Every human tap in the corpus is presence evidence for the
+        # retroactive gate: annotations, and overrides other than the
+        # controller-emitted played_through.
+        tap_times = [
+            r["ts"]
+            for r in records + override_records
+            if r.get("ts") is not None and r.get("action") != "played_through"
+        ]
+        print_overrides_report(override_records, tap_times)
     return 0
 
 

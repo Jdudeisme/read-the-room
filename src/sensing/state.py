@@ -105,6 +105,13 @@ class RoomState:
     playback_active: bool = False
     playback_track_id: str | None = None
 
+    # Observability (M5): the engine's rolling quiescent-window noise floor.
+    # Contamination handling and the envelope advisory key on loudness
+    # RELATIVE to this; publishing it makes those floor-relative terms
+    # auditable from any frame (the seed was invisible during M4 part (d)).
+    # None until the first quiescent window feeds the EMA.
+    noise_floor_dbfs: float | None = None
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["headcount_bucket"] = self.headcount_bucket.value if self.headcount_bucket else None

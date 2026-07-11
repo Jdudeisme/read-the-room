@@ -10,6 +10,7 @@ recommendation/audio-features endpoints.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import random
 from collections import deque
@@ -73,6 +74,8 @@ class TrackSelector:
             fresh = [t for t in candidates if t.id not in self._recent]
             choice = self._rng.choice(fresh if fresh else candidates)
             self._recent.append(choice.id)
-            return choice
+            # Stamp selection attribution (M5): which genre/tier this pick
+            # answered — per-cell pool weighting needs it on every record.
+            return dataclasses.replace(choice, genre=genre, tier=tier)
         log.info("no mapped playlist for pool=%s tier=%s", genre_pool, tier)
         return None

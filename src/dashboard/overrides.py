@@ -8,6 +8,13 @@ completion with no override is logged once as an implicit weak positive
 (`played_through`, emitted by the playback controller, stamped with the
 latest frame rather than a tap-time snapshot).
 
+Schema v2 (M5): played_through records additionally carry a `presence`
+evidence block (see dashboard.presence) — an empty room can't veto, so a
+completion is only a usable weak positive when the room was plausibly
+occupied. Gated lines are still written (`occupied: false`); the tuning
+report excludes them from learning. Tap-action records are unchanged in
+shape.
+
 Capture ordering matters: the record is appended BEFORE the playback action
 is attempted, so a provider failure can degrade the music but never lose
 the label.
@@ -16,10 +23,13 @@ the label.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+log = logging.getLogger(__name__)
+
+SCHEMA_VERSION = 2
 
 # skip: veto the playing track; wrong_vibe: veto the SELECTION (resample a
 # cell-adjacent pool); manual: human picked a mapped (genre, tier) instead;
@@ -34,6 +44,7 @@ def build_override_record(
     now_playing: dict,
     chosen: dict | None = None,
     ts: float | None = None,
+    presence: dict | None = None,
 ) -> dict:
     if action not in ACTIONS:
         raise ValueError(f"action must be one of {ACTIONS}, got {action!r}")
@@ -55,6 +66,8 @@ def build_override_record(
     }
     if chosen is not None:
         record["chosen"] = chosen
+    if presence is not None:
+        record["presence"] = presence
     return record
 
 
@@ -66,3 +79,36 @@ def append_override(overrides_dir: Path, record: dict) -> Path:
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
     return path
+
+
+def make_played_through_sink(bridge, overrides_dir: Path, presence_gate=None):
+    """The controller's on_played_through callback: stamp the latest frame
+    (there is no tap to snapshot at), assess presence, append the record.
+    Label capture must never depend on anything else being alive — every
+    failure is logged and swallowed."""
+
+    def sink(now_playing: dict, recommendation: dict) -> None:
+        frames, _ = bridge.snapshot()
+        state = {
+            k: v for k, v in (frames[-1] if frames else {}).items() if k != "type"
+        } or {"unavailable": True}
+        presence = (
+            presence_gate.stamp(state, now_playing)
+            if presence_gate is not None
+            else None
+        )
+        try:
+            append_override(
+                overrides_dir,
+                build_override_record(
+                    "played_through",
+                    state,
+                    recommendation,
+                    now_playing,
+                    presence=presence,
+                ),
+            )
+        except Exception:
+            log.exception("failed to log played_through; label lost")
+
+    return sink

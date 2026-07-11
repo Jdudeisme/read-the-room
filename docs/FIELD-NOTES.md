@@ -5,6 +5,59 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-07-11 — M5 gate day (apartment, afternoon): part (f) flat-affect measurement + the part (e) advisory bug
+
+**Gate context.** M5 gated per `docs/M5-TEST-PLAN.md` on the Mac: parts
+(a)–(d) passed as written (bench p95 1.02 s/1.07 s; 243 tests; the retro
+filter flagged exactly the six named empty-room lines and spared the four
+known-real completions, corpus byte-identical; live presence round-trip
+produced fresh/absent/tap stamps in schema v2, honored un-recomputed by
+the report). Two live findings worth the record:
+
+**Part (e) found a real design bug in the new advisory.** As shipped, the
+advisory compared playback loudness against the live rolling noise floor
+— but that floor deliberately absorbs sustained sound including our own
+playback (M3 semantics: "fan/HVAC/music"), so the gap self-erases within
+one EMA tau. Observed live: lofi at 90% output read −28 dBFS against a
+music-contaminated floor of −36 (8 dB < the 10 dB threshold, banner never
+rose), with the floor visibly chasing the ramp in the frame log; replayed
+against the 07-10 limit cycle, the banner would have blanked ~60 s into
+the 4-minute incident the feature exists to catch. Fixed on the branch
+(`308f9e9`): the advisory now anchors on the floor from playback-inactive
+frames. Re-gated live: banner rose at ~13 dB over anchor while the live
+floor sat 10 dB closer, held through the chase, cleared within a few hops
+of certified speech at 60% volume. Part (e) passed post-fix; three new
+tests encode the failure signature.
+
+**Part (f): vocal music drags certified-speech emotion, decisively.**
+Protocol: one known solo occupant, quiet room, same neutral text read in
+a deliberately flat monotone for two 3-minute phases — phase 1 no music
+(14:42:48–14:46:01), phase 2 over RTR · Pop · high at normal volume
+(music mic-side ≈ −31…−33 dBFS; 14:46:20–14:49:16). Inert playlist
+mapping so the DJ couldn't interfere (it bootstrapped a track off the
+monotone reading on the first attempt — aborted, restarted defanged).
+Speech stayed certified throughout both phases (speech_ratio 0.68–0.88).
+
+| phase | taps | mean valence | mean arousal | mood on every tap |
+|---|---|---|---|---|
+| 1. flat reading, no music | 6 | **−0.135** | **−0.541** | flat |
+| 2. same reading, vocal pop | 5 | **+0.129** | **−0.150** | chill |
+
+Identical delivery, identical text: **ΔV +0.26, ΔA +0.39, and the mood
+quadrant flipped on every single tap** (flat → chill, both axes pulled
+toward the songs' excited quadrant). Emotion confidence stayed high
+(0.6–0.97), so the contamination arrives with conviction, not hedged.
+
+**Verdict:** the M5 proposal set ≥ 0.2 pull toward the song's quadrant
+during certified speech as the threshold that reopens the ML
+music-detection build decision. Both axes clear it — valence by 0.06,
+arousal by 0.19 — at normal listening volume, in the easiest possible
+room. The deferral does not survive its own test: music-aware emotion
+(source separation, lyric/vocal discounting, or an ML music gate) should
+be scoped as a first-class M6 candidate. Until then, mood readings while
+vocal music plays should be treated as blended room+song signal — the
+07-06 informal observation is now a measured effect.
+
 ## 2026-07-10 — Trio free-form DJ evening: indoor, porch, silent room (non-gating)
 
 **Setup.** Followed the part (d) gate the same evening. One dashboard run
