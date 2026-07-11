@@ -112,6 +112,16 @@ class RoomState:
     # None until the first quiescent window feeds the EMA.
     noise_floor_dbfs: float | None = None
 
+    # Music-aware emotion (M6). While playback is active:
+    # `emotion_music_dominance` is the spectral music-dominance weight of
+    # the current window (None when playback is off), and
+    # `emotion_correction` records what was subtracted from the raw
+    # reading — {"valence", "arousal", "track_id", "refs"} — or None when
+    # no correction applied (no signature yet, or dominance ~0). Raw is
+    # always reconstructable: raw = published_instantaneous + correction.
+    emotion_music_dominance: float | None = None
+    emotion_correction: dict | None = None
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["headcount_bucket"] = self.headcount_bucket.value if self.headcount_bucket else None

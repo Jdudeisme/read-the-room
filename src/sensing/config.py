@@ -98,6 +98,29 @@ class Config:
     headcount_smooth_tau_s: float = 20.0  # EMA time constant, log2 space
     headcount_hysteresis_k: int = 3  # consecutive updates to change bucket
 
+    # Music-aware emotion (M6): remove the playing track's measured pull
+    # from certified-speech readings. See sensing/music.py and
+    # docs/M6-PROPOSAL.md for the derivation of every default.
+    music_aware_enabled: bool = True
+    # The additivity assumption, explicit: how much of the track's
+    # signature to subtract at full dominance. Calibrated by the part (f)
+    # re-run — the gate's numbers move this, not vibes.
+    music_beta: float = 1.0
+    # Dominance ramp knots on spectral_balance.high: 0 at/below lo
+    # (quiet-room speech measured 0.014-0.031), 1 at/above hi (speech over
+    # pop measured 0.257-0.484).
+    music_dominance_lo: float = 0.05
+    music_dominance_hi: float = 0.30
+    # Reference taps: a playback window counts as music-only (eligible to
+    # measure the track's pull) when its raw speech ratio is at most this.
+    music_ref_max_speech_ratio: float = 0.1
+    # A track's signature is trusted after this many reference taps.
+    music_min_refs: int = 3
+    # Discount floor while no signature exists: confidence scales by
+    # (1 - gamma * dominance).
+    music_discount_gamma: float = 0.5
+    music_signatures_path: str = "data/track_signatures.json"
+
     # Trend detection over the history buffer.
     trend_horizon_s: float = 60.0
     # Energy-score slope (per minute) beyond which trend reads rising/falling.
@@ -152,6 +175,26 @@ class Config:
             ),
             headcount_hysteresis_k=_env_int(
                 "RTR_HEADCOUNT_HYSTERESIS_K", cls.headcount_hysteresis_k
+            ),
+            music_aware_enabled=_env_bool(
+                "RTR_MUSIC_AWARE_ENABLED", cls.music_aware_enabled
+            ),
+            music_beta=_env_float("RTR_MUSIC_BETA", cls.music_beta),
+            music_dominance_lo=_env_float(
+                "RTR_MUSIC_DOMINANCE_LO", cls.music_dominance_lo
+            ),
+            music_dominance_hi=_env_float(
+                "RTR_MUSIC_DOMINANCE_HI", cls.music_dominance_hi
+            ),
+            music_ref_max_speech_ratio=_env_float(
+                "RTR_MUSIC_REF_MAX_SPEECH_RATIO", cls.music_ref_max_speech_ratio
+            ),
+            music_min_refs=_env_int("RTR_MUSIC_MIN_REFS", cls.music_min_refs),
+            music_discount_gamma=_env_float(
+                "RTR_MUSIC_DISCOUNT_GAMMA", cls.music_discount_gamma
+            ),
+            music_signatures_path=_env_str(
+                "RTR_MUSIC_SIGNATURES_PATH", cls.music_signatures_path
             ),
             torch_threads=_env_int("RTR_TORCH_THREADS", cls.torch_threads),
             os_truststore=_env_bool("RTR_OS_TRUSTSTORE", cls.os_truststore),

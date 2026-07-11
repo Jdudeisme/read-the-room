@@ -116,11 +116,17 @@ class EmotionWorker:
         self._min_interval_s = min_interval_s
         self._torch_threads = torch_threads
         self._os_truststore = os_truststore
-        self._job: tuple[np.ndarray, float] | None = None  # (window, speech_ratio)
+        # job = (window, speech_ratio, reference_track_id | None). A None
+        # track id is a speech job; otherwise a reference tap (M6).
+        self._job: tuple[np.ndarray, float, str | None] | None = None
         self._job_event = threading.Event()
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._latest: EmotionReading | None = None
+        # Reference-tap result slot, popped by the engine: (track_id, v, a).
+        # Reference results NEVER touch _latest — they measure the record,
+        # not the room.
+        self._reference: tuple[str, float, float] | None = None
         self._last_infer_at = -1e9
         self.status = "loading"  # loading | ready | failed | stopped
         self.error: str | None = None
@@ -135,14 +141,39 @@ class EmotionWorker:
 
     def submit(self, window: np.ndarray, speech_ratio: float, now: float) -> None:
         """Offer a speech-certified window. Dropped if rate-limited or busy
-        (latest-wins replacement, never a queue)."""
+        (latest-wins replacement, never a queue). Speech always wins the
+        slot — a pending reference tap is displaced without ceremony."""
         if self.status != "ready":
             return
         if now - self._last_infer_at < self._min_interval_s:
             return
         with self._lock:
-            self._job = (window.copy(), speech_ratio)
+            self._job = (window.copy(), speech_ratio, None)
         self._job_event.set()
+
+    def submit_reference(
+        self, window: np.ndarray, track_id: str, now: float
+    ) -> None:
+        """Offer a music-only playback window as a reference tap (M6): the
+        model's response to it measures the playing track's pull. Same rate
+        limit as speech (one model, one budget), but a reference NEVER
+        displaces a pending speech job — the room outranks the record."""
+        if self.status != "ready":
+            return
+        if now - self._last_infer_at < self._min_interval_s:
+            return
+        with self._lock:
+            if self._job is not None and self._job[2] is None:
+                return  # speech job pending; keep it
+            self._job = (window.copy(), 0.0, track_id)
+        self._job_event.set()
+
+    def pop_reference(self) -> tuple[str, float, float] | None:
+        """(track_id, valence, arousal) of the newest reference result,
+        once; None until the next one lands."""
+        with self._lock:
+            ref, self._reference = self._reference, None
+        return ref
 
     def latest(self, now: float) -> tuple[EmotionReading | None, float | None]:
         """(reading, staleness_seconds) — both None before the first result."""
@@ -172,7 +203,7 @@ class EmotionWorker:
                 job, self._job = self._job, None
             if job is None:
                 continue
-            window, speech_ratio = job
+            window, speech_ratio, reference_track_id = job
             started = time.monotonic()
             try:
                 valence, arousal = infer(window)
@@ -181,11 +212,18 @@ class EmotionWorker:
                 continue
             self._last_infer_at = time.monotonic()
             with self._lock:
-                self._latest = EmotionReading(
-                    valence=valence,
-                    arousal=arousal,
-                    confidence=min(1.0, speech_ratio),
-                    at=self._last_infer_at,
-                )
-            log.debug("emotion inference took %.2fs", self._last_infer_at - started)
+                if reference_track_id is not None:
+                    self._reference = (reference_track_id, valence, arousal)
+                else:
+                    self._latest = EmotionReading(
+                        valence=valence,
+                        arousal=arousal,
+                        confidence=min(1.0, speech_ratio),
+                        at=self._last_infer_at,
+                    )
+            log.debug(
+                "emotion inference took %.2fs%s",
+                self._last_infer_at - started,
+                " (reference tap)" if reference_track_id is not None else "",
+            )
         self.status = "stopped"

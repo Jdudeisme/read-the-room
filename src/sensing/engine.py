@@ -28,6 +28,7 @@ from . import dsp
 from .config import Config
 from .emotion import EmotionWorker
 from .headcount import BucketSmoother, HeadcountEstimator, HeadcountWorker
+from .music import TrackSignatureStore, apply_correction, dominance
 from .state import Ema, RoomState, TrendTracker, energy_score, mood_quadrant
 from .vad import VadGate
 
@@ -108,6 +109,15 @@ class Engine:
         self._noise_floor = Ema(config.noise_floor_tau_s)
         self._ema_valence = Ema(config.smooth_tau_emotion_s)
         self._ema_arousal = Ema(config.smooth_tau_emotion_s)
+        # Music-aware emotion (M6): per-track model-response signatures,
+        # measured by reference taps and subtracted from speech readings.
+        self._signatures = (
+            TrackSignatureStore(
+                config.music_signatures_path, min_refs=config.music_min_refs
+            )
+            if config.music_aware_enabled and config.emotion_enabled
+            else None
+        )
         self._trend = TrendTracker(config.trend_horizon_s, config.trend_slope_threshold)
         self._vad_position = 0
         self._running = False
@@ -163,6 +173,8 @@ class Engine:
             self.emotion.stop()
         if self.headcount is not None:
             self.headcount.stop()
+        if self._signatures is not None:
+            self._signatures.flush()
 
     def _tick(self) -> RoomState:
         now = time.monotonic()
@@ -207,18 +219,60 @@ class Engine:
             self._noise_floor.update(measured.rms_dbfs, now)
 
         # Layer 3: emotion, gated on the *instantaneous* window's speech.
+        # Music-aware (M6): speech windows get corrected by the playing
+        # track's measured signature before smoothing; music-only playback
+        # windows become reference taps that measure that signature.
         valence = arousal = confidence = staleness = None
+        music_dominance = emotion_correction = None
         if self.emotion is not None:
-            if (
-                raw_ratio >= self.config.emotion_min_speech_ratio
-                and window.size >= self.config.sample_rate  # at least 1s of audio
-            ):
+            has_audio = window.size >= self.config.sample_rate  # >= 1s
+            if raw_ratio >= self.config.emotion_min_speech_ratio and has_audio:
                 self.emotion.submit(window, raw_ratio, now)
+            elif (
+                self._signatures is not None
+                and playback_active
+                and playback_track_id is not None
+                and raw_ratio <= self.config.music_ref_max_speech_ratio
+                and has_audio
+            ):
+                self.emotion.submit_reference(window, playback_track_id, now)
+            if self._signatures is not None:
+                ref = self.emotion.pop_reference()
+                if ref is not None:
+                    self._signatures.add_reference(*ref)
+                if playback_active:
+                    music_dominance = dominance(
+                        measured.spectral_balance.get("high", 0.0),
+                        self.config.music_dominance_lo,
+                        self.config.music_dominance_hi,
+                    )
             reading, staleness = self.emotion.latest(now)
             if reading is not None:
-                valence = self._ema_valence.update(reading.valence, now)
-                arousal = self._ema_arousal.update(reading.arousal, now)
+                v_inst, a_inst = reading.valence, reading.arousal
                 confidence = reading.confidence
+                if music_dominance is not None and music_dominance > 0.0:
+                    signature = self._signatures.get(playback_track_id)
+                    if signature is not None:
+                        v_inst, a_inst, dv, da = apply_correction(
+                            v_inst, a_inst, signature,
+                            music_dominance, self.config.music_beta,
+                        )
+                        emotion_correction = {
+                            "valence": round(dv, 3),
+                            "arousal": round(da, 3),
+                            "track_id": playback_track_id,
+                            "refs": signature.refs,
+                        }
+                    else:
+                        # Discount floor: no signature yet — the reading is
+                        # blended room+song and we can't unblend it, so it
+                        # arrives with less conviction.
+                        confidence *= max(
+                            0.0,
+                            1.0 - self.config.music_discount_gamma * music_dominance,
+                        )
+                valence = self._ema_valence.update(v_inst, now)
+                arousal = self._ema_arousal.update(a_inst, now)
 
         # Layer 4: headcount, gated on the same instantaneous VAD certification.
         # During silence nothing is submitted: the bucket holds and staleness
@@ -276,4 +330,8 @@ class Engine:
                 if self._noise_floor.value is None
                 else round(self._noise_floor.value, 1)
             ),
+            emotion_music_dominance=(
+                None if music_dominance is None else round(music_dominance, 3)
+            ),
+            emotion_correction=emotion_correction,
         )

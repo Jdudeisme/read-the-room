@@ -173,6 +173,25 @@ class TestPlaybackAwareness:
         seeded = make_state(noise_floor_dbfs=-44.3)
         assert seeded.to_dict()["noise_floor_dbfs"] == -44.3
 
+    def test_music_aware_fields_default_off_and_serialize(self):
+        """M6: dominance and the applied correction ride RoomState so raw
+        emotion is reconstructable from any frame."""
+        from conftest import make_state
+
+        state = make_state()
+        assert state.emotion_music_dominance is None
+        assert state.emotion_correction is None
+
+        corrected = make_state(
+            emotion_music_dominance=0.83,
+            emotion_correction={
+                "valence": 0.4, "arousal": 0.5, "track_id": "t1", "refs": 4,
+            },
+        )
+        d = corrected.to_dict()
+        assert d["emotion_music_dominance"] == 0.83
+        assert d["emotion_correction"]["track_id"] == "t1"
+
 
 class TestVadCertificationThreshold:
     def test_read_time_threshold_override(self):
