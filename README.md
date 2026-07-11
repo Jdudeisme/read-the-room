@@ -16,13 +16,20 @@ from human-curated Spotify playlists (gentle-DJ: transitions on track
 boundaries only), human override capture (the strong labels), and
 contamination handling v1 now that the mic can hear the system's own
 output.
-**Milestone 5 (this branch):** the loop learns — a presence gate so
+**Milestone 5:** the loop learns — a presence gate so
 empty-room `played_through` lines can't pollute the corpus, learned
 tuning v1 as inspectable proposals (boundary, tier-cutoff, and pool
 weighting sections in the tuning report), the build-or-defer
 music-detection memo (defer; see [docs/M5-PROPOSAL.md](docs/M5-PROPOSAL.md)),
 an envelope advisory when music out-reads the room, and noise-floor
 observability.
+**Milestone 6 (this branch):** hear the room, not the record — M5's
+part (f) measured vocal music dragging certified-speech emotion by
+ΔV +0.26 / ΔA +0.39 (a mood-quadrant flip), so the emotion layer now
+subtracts the playing track's *measured* pull: reference taps on
+music-only playback windows build a per-track signature, scaled by a
+spectral music-dominance ramp ([docs/M6-PROPOSAL.md](docs/M6-PROPOSAL.md)).
+Plus advisory-anchor persistence across restarts.
 
 ## Architecture
 
@@ -253,13 +260,41 @@ and degrade to shadow mode; the label capture never depends on the
 provider being alive.
 
 M5 also adds an **envelope advisory**: when music out-reads the room at
-the mic (playback active, loudness well over the rolling noise floor,
-zero certified speech for ~20 s — the 93%-output limit cycle from the
-2026-07-10 session), the dashboard shows a "turn it down if you want me
-listening" banner (`RTR_PLAYBACK_ADVISORY_*`). Banner only; volume stays
-human-owned. The ML music-detection gate remains deliberately deferred —
-the measured case for and against, and what would flip the decision, is
-in [docs/M5-PROPOSAL.md](docs/M5-PROPOSAL.md).
+the mic (playback active, loudness well over the room's quiet-anchored
+floor, zero certified speech for ~20 s — the 93%-output limit cycle from
+the 2026-07-10 session), the dashboard shows a "turn it down if you want
+me listening" banner (`RTR_PLAYBACK_ADVISORY_*`). Banner only; volume
+stays human-owned. Since M6 the quiet anchor persists to
+`data/advisory_anchor.json` with an age bound, so sessions that start
+mid-playback — parties — begin anchored.
+
+## Music-aware emotion (M6)
+
+Vocal music drags certified-speech emotion toward the song's own mood —
+measured on 2026-07-11 at ΔV +0.26 / ΔA +0.39, a quadrant flip at normal
+listening volume ([docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)). The fix
+removes a measured pull, per track, rather than guessing:
+
+- **Reference taps:** while playback is active and a window has no
+  certified speech, the emotion model runs on it anyway — its response
+  to music-only audio *is* the bias, as heard by this model through
+  this mic. Responses accumulate into a per-`track_id` signature,
+  persisted to `data/track_signatures.json` (repeat plays sharpen it).
+  Speech submissions always outrank reference taps at the worker.
+- **Correction:** `corrected = clamp(raw − β · m · signature)` upstream
+  of the V/A smoothing, where `m` is a music-dominance ramp on the
+  window's high-band spectral share (knots measured on the corpus) and
+  `β` is the explicit additivity assumption (`RTR_MUSIC_*`). A shift,
+  never a mute — genuine mood changes still move the reading.
+- **Discount floor:** until a track has `RTR_MUSIC_MIN_REFS` reference
+  taps, emotion confidence scales down by `1 − γ·m` instead.
+
+Every frame carries `emotion_music_dominance` and the applied
+`emotion_correction` (amounts, track, refs), so raw is always
+reconstructable offline; the dashboard shows a "hearing through music"
+chip while a correction is live. The ML music-detection gate stays
+deferred unless the part (f) re-run misses its < 0.2 target — see
+[docs/M6-PROPOSAL.md](docs/M6-PROPOSAL.md).
 
 **Contamination handling v1:** while playback is active, RoomState carries
 `playback_active`/`playback_track_id` (so all downstream evidence is
