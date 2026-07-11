@@ -338,12 +338,16 @@ round-trip verified against `tuning_report.py` — were also confirmed live.
 
 ### Milestone 4 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
 
-Gate progress — see [docs/M4-TEST-PLAN.md](docs/M4-TEST-PLAN.md) for the
-full checklist. Parts (a) benchmark regression, (b) `pytest`
-(190 passed), and (c) live playback session are green; part (d), the
-contamination measurement protocol, is pending. Part (c) surfaced and
-fixed two real bugs — an append-only-queue pile-up and a false
-played_through on provider death — see the 2026-07-06 entry in
+All four parts of the M4 gate pass; see
+[docs/M4-TEST-PLAN.md](docs/M4-TEST-PLAN.md) for the full checklist.
+Parts (a) benchmark regression, (b) `pytest` (190 passed), and (c) live
+playback session went green 2026-07-06; part (d), the contamination
+measurement protocol, passed 2026-07-10 — the v1 gate rejected sung
+vocals outright at moderate volume (phase 5 speech_ratio ≤ 0.003, no
+phantom growth). Part (c) surfaced and fixed two real bugs — an
+append-only-queue pile-up and a false played_through on provider death —
+and part (d) plus the same evening's live sessions produced the M5
+agenda; see the 2026-07-06 and 2026-07-10 entries in
 [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 
 | Benchmark | Scenario | mean | p95 | Budget | Verdict |
@@ -374,6 +378,31 @@ input level modest (a hot input level inflates the crowd-regime heuristic —
 a loud solo speaker with dispersed embeddings can read as babble), and very
 similar voices may now merge (undercounting beats phantom crowds for this
 use case).
+
+### Milestone 5 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
+
+All six parts of the M5 gate pass (2026-07-11); see
+[docs/M5-TEST-PLAN.md](docs/M5-TEST-PLAN.md) for the full checklist.
+Parts (a)–(d) passed as written — retro presence filter exact against
+the real corpus, live fresh/absent/tap round-trip in schema v2. Part (e)
+failed as shipped and surfaced a real design bug (the advisory compared
+against the playback-absorbing live noise floor, self-erasing its own
+signal); fixed on the branch with a quiet-anchored reference and
+re-gated live. Part (f) measured the vocal-music emotion pull at
+ΔV +0.26 / ΔA +0.39 with a mood-quadrant flip on every tap — over the
+proposal's ≥ 0.2 reopen threshold, so the ML music-detection deferral is
+reopened for M6. Details in the 2026-07-11 entry of
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback` | headcount, contended hops | 1.00 s | 1.02 s | < 1.37 s | PASS |
+| `bench_headcount.py --fallback` | emotion, overall | 0.87 s | 1.07 s | < 1.2 s absolute | PASS |
+
+M5's engine-path additions are a few comparisons per hop (the envelope
+advisory) and additive state fields, so this is again the M2 gate re-run
+as a regression check; the numbers sit within run-to-run variance of the
+prior rows.
 
 ## Tests
 
