@@ -5,6 +5,52 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-07-11 (TV night, 22:15–23:28) — first deliberate media-audio session
+
+**Setup.** Solo founder watching TV; AC on low; music playing from the
+Echo Show across the room (Spotify Connect device pinned via
+`RTR_PLAYBACK_DEVICE_NAME` — a config change, nothing else needed);
+DJ inert (empty mapping); laptop initially across the room, moved to
+the seating area mid-session after the reach finding below. 23 taps
+(16 good / 7 wrong). Media audio has flowed into the readings
+"by design-default" since M3 with one informal observation — this is
+the first deliberate session.
+
+**Findings.**
+
+1. **The multi-source room compressed VAD reach from ~15 ft to ~2 ft.**
+   Measured live: the ambient bed (AC + TV + room-shaped music) ran
+   −35…−26 dBFS at the mic, mean −31 — the same level as the founder's
+   voice at conversational distance (−25…−30), vs the −44…−54
+   quiet-room floor. A voice arriving room-attenuated into a bed at
+   voice level has no headroom, and the strict playback-mode VAD
+   threshold (active — the Echo music is tracked) raises the bar
+   further. Placement is the lever: mic near the voices, sources far —
+   the Echo geometry principle, mirror-imaged. Third consecutive
+   data point (M3 root-cause, pool, tonight) saying **external mic**;
+   should happen before M7's multi-person gate night, which needs
+   reach.
+2. **TV reads as people and as mood, as predicted.** Buckets pair/4
+   during solo viewing (the cast, counted), speech_ratio up to 0.83
+   from dialogue, mood tracking scene tone (chill/flat with excited
+   blips). Wrong-call taps mark the worst of it (e.g. 23:10 bucket 4,
+   solo room). The presence gate saw an "occupied" room all night —
+   true here (founder present), but TV-only occupancy would fool it:
+   noted as a limitation the current signals cannot distinguish.
+3. **Room-shaped Echo music never registered spectral dominance**
+   (`emotion_music_dominance` 0 on every tap; correction basis None all
+   night). Two readings, both plausible and worth separating next
+   session: the far-field music was simply quiet at the mic (good news
+   for the envelope requirement — the geometry works), and/or the
+   dominance ramp is calibrated to laptop-speaker spectra and
+   under-responds to room-shaped music (would leave pulls uncorrected
+   at higher Echo volumes). A short Echo volume ladder decides which.
+
+**Corpus impact:** the 7 wrong-calls are the first labeled
+TV-contamination frames — the seed set for any future media-vs-room
+discrimination work (alongside the M6 cold-start and envelope entries
+as M8 candidate scope).
+
 ## 2026-07-11 (night) — founder requirement: the M6 operating envelope, and the external-speaker direction
 
 **Requirement (founder-stated):** music-aware emotion must work at
