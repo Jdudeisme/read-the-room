@@ -135,6 +135,36 @@ a correction is live.
   classifier is the *next* escalation (scoped, in the proposal's terms,
   as a replacement for `m` — the rest of the pipeline stands).
 
+## Iteration after the 2026-07-11 gate (part (c) failed at ΔV +0.325 / ΔA +0.274)
+
+The additivity assumption failed its measurement: the model's read of
+speech-over-music is **super-additive** (valence pull ~4× the record's
+standalone signature, arousal ~1.5× — FIELD-NOTES 2026-07-11 afternoon),
+so no scalar β on Layer 1's signature cancels both axes. The estimator
+changed; the architecture did not:
+
+- **Pull signature (new primary).** The engine keeps a **clean-speech
+  baseline** (EMA of readings with playback off or dominance ≈ 0, age-
+  bounded). While it is fresh, each speech-over-music reading banks
+  `(reading − baseline) / m` as a pull sample for the playing track —
+  measuring the interaction itself, super-additivity included. The
+  correction becomes `clamp(raw − β_axis · m · pull)`, per-axis βs
+  defaulting to 1.0 (subtract what was measured), magnitude-capped.
+- **Layer 1's standalone signature is demoted to cold-start prior**,
+  scaled per axis by the gate-measured ratios (defaults 2.2 / 1.5) and
+  capped, used only until pull samples exist; the discount floor
+  remains beneath both.
+- **Known trade-off, accepted:** a genuine mood change inside the
+  baseline's freshness window banks mood-shifted pull samples. Guards:
+  the age bound stops banking on stale baselines (part (d)'s exact
+  state), the dominance floor sheds animated-speech windows (measured
+  m 0.17–0.33 when speech wins), and the signature EMA washes
+  transients. Part (d)'s +0.68 separation bar is the regression check.
+
+Replaying the gate's calibration record through the new estimator
+offline cancels both axes back to the baseline; the part (c) re-run on
+the Mac is the live confirmation.
+
 ## Gate (sketch — full checklist in `docs/M6-TEST-PLAN.md`)
 
 On the 2019 Intel MacBook Pro (`RTR_TORCH_THREADS=2`), inert playlist

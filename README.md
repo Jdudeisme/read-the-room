@@ -275,19 +275,29 @@ measured on 2026-07-11 at ΔV +0.26 / ΔA +0.39, a quadrant flip at normal
 listening volume ([docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)). The fix
 removes a measured pull, per track, rather than guessing:
 
-- **Reference taps:** while playback is active and a window has no
-  certified speech, the emotion model runs on it anyway — its response
-  to music-only audio *is* the bias, as heard by this model through
-  this mic. Responses accumulate into a per-`track_id` signature,
-  persisted to `data/track_signatures.json` (repeat plays sharpen it).
-  Speech submissions always outrank reference taps at the worker.
-- **Correction:** `corrected = clamp(raw − β · m · signature)` upstream
+- **Pull signature (primary; the 2026-07-11 gate iteration):** the
+  model's read of speech-over-music proved *super-additive* — the first
+  gate run measured a valence pull ~4× the record's own signature — so
+  the estimator measures the interaction directly. While the
+  **clean-speech baseline** is fresh (readings taken with playback off
+  or dominance ≈ 0), every speech-over-music reading banks
+  `(reading − baseline) / m` as a pull sample for the playing track.
+- **Reference taps (cold-start prior):** while playback is active and a
+  window has no certified speech, the emotion model runs on it anyway;
+  the standalone response accumulates per track and stands in — scaled
+  by the measured per-axis super-additivity ratios, magnitude-capped —
+  until pull samples exist. Speech submissions always outrank reference
+  taps at the worker. Both signatures persist to
+  `data/track_signatures.json` (repeat plays sharpen them).
+- **Correction:** `corrected = clamp(raw − β_axis · m · pull)` upstream
   of the V/A smoothing, where `m` is a music-dominance ramp on the
   window's high-band spectral share (knots measured on the corpus) and
-  `β` is the explicit additivity assumption (`RTR_MUSIC_*`). A shift,
-  never a mute — genuine mood changes still move the reading.
-- **Discount floor:** until a track has `RTR_MUSIC_MIN_REFS` reference
-  taps, emotion confidence scales down by `1 − γ·m` instead.
+  the per-axis `β`s default to 1.0 — subtract exactly what was measured
+  (`RTR_MUSIC_*`). A shift, never a mute — genuine mood changes still
+  move the reading (the 07-11 positive control held at +0.68 arousal
+  separation).
+- **Discount floor:** until the playing track has any usable evidence,
+  emotion confidence scales down by `1 − γ·m` instead.
 
 Every frame carries `emotion_music_dominance` and the applied
 `emotion_correction` (amounts, track, refs), so raw is always
@@ -450,8 +460,16 @@ single scalar β on the record's standalone signature can't cancel both
 axes because the valence pull on mixed speech measures ~4× the record's
 own signature while arousal measures ~1.5×. Full calibration record in
 the 2026-07-11 afternoon entry of
-[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md); the gate re-runs after the
-next iteration.
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
+
+**Estimator iteration (PC, same day):** the correction now subtracts a
+**measured pull signature** — built live from speech-over-music
+readings against a fresh clean-speech baseline — instead of a scaled
+standalone signature, with per-axis `β`s and the standalone path
+demoted to a capped cold-start prior. Replaying the gate's own numbers
+through the new estimator cancels both axes to the baseline. The (c)
+re-run on the Mac is pending; parts (d)/(e)/(f) set the regression
+bars.
 
 | Benchmark | Scenario | mean | p95 | Budget | Verdict |
 |---|---|---|---|---|---|

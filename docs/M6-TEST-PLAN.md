@@ -61,35 +61,53 @@ Checkpoint: green.
 
 ## Part (c) — part (f) re-run: the pull, post-fix
 
-Same protocol as 2026-07-11, plus a signature warm-up. One known solo
-occupant, quiet closed room, inert mapping, playback enabled.
+Same protocol as 2026-07-11, plus warm-ups for BOTH signatures (the
+2026-07-11 iteration: the pull signature is the primary estimator; it
+builds from speech-over-music readings against a fresh no-music
+baseline, so the phase order matters). One known solo occupant, quiet
+closed room, inert mapping, playback enabled.
 
-1. **Warm the signature. [HUMAN]** Start the vocal-pop phase track (the
-   exact track matters — signatures are per-track; note its id) in
-   Spotify at the baseline volume (~33% output; verify music mic-side
-   reads −31…−33 dBFS on the dashboard) and stay silent ~2 minutes.
-   Checkpoint (Claude): `data/track_signatures.json` now holds that
-   track id with `refs >= 3`; the frame log shows reference taps landed
-   (emotion worker logs "reference tap").
+1. **Warm the standalone signature. [HUMAN]** Start the vocal-pop phase
+   track (the exact track matters — signatures are per-track; note its
+   id) in Spotify at the baseline volume (~33% output; verify music
+   mic-side reads −31…−33 dBFS on the dashboard) and stay silent
+   ~2 minutes.
+   Checkpoint (Claude): `data/track_signatures.json` holds that track
+   id with `refs >= 3`. (The signatures file is the evidence — there is
+   no per-tap log line.)
 2. **Phase 1 — flat reading, no music. [HUMAN]** Pause Spotify. Read
    the neutral script in a deliberately flat monotone for 3 minutes;
-   bank ~6 Good-call taps. (Claude: note the wall-clock window.)
-3. **Phase 2 — same reading, same track. [HUMAN]** Restart the warmed
-   track at the same volume; same script, same delivery, 3 minutes,
-   ~5 taps. The "hearing through music" chip must be visible — if it
-   isn't, the signature didn't engage; stop and diagnose before
-   banking taps.
-4. Analysis (Claude, offline): mean certified V/A per phase from the
+   bank ~6 Good-call taps. This phase is also what seeds the
+   clean-speech baseline the pull estimator needs — do not linger
+   silent between phases; the baseline ages out at
+   `RTR_MUSIC_BASELINE_MAX_AGE_S` (default 300 s).
+3. **Pull warm-up — flat reading over the track, no taps. [HUMAN]**
+   Restart the warmed track at the same volume and keep reading in the
+   same monotone for ~90 seconds WITHOUT banking taps: each reading
+   banks a pull sample against the fresh phase-1 baseline.
+   Checkpoint (Claude): the track's entry in
+   `data/track_signatures.json` now shows `pull_refs >= 3`, and the
+   frame log shows `emotion_correction.basis` switching from
+   `standalone` (or discount) to `pull`.
+4. **Phase 2 — same reading, same track, taps. [HUMAN]** Continue the
+   monotone for 3 more minutes; bank ~5 taps. The "hearing through
+   music" chip must be visible with basis `pull` — if it isn't, stop
+   and diagnose before banking taps.
+5. Analysis (Claude, offline): mean certified V/A per phase from the
    banked frames. **Pass: |ΔV| < 0.2 AND |ΔA| < 0.2.** Record both
-   deltas, the correction amounts on the phase-2 frames
-   (`emotion_correction`), the dominance range, and the signature's
-   value — these numbers are the β/m calibration record. If either axis
-   fails, bank the numbers anyway; they say whether β under- or
-   over-corrects, and the knob moves after the gate.
+   deltas, the correction amounts and basis on the phase-2 frames
+   (`emotion_correction`), the dominance range, the pull signature's
+   value, and the baseline the pulls were measured against — these
+   numbers are the β calibration record. If either axis fails, bank
+   the numbers anyway; they say whether `RTR_MUSIC_BETA_V/_A` under-
+   or over-correct, and the knobs move after the gate.
 
 ## Part (d) — positive control: emotion still hears the room
 
-Immediately after part (c), same track still playing, same volume:
+Immediately after part (c), same track still playing, same volume. (By
+now the phase-1 baseline is past its age bound, so pull banking has
+stopped — the correction is a fixed shift and must not eat the mood
+change; 2026-07-11 set the bar at +0.68 arousal separation.)
 
 1. **[HUMAN]** 3 minutes of genuinely animated, enthusiastic talking
    (phone a friend, tell a story — real energy, not acting the script);
