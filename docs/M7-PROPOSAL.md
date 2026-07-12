@@ -134,11 +134,12 @@ re-embedding):
   the floor is fixed, and quality weighting attacks a mechanism
   (scatter out-voting) the diagnosis didn't implicate.
 
-## Design: fix the misfire, recalibrate the smear, rescue distinct voices
+## Design: fix the misfire, recalibrate the smear, rescue distinct voices, give the middle its rungs
 
-Three contained changes inside `headcount.py`'s estimator — no new model,
-no new signal processing, O(k²) centroid arithmetic on top of the existing
-O(n³) clustering, so the bench envelope is untouched by construction.
+Three contained changes inside `headcount.py`'s estimator plus a bucket-
+ladder change in `state.py` — no new model, no new signal processing,
+O(k²) centroid arithmetic on top of the existing O(n³) clustering, so the
+bench envelope is untouched by construction.
 
 ### 1. sep_collapse misfire (the known bug, fixed first)
 
@@ -192,6 +193,40 @@ rescues none on degraded audio). Measured at 0.80: uneven trio 2.32→2.68,
 quad_mic 3.30→3.65, **zero** false rescues on solo/pair across clean and
 degraded runs.
 
+### 4. The bucket ladder gains its middle rungs: 1, 2, 3, 4, 6, 8, 16, 32…
+
+(Founder direction, 2026-07-12.) A true trio has no home on the
+power-of-2 ladder: log2(3) = 1.585 sits almost exactly on the geometric
+boundary between `pair` and `4` — the worst possible rounding spot, and
+the reason this proposal's gate criterion had to be phrased "pair-or-4."
+New rungs at **3** and **6** fix that where the sensor has resolution and
+stop there:
+
+- **3** is the mission rung: the uneven-trio result below (smoothed
+  log2 ≈ 1.4–1.5) publishes **3** on this ladder instead of flapping
+  across the pair/4 boundary, and the M7 gate can score the trio ladder
+  directly.
+- **6** preserves near-uniform log spacing (rung gaps 1.0 / 0.585 /
+  0.415 / 0.585 / 0.415 log2), so the existing EMA + `hold_k` hysteresis
+  carries over untuned. It is also ≈ the geometric mean of 4 and 8, the
+  zone where counting starts blending into the crowd regime.
+- **No rungs at 5, 7, 9, 10.** Exact counting is validated to ~4
+  (`count_reliable_max`; the pool read a true 7 as solo…4, the harness
+  reads a true-4 dense-overlap scene as raw 2.8–3.4). Rungs the sensor
+  cannot produce are labels taps can never validate — false precision
+  that would poison the wrong-call corpus. Above 8 the bucket is ordinal
+  by design and powers of 2 remain correct.
+
+Blast radius, by prior design guarantees: `BUCKET_LADDER` is a computed
+lookup (the M2 no-restructure guarantee); `bucket_from_log2` still rounds
+at geometric midpoints; the rulebook keys per-bucket, so buckets 3 and 6
+need one seed-grid line each (**founder curation**: 3 starts from the
+"≤4 small" grid, 6 from the "≤8 medium" grid, adjustable later like any
+cell). Annotation frames store the bucket as a string — schema unchanged;
+pre-M7 corpus frames keep their power-of-2 labels, and cross-session
+`tuning_report` comparisons must treat the ladder change as a boundary
+(same discipline as the M3 threshold recalibration).
+
 ### Observability (additive, the part-(d)/(e) lesson)
 
 `Estimate`/`HeadcountReading`/RoomState gain `separation` (the silhouette
@@ -204,16 +239,20 @@ declined. Dashboard: the headcount card notes "+N quiet voice(s)" when
 ### Honest residual
 
 Offline, the uneven trio improves from "pair, 65% of hops undercounting"
-to raw mode 3 / mean 2.68 — but the *published* bucket often stays `pair`,
-because rescues are intermittent and the log2-EMA needs sustained raw 3 to
-cross the 1.5 rung boundary. The live gate must therefore score **raw
-estimates and undercount-hop fraction, not just the bucket**, and real
-friends' voices are more similar than TTS voices. Plan for the gate to
-catch something — it has every milestone. Two pre-identified escalations
-if the trio ladder still undercounts, in order: rescue-aware smoothing
-(a rescued voice relaxes the EMA/hysteresis toward higher rungs — bounded,
-logic-level) and `rescue_margin` recalibration from the session's own
-recorded audio (see below).
+to raw mode 3 / mean 2.68. On the power-of-2 ladder that still *published*
+as `pair` (the log2-EMA hovers at 1.4–1.5, under the pair/4 boundary);
+**rung 3 resolves exactly this** — the same smoothed estimate rounds to 3
+(rung boundaries at log2 ≈ 1.29 and 1.79). The remaining honest risks:
+rescues are intermittent, so the smoothed value rides near the pair/3
+boundary rather than centered on it; and real friends' voices are more
+similar than TTS voices, with VAD-clipped interjections the harness
+cannot model. The live gate must therefore score **raw estimates and
+undercount-hop fraction alongside the published bucket**. Plan for the
+gate to catch something — it has every milestone. Two pre-identified
+escalations if the trio ladder still undercounts, in order: rescue-aware
+smoothing (a rescued voice relaxes the EMA/hysteresis toward higher rungs
+— bounded, logic-level) and `rescue_margin` recalibration from the
+session's own recorded audio (see below).
 
 ## Evaluation assets
 
@@ -261,12 +300,16 @@ mic audio recorded** (see founder ask above):
    distributions (clean and mic rows of the table above), covering: solo
    debris produces no rescue, starved-speaker rescue fires, single-cluster
    collapse no longer pins, dense-overlap crowd blend still escalates,
-   4-voice separation at frac 0.10 unbroken.
+   4-voice separation at frac 0.10 unbroken, and the new ladder's rounding
+   boundaries (pair/3 at log2 ≈ 1.29, 3/4 at ≈ 1.79, 4/6 and 6/8
+   likewise; smoothing/hysteresis behavior across the 2↔3 jitter case).
 3. **Ladder phases (the milestone):** for each rung, ≥ 5 min ordinary
    conversation (not round-robin — natural, uneven airtime) + taps. Pass:
-   trio phases read pair-or-4 with **zero solo frames** after buffer
-   warm-up, undercount-hop fraction materially below the 07-10 baseline
-   (solo/pair ≈ all evening), and `rescued_clusters` visible in frames.
+   trio phases publish **3** (transient pair while the buffer warms is
+   acceptable; **zero solo frames** after warm-up), undercount-hop
+   fraction materially below the 07-10 baseline (solo/pair ≈ all
+   evening), and `rescued_clusters` visible in frames. A 4-person phase,
+   if a fourth friend is available, publishes 3–4, never pair.
    Animated-pair phase: **no bucket above 4** (the 2b fix), crowd_weight
    ≈ 0 in a quiet room.
 4. Regression bars, all unchanged: solo phase stays solo (incl. loud
