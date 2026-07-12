@@ -102,10 +102,32 @@ class Config:
     # from certified-speech readings. See sensing/music.py and
     # docs/M6-PROPOSAL.md for the derivation of every default.
     music_aware_enabled: bool = True
-    # The additivity assumption, explicit: how much of the track's
-    # signature to subtract at full dominance. Calibrated by the part (f)
-    # re-run — the gate's numbers move this, not vibes.
-    music_beta: float = 1.0
+    # Per-axis scale on the measured PULL signature (the mixed-window
+    # estimator). 1.0 = subtract exactly what was measured. Per-axis
+    # because the 2026-07-11 gate measured different super-additivity on
+    # each axis; the part (c) re-run moves these, not vibes.
+    music_beta_v: float = 1.0
+    music_beta_a: float = 1.0
+    # Cold-start prior: while a track has no pull samples yet, subtract
+    # its STANDALONE signature scaled by these — the super-additivity
+    # ratios measured 2026-07-11 (valence pull +0.33 vs signature
+    # +0.09..0.15 -> ~2.2 at the conservative end; arousal ~1.5).
+    music_standalone_scale_v: float = 2.2
+    music_standalone_scale_a: float = 1.5
+    # Per-axis magnitude cap on any subtraction — bounds the damage of a
+    # bad estimate (a correction should never be able to swing a reading
+    # across most of the [-1, 1] range).
+    music_max_correction: float = 0.6
+    # Clean-speech baseline: EMA over readings taken with playback off or
+    # dominance <= baseline_m_max; pull samples are banked only while the
+    # baseline is younger than baseline_max_age_s (a stale baseline would
+    # launder mood drift into the track's pull signature).
+    music_baseline_tau_s: float = 20.0
+    music_baseline_max_age_s: float = 300.0
+    music_baseline_m_max: float = 0.1
+    # A mixed window contributes a pull sample only at dominance >= this
+    # (dividing by a tiny m amplifies noise).
+    music_pull_m_floor: float = 0.25
     # Dominance ramp knots on spectral_balance.high: 0 at/below lo
     # (quiet-room speech measured 0.014-0.031), 1 at/above hi (speech over
     # pop measured 0.257-0.484).
@@ -179,7 +201,29 @@ class Config:
             music_aware_enabled=_env_bool(
                 "RTR_MUSIC_AWARE_ENABLED", cls.music_aware_enabled
             ),
-            music_beta=_env_float("RTR_MUSIC_BETA", cls.music_beta),
+            music_beta_v=_env_float("RTR_MUSIC_BETA_V", cls.music_beta_v),
+            music_beta_a=_env_float("RTR_MUSIC_BETA_A", cls.music_beta_a),
+            music_standalone_scale_v=_env_float(
+                "RTR_MUSIC_STANDALONE_SCALE_V", cls.music_standalone_scale_v
+            ),
+            music_standalone_scale_a=_env_float(
+                "RTR_MUSIC_STANDALONE_SCALE_A", cls.music_standalone_scale_a
+            ),
+            music_max_correction=_env_float(
+                "RTR_MUSIC_MAX_CORRECTION", cls.music_max_correction
+            ),
+            music_baseline_tau_s=_env_float(
+                "RTR_MUSIC_BASELINE_TAU_S", cls.music_baseline_tau_s
+            ),
+            music_baseline_max_age_s=_env_float(
+                "RTR_MUSIC_BASELINE_MAX_AGE_S", cls.music_baseline_max_age_s
+            ),
+            music_baseline_m_max=_env_float(
+                "RTR_MUSIC_BASELINE_M_MAX", cls.music_baseline_m_max
+            ),
+            music_pull_m_floor=_env_float(
+                "RTR_MUSIC_PULL_M_FLOOR", cls.music_pull_m_floor
+            ),
             music_dominance_lo=_env_float(
                 "RTR_MUSIC_DOMINANCE_LO", cls.music_dominance_lo
             ),

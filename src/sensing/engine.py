@@ -28,7 +28,7 @@ from . import dsp
 from .config import Config
 from .emotion import EmotionWorker
 from .headcount import BucketSmoother, HeadcountEstimator, HeadcountWorker
-from .music import TrackSignatureStore, apply_correction, dominance
+from .music import CleanBaseline, TrackSignatureStore, apply_correction, dominance
 from .state import Ema, RoomState, TrendTracker, energy_score, mood_quadrant
 from .vad import VadGate
 
@@ -109,8 +109,9 @@ class Engine:
         self._noise_floor = Ema(config.noise_floor_tau_s)
         self._ema_valence = Ema(config.smooth_tau_emotion_s)
         self._ema_arousal = Ema(config.smooth_tau_emotion_s)
-        # Music-aware emotion (M6): per-track model-response signatures,
-        # measured by reference taps and subtracted from speech readings.
+        # Music-aware emotion (M6): per-track signatures — the measured
+        # speech-over-music pull (primary) and the standalone response
+        # (cold-start prior) — subtracted from speech readings.
         self._signatures = (
             TrackSignatureStore(
                 config.music_signatures_path, min_refs=config.music_min_refs
@@ -118,6 +119,9 @@ class Engine:
             if config.music_aware_enabled and config.emotion_enabled
             else None
         )
+        # The room's emotion read absent music, for pull sampling.
+        self._clean_baseline = CleanBaseline(config.music_baseline_tau_s)
+        self._last_banked_at: float | None = None  # dedup per inference
         self._trend = TrendTracker(config.trend_horizon_s, config.trend_slope_threshold)
         self._vad_position = 0
         self._running = False
@@ -250,23 +254,21 @@ class Engine:
             if reading is not None:
                 v_inst, a_inst = reading.valence, reading.arousal
                 confidence = reading.confidence
+                if self._signatures is not None:
+                    self._bank_evidence(
+                        reading, staleness, playback_active,
+                        playback_track_id, music_dominance, now,
+                    )
                 if music_dominance is not None and music_dominance > 0.0:
-                    signature = self._signatures.get(playback_track_id)
-                    if signature is not None:
-                        v_inst, a_inst, dv, da = apply_correction(
-                            v_inst, a_inst, signature,
-                            music_dominance, self.config.music_beta,
-                        )
-                        emotion_correction = {
-                            "valence": round(dv, 3),
-                            "arousal": round(da, 3),
-                            "track_id": playback_track_id,
-                            "refs": signature.refs,
-                        }
+                    corrected = self._correct(
+                        v_inst, a_inst, playback_track_id, music_dominance
+                    )
+                    if corrected is not None:
+                        v_inst, a_inst, emotion_correction = corrected
                     else:
-                        # Discount floor: no signature yet — the reading is
-                        # blended room+song and we can't unblend it, so it
-                        # arrives with less conviction.
+                        # Discount floor: no usable signature yet — the
+                        # reading is blended room+song and we can't unblend
+                        # it, so it arrives with less conviction.
                         confidence *= max(
                             0.0,
                             1.0 - self.config.music_discount_gamma * music_dominance,
@@ -298,6 +300,99 @@ class Engine:
                 hc_confidence = hc_reading.confidence
 
         energy = energy_score(loudness, activity, speech_ratio, arousal)
+        return self._publish(
+            wall, loudness, activity, measured, speech_ratio, valence, arousal,
+            confidence, staleness, hc_bucket, hc_confidence, hc_staleness,
+            energy, now, playback_active, playback_track_id,
+            music_dominance, emotion_correction,
+        )
+
+    def _bank_evidence(
+        self,
+        reading,
+        staleness: float | None,
+        playback_active: bool,
+        playback_track_id: str | None,
+        music_dominance: float | None,
+        now: float,
+    ) -> None:
+        """Feed the clean baseline and the pull estimator from a RAW
+        reading, once per inference (readings persist across ticks). The
+        baseline learns the room absent music; while it is fresh, a
+        speech-over-music reading measures the playing track's pull
+        directly — the interaction, not the standalone response
+        (additivity failed its 2026-07-11 test)."""
+        if reading.at == self._last_banked_at:
+            return
+        fresh = staleness is not None and staleness <= (
+            self.config.emotion_min_interval_s + self.config.hop_s
+        )
+        if not fresh:
+            return
+        self._last_banked_at = reading.at
+        clean = not playback_active or (
+            music_dominance is not None
+            and music_dominance <= self.config.music_baseline_m_max
+        )
+        if clean:
+            self._clean_baseline.update(reading.valence, reading.arousal, now)
+            return
+        if (
+            playback_track_id is not None
+            and music_dominance is not None
+            and music_dominance >= self.config.music_pull_m_floor
+        ):
+            base = self._clean_baseline.get(
+                now, self.config.music_baseline_max_age_s
+            )
+            if base is not None:
+                self._signatures.add_pull_reference(
+                    playback_track_id,
+                    (reading.valence - base[0]) / music_dominance,
+                    (reading.arousal - base[1]) / music_dominance,
+                )
+
+    def _correct(
+        self,
+        v_inst: float,
+        a_inst: float,
+        playback_track_id: str | None,
+        m: float,
+    ) -> tuple[float, float, dict] | None:
+        """Subtract the playing track's pull. Basis order: the measured
+        pull signature, else the standalone response scaled by the
+        gate-measured super-additivity ratios (cold start), else None —
+        the caller falls back to the confidence discount."""
+        sig = self._signatures.lookup(playback_track_id)
+        if sig is None:
+            return None
+        if sig.pull_refs >= self._signatures.min_refs:
+            basis, pv, pa, refs = "pull", sig.pull_valence, sig.pull_arousal, sig.pull_refs
+            scale_v, scale_a = self.config.music_beta_v, self.config.music_beta_a
+        elif sig.refs >= self._signatures.min_refs:
+            basis, pv, pa, refs = "standalone", sig.valence, sig.arousal, sig.refs
+            scale_v = self.config.music_standalone_scale_v
+            scale_a = self.config.music_standalone_scale_a
+        else:
+            return None
+        v, a, dv, da = apply_correction(
+            v_inst, a_inst, pv, pa, m, scale_v, scale_a,
+            self.config.music_max_correction,
+        )
+        return v, a, {
+            "valence": round(dv, 3),
+            "arousal": round(da, 3),
+            "track_id": playback_track_id,
+            "basis": basis,
+            "refs": refs,
+        }
+
+    def _publish(
+        self, wall, loudness, activity, measured, speech_ratio, valence,
+        arousal, confidence, staleness, hc_bucket, hc_confidence,
+        hc_staleness, energy, now, playback_active, playback_track_id,
+        music_dominance, emotion_correction,
+    ) -> RoomState:
         mood = None
         if (
             valence is not None
