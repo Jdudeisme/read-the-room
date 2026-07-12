@@ -32,6 +32,27 @@ def _synthetic_speakers(n_speakers: int, per_speaker: int, seed: int = 0, spread
     return np.vstack(rows).astype(np.float32)
 
 
+def _unit(v: np.ndarray) -> np.ndarray:
+    return v / np.linalg.norm(v)
+
+
+def _center_at(base: np.ndarray, cosine_dist: float, rng) -> np.ndarray:
+    """A unit vector at an exact cosine distance from `base`. Fixtures place
+    same-speaker debris at the MEASURED ~0.75 from its parent centroid and
+    distinct voices at ~0.9 (docs/M7-PROPOSAL.md distance tables) — random
+    independent centers are cross-voice geometry, not fragments."""
+    u = rng.standard_normal(base.size)
+    u -= (u @ base) * base
+    u = _unit(u)
+    cos = 1.0 - cosine_dist
+    return _unit(cos * base + np.sqrt(max(0.0, 1.0 - cos**2)) * u)
+
+
+def _cluster_at(center: np.ndarray, n: int, rng, spread: float = 0.02) -> np.ndarray:
+    pts = center + spread * rng.standard_normal((n, center.size))
+    return (pts / np.linalg.norm(pts, axis=1, keepdims=True)).astype(np.float32)
+
+
 # ---------------------------------------------------------------------------
 # Regression tier: the 2020 failure modes, at the logic level
 # ---------------------------------------------------------------------------
@@ -55,15 +76,21 @@ class Test2020Regressions:
         """The 2026-07-05 live finding: at buffer scale a solo speaker's
         far-tail fragments arrive as small CLUSTERS (2-3 segments), not
         singletons — the absolute min-mass floor alone counts each as a
-        person. The proportional evidence floor must filter them."""
-        dominant = _synthetic_speakers(1, 30, seed=2, spread=0.02)
-        frag_a = _synthetic_speakers(1, 3, seed=3, spread=0.02)
-        frag_b = _synthetic_speakers(1, 3, seed=4, spread=0.02)
+        person. The proportional evidence floor must filter them, and the
+        M7 rescue must decline them (fragments sit at the measured ~0.75
+        from their parent centroid, inside the 0.80 rescue margin — random
+        independent centers would be cross-voice geometry)."""
+        rng = np.random.default_rng(2)
+        dominant_c = _unit(rng.standard_normal(192))
+        dominant = _cluster_at(dominant_c, 30, rng)
+        frag_a = _cluster_at(_center_at(dominant_c, 0.74, rng), 3, rng)
+        frag_b = _cluster_at(_center_at(dominant_c, 0.76, rng), 3, rng)
         est = HeadcountEstimator()
         est.add(np.vstack([dominant, frag_a, frag_b]), [1.25] * 36, now=0.0)
         result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
         assert result is not None
         assert result.raw_clusters == 1  # 3/36 segments < 10% of evidence
+        assert result.rescued_clusters == 0
 
     def test_two_balanced_speakers_both_pass_proportional_min_mass(self):
         """The proportional floor must not swallow real speakers: two voices
@@ -125,7 +152,7 @@ class TestClustering:
         one = _synthetic_speakers(1, 1)
         assert agglomerative_cluster(one, 0.4).tolist() == [0]
 
-    def test_separation_score_high_for_distinct_low_for_babble(self):
+    def test_separation_score_high_for_distinct_none_when_undefined(self):
         distinct = _synthetic_speakers(3, 10, spread=0.02)
         labels_d = agglomerative_cluster(distinct, 0.40)
         rng = np.random.default_rng(2)
@@ -134,8 +161,9 @@ class TestClustering:
         babble /= np.linalg.norm(babble, axis=1, keepdims=True)
         labels_b = agglomerative_cluster(babble, 0.40)
         assert separation_score(distinct, labels_d) > 0.5
-        # A single smeared cluster has undefined/zero separation.
-        assert separation_score(babble, labels_b) <= 0.2
+        # A single cluster has UNDEFINED separation — None, not 0.0. Reading
+        # it as 0.0 (maximal collapse) was the M7-fixed sep_collapse misfire.
+        assert separation_score(babble, labels_b) is None
 
 
 # ---------------------------------------------------------------------------
@@ -182,10 +210,14 @@ class TestSpeechSegments:
 
 class TestContaminationGateV1:
     def _smeared_estimator(self) -> HeadcountEstimator:
-        """Reverb-smeared single blob — the acoustics that false-fired at
-        the pool (high dispersion, saturated speech, loud)."""
+        """Babble confetti — heavy overlap fragmenting the buffer into
+        mass-failing strays (fragmentation ~0.7, silhouette ~0), the crowd
+        signature that still fires post-M7. (The old fixture's single blob
+        at ~0.6 dispersion is mic-measured SOLO scatter, which M7's
+        recalibrated ramp deliberately reads as counting regime — see
+        TestM7StableMiddle.)"""
         est = HeadcountEstimator()
-        est.add(_synthetic_speakers(1, 80, seed=4, spread=0.09), [1.25] * 80, now=0.0)
+        est.add(_synthetic_speakers(1, 80, seed=4, spread=0.12), [1.25] * 80, now=0.0)
         return est
 
     def test_music_raised_floor_no_longer_false_fires(self):
@@ -239,32 +271,64 @@ class TestContaminationGateV1:
 
 class TestBucketLadder:
     def test_ladder_is_computed_not_enumerated(self):
-        """Every rung reachable by round(log2), CROWD past the end — the
-        design guarantee that 256+ needs no restructure."""
+        """Every rung reachable from its nominal occupancy, CROWD past the
+        end — the design guarantee that 256+ needs no restructure. M7
+        ladder: 1,2,3,4,6,8 then powers of 2 (docs/M7-PROPOSAL.md)."""
         import math
 
-        for i, bucket in enumerate(BUCKET_LADDER):
-            assert bucket_from_log2(float(i)) is bucket
+        nominals = (1, 2, 3, 4, 6, 8, 16, 32, 64, 128, 256, 512, 1024)
+        assert len(BUCKET_LADDER) == len(nominals)
+        for n, bucket in zip(nominals, BUCKET_LADDER):
+            assert bucket_from_log2(math.log2(n)) is bucket
         assert bucket_from_log2(math.log2(600)) is HeadcountBucket.FIVE_TWELVE
         assert bucket_from_log2(math.log2(2000)) is HeadcountBucket.CROWD
         assert bucket_from_log2(-1.0) is HeadcountBucket.SOLO
 
     def test_geometric_midpoint_boundaries(self):
-        # 4 vs 8 splits at 2^2.5 ~ 5.66 people.
-        assert bucket_from_log2(2.49) is HeadcountBucket.FOUR
-        assert bucket_from_log2(2.51) is HeadcountBucket.EIGHT
+        """Boundaries are geometric midpoints: pair/3 at ~2.45 people
+        (log2 ~1.29), 3/4 at ~3.46 (~1.79), 4/6 at ~4.9 (~2.29), 6/8 at
+        ~6.9 (~2.79). A true trio (log2 1.585) now sits mid-rung instead
+        of ON the old pair/4 boundary — the M7 quantization fix."""
+        assert bucket_from_log2(1.28) is HeadcountBucket.PAIR
+        assert bucket_from_log2(1.30) is HeadcountBucket.THREE
+        assert bucket_from_log2(1.585) is HeadcountBucket.THREE
+        assert bucket_from_log2(1.78) is HeadcountBucket.THREE
+        assert bucket_from_log2(1.80) is HeadcountBucket.FOUR
+        assert bucket_from_log2(2.28) is HeadcountBucket.FOUR
+        assert bucket_from_log2(2.30) is HeadcountBucket.SIX
+        assert bucket_from_log2(2.78) is HeadcountBucket.SIX
+        assert bucket_from_log2(2.80) is HeadcountBucket.EIGHT
+        # The crowd cutover is unchanged from pre-M7 (log2(1024) + 0.5).
+        assert bucket_from_log2(10.49) is HeadcountBucket.TEN_TWENTY_FOUR
+        assert bucket_from_log2(10.51) is HeadcountBucket.CROWD
 
 
 class TestBucketSmoother:
     def test_oscillation_around_midpoint_never_flaps(self):
-        """Estimates bouncing across the 4/8 boundary each update must not
+        """Estimates bouncing across the 6/8 boundary each update must not
         flap the bucket — hysteresis requires hold_k consecutive agreements."""
         sm = BucketSmoother(tau_s=0.01, hold_k=3)  # tiny tau isolates hysteresis
         buckets = set()
         for i in range(30):
-            log2_est = 2.4 if i % 2 == 0 else 2.6  # straddles the midpoint
+            log2_est = 2.7 if i % 2 == 0 else 2.9  # straddles the 6/8 midpoint
             buckets.add(sm.update(log2_est, t=float(i * 2)))
         assert len(buckets) == 1
+
+    def test_intermittent_trio_settles_on_three(self):
+        """The M7 uneven-trio profile: rescues are intermittent, so raw
+        estimates mix log2(3) with log2(2) (mostly 3). The EMA must settle
+        mid-rung on THREE — on the old ladder this exact stream sat on the
+        pair/4 boundary and published pair all night (FIELD-NOTES
+        2026-07-10; docs/M7-PROPOSAL.md honest residual)."""
+        import math
+
+        sm = BucketSmoother(tau_s=20.0, hold_k=3)
+        stream = [3, 3, 3, 2] * 20  # 75% rescued-trio hops, 25% starved
+        result = None
+        for i, n in enumerate(stream):
+            result = sm.update(math.log2(n), t=float(i * 4))
+        assert result is HeadcountBucket.THREE
+        assert 1.29 < sm.smoothed_log2 < 1.79  # mid-rung, not boundary-riding
 
     def test_sustained_shift_crosses_after_hold_k(self):
         sm = BucketSmoother(tau_s=0.01, hold_k=3)
@@ -298,7 +362,7 @@ class TestRegimes:
     def test_babble_pressure_is_monotone_in_the_crowd_regime(self):
         """Denser room (higher speech saturation + loudness) -> equal-or-higher
         estimate. Ordinal correctness is all the crowd regime promises."""
-        blob = _synthetic_speakers(1, 60, seed=3, spread=0.09)  # smeared babble
+        blob = _synthetic_speakers(1, 60, seed=3, spread=0.12)  # babble confetti
 
         estimates = []
         for ratio, loud in [(0.5, -40.0), (0.8, -30.0), (1.0, -18.0)]:
@@ -308,16 +372,15 @@ class TestRegimes:
         assert estimates == sorted(estimates)
         assert estimates[-1] > estimates[0] + 1.0  # actually exercised the path
 
-    def test_smeared_babble_enters_crowd_regime_with_low_confidence(self):
-        """Heavy overlap can collapse a crowd into ONE diffuse cluster —
-        saturated + loud + high-dispersion must still read as crowd regime,
-        never as a confident solo."""
-        # Spread 0.09 -> pairwise cosine distance ~0.6: under the 0.70
-        # threshold, so AHC chains everything into ONE cluster whose internal
-        # dispersion sits well up the [0.35, 0.70] dispersion ramp — far
-        # beyond clean same-speaker scatter (~0.35 measured on 1.25s
-        # segments), reading as smear.
-        blob = _synthetic_speakers(1, 80, seed=4, spread=0.09)
+    def test_fragmenting_babble_enters_crowd_regime_with_low_confidence(self):
+        """Heavy overlap destroys per-speaker structure — saturated + loud +
+        fragmenting-into-strays must still read as crowd regime, never as a
+        confident solo. (Spread 0.12 scatters past the 0.70 threshold: most
+        evidence lands in mass-failing stray clusters, fragmentation ~0.7,
+        silhouette ~0 — the confetti half of the smear signal. The
+        single-blob ~0.6-dispersion variant is mic-measured solo scatter
+        and now correctly stays counting regime: TestM7StableMiddle.)"""
+        blob = _synthetic_speakers(1, 80, seed=4, spread=0.12)
         est = HeadcountEstimator()
         est.add(blob, [1.25] * 80, now=0.0)
         result = est.estimate(speech_ratio=1.0, loudness_dbfs=-15.0)
@@ -348,7 +411,8 @@ class TestRegimes:
         2026-07-06) is attributable from the log alone.
 
         Raw signals, pre-ramp: a tight solo speaker reads low dispersion and
-        zero fragmentation; a smeared blob reads dispersion up the ramp."""
+        zero fragmentation; a mic-scatter blob reads its dispersion honestly
+        (~0.6) even though the M7 ramp no longer treats that as smear."""
         tight = _synthetic_speakers(1, 20, seed=9, spread=0.02)
         est = HeadcountEstimator()
         est.add(tight, [1.25] * 20, now=0.0)
@@ -360,14 +424,17 @@ class TestRegimes:
         est = HeadcountEstimator()
         est.add(blob, [1.25] * 80, now=0.0)
         smeared = est.estimate(speech_ratio=1.0, loudness_dbfs=-15.0)
-        assert smeared.dispersion > 0.35  # inside the [0.35, 0.70] ramp
+        assert smeared.dispersion > 0.5  # raw value published un-ramped
 
     def test_fragmentation_counts_mass_failing_stray_evidence(self):
         """Same inputs as the heavy-fragments regression above: two 3-segment
-        far-tail fragments fail min-mass, so 6 of 36 segments are strays."""
-        dominant = _synthetic_speakers(1, 30, seed=2, spread=0.02)
-        frag_a = _synthetic_speakers(1, 3, seed=3, spread=0.02)
-        frag_b = _synthetic_speakers(1, 3, seed=4, spread=0.02)
+        far-tail fragments (at the measured ~0.75 parent distance, so the
+        rescue declines them) fail min-mass — 6 of 36 segments are strays."""
+        rng = np.random.default_rng(2)
+        dominant_c = _unit(rng.standard_normal(192))
+        dominant = _cluster_at(dominant_c, 30, rng)
+        frag_a = _cluster_at(_center_at(dominant_c, 0.74, rng), 3, rng)
+        frag_b = _cluster_at(_center_at(dominant_c, 0.76, rng), 3, rng)
         est = HeadcountEstimator()
         est.add(np.vstack([dominant, frag_a, frag_b]), [1.25] * 36, now=0.0)
         result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
@@ -381,3 +448,163 @@ class TestRegimes:
         assert est.evidence_s == pytest.approx(4.0)
         est.add(_synthetic_speakers(1, 4, seed=7), [1.0] * 4, now=21.0)  # cap: 5
         assert est.evidence_s == pytest.approx(5.0)
+
+
+# ---------------------------------------------------------------------------
+# M7: the stable middle (docs/M7-PROPOSAL.md) — fixtures model the MEASURED
+# distance distributions (clean same-voice ~0.35, mic same-voice ~0.6,
+# cross-voice ~0.9; FakeProvider lesson). Geometry helpers at top of file.
+# ---------------------------------------------------------------------------
+
+
+class TestM7StableMiddle:
+    """The trio-evening failure pair: mic-scatter solos must not read as
+    crowds (sep_collapse misfire + dispersion ramp), and low-airtime real
+    voices must not be starved by the proportional evidence floor (rescue)."""
+
+    def test_mic_scatter_solo_stays_counting_regime(self):
+        """THE overcount fix. A solo speaker at mic-measured scatter (~0.6
+        mean within-distance) talking loud and nonstop: pre-M7 the single
+        cluster read separation 0.0 -> sep_collapse 1.0, and dispersion 0.6
+        sat inside the [0.35, 0.70] smear ramp — an entire session published
+        bucket 4 (offline repro; field: M4 part (d) phase 2b, pool pair->16).
+        """
+        blob = _synthetic_speakers(1, 80, seed=4, spread=0.09)  # disp ~0.60
+        est = HeadcountEstimator()
+        est.add(blob, [1.25] * 80, now=0.0)
+        result = est.estimate(speech_ratio=1.0, loudness_dbfs=-15.0)
+        assert result.raw_clusters == 1
+        assert result.separation is None  # single cluster: undefined, not 0.0
+        assert result.crowd_weight < 0.05
+        assert result.log2_count < 0.5  # reads solo, not blended toward babble
+
+    def test_merged_multivoice_blob_still_reads_collapsed(self):
+        """The escape hatch the sep_collapse fix must not close: ONE
+        indistinct cluster whose INTERNAL dispersion exceeds the clustering
+        threshold (cross-voice pairs ~0.9 chained inside a merged blob)
+        still reads as collapse through the recalibrated ramp."""
+        rng = np.random.default_rng(11)
+        base = _unit(rng.standard_normal(192))
+        # A chain of overlapping voice-centers: neighbours ~0.5 apart merge
+        # under average linkage, but end-to-end spread pushes internal
+        # dispersion past the 0.70 threshold.
+        centers, c = [base], base
+        for _ in range(5):
+            c = _center_at(c, 0.5, rng)
+            centers.append(c)
+        emb = np.vstack([_cluster_at(c, 12, rng, spread=0.05) for c in centers])
+        est = HeadcountEstimator()
+        est.add(emb, [1.25] * len(emb), now=0.0)
+        result = est.estimate(speech_ratio=1.0, loudness_dbfs=-15.0)
+        if result.separation is None:  # did merge into one cluster
+            assert result.dispersion > est.cluster_threshold
+            assert result.crowd_weight > 0.3
+
+    def test_rescue_counts_distinct_low_airtime_voice(self):
+        """THE undercount fix. Dominant speaker holds 91% of the buffered
+        airtime; a real second voice (cross-voice distance ~0.9) holds 9% —
+        under the 10% proportional floor, so pre-M7 it could not exist
+        (FIELD-NOTES 2026-07-10: raw 1-2 all evening for a real trio; the
+        starved cluster measured speaker-pure offline)."""
+        rng = np.random.default_rng(12)
+        dominant_c = _unit(rng.standard_normal(192))
+        quiet_c = _center_at(dominant_c, 0.92, rng)
+        est = HeadcountEstimator()
+        est.add(_cluster_at(dominant_c, 40, rng), [1.25] * 40, now=0.0)
+        est.add(_cluster_at(quiet_c, 4, rng), [1.25] * 4, now=1.0)  # 9% of 55s
+        result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
+        assert result.raw_clusters == 2
+        assert result.rescued_clusters == 1
+        assert result.fragmentation == 0.0  # rescued evidence is not stray
+
+    def test_rescue_declines_same_voice_debris(self):
+        """The rescue must not resurrect the M2 ratchet bug: a far-tail
+        fragment of the dominant speaker (past the 0.70 threshold, so it
+        clusters separately, but hugging the parent centroid at ~0.75)
+        stays debris. Margin 0.80 is calibrated between measured debris
+        (median 0.73) and measured distinct voices (~0.82+)."""
+        rng = np.random.default_rng(13)
+        dominant_c = _unit(rng.standard_normal(192))
+        debris_c = _center_at(dominant_c, 0.75, rng)
+        est = HeadcountEstimator()
+        est.add(_cluster_at(dominant_c, 40, rng), [1.25] * 40, now=0.0)
+        est.add(_cluster_at(debris_c, 4, rng), [1.25] * 4, now=1.0)
+        result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
+        assert result.raw_clusters == 1
+        assert result.rescued_clusters == 0
+        assert result.fragmentation > 0.0  # declined evidence stays stray
+
+    def test_rescue_requires_a_passing_anchor(self):
+        """No rescue when NOTHING passed the floors: an all-stray buffer is
+        a solo/babble scatter signature, not a room full of hidden people —
+        vacuous rescue would count same-voice confetti as a crowd."""
+        blob = _synthetic_speakers(1, 80, seed=4, spread=0.12)  # all-stray
+        est = HeadcountEstimator()
+        est.add(blob, [1.25] * 80, now=0.0)
+        result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
+        assert result.raw_clusters == 1
+        assert result.rescued_clusters == 0
+
+    def test_rescue_dedups_fragments_of_the_same_quiet_voice(self):
+        """Two rescue-eligible clusters that are far from the dominant
+        speaker but near EACH OTHER (~0.75 — one scattered quiet voice, not
+        two people) count once: greedy acceptance requires clearing
+        already-rescued centroids too."""
+        rng = np.random.default_rng(14)
+        dominant_c = _unit(rng.standard_normal(192))
+        quiet_a = _center_at(dominant_c, 0.92, rng)
+        # Near quiet_a (0.75: separate cluster, inside the rescue margin),
+        # and constructed to also sit far from the dominant centroid.
+        quiet_b = _center_at(quiet_a, 0.75, rng)
+        if 1.0 - float(quiet_b @ dominant_c) < 0.85:  # keep the fixture honest
+            quiet_b = _center_at(quiet_a, 0.75, np.random.default_rng(15))
+        assert 1.0 - float(quiet_b @ dominant_c) >= 0.85
+        est = HeadcountEstimator()
+        est.add(_cluster_at(dominant_c, 60, rng), [1.25] * 60, now=0.0)
+        est.add(_cluster_at(quiet_a, 4, rng), [1.25] * 4, now=1.0)
+        est.add(_cluster_at(quiet_b, 3, rng), [1.25] * 3, now=2.0)
+        result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
+        assert result.raw_clusters == 2  # dominant + ONE rescued voice
+        assert result.rescued_clusters == 1
+
+    def test_rescue_respects_the_absolute_floor(self):
+        """A distinct-but-tiny cluster (1 segment / 1.25s) is not rescued:
+        the strengthened absolute floor (segments AND seconds) holds. Solo
+        sessions produce no rescue-eligible clusters at all (measured), so
+        this floor is what keeps the rescue silent for solos."""
+        rng = np.random.default_rng(16)
+        dominant_c = _unit(rng.standard_normal(192))
+        tiny_c = _center_at(dominant_c, 0.92, rng)
+        est = HeadcountEstimator()
+        est.add(_cluster_at(dominant_c, 40, rng), [1.25] * 40, now=0.0)
+        est.add(_cluster_at(tiny_c, 1, rng), [1.25], now=1.0)
+        result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
+        assert result.raw_clusters == 1
+        assert result.rescued_clusters == 0
+
+    def test_trio_with_two_quiet_voices_counts_three(self):
+        """The gate-night target shape: one dominant voice, two distinct
+        quiet voices (mutually ~0.9 apart) each under the proportional
+        floor -> raw 3, and the log2 estimate lands in rung THREE's span."""
+        rng = np.random.default_rng(17)
+        d = _unit(rng.standard_normal(192))
+        q1 = _center_at(d, 0.92, rng)
+        q2 = _center_at(d, 0.90, rng)  # independent direction: ~0.9 from q1 too
+        assert 1.0 - float(q1 @ q2) >= 0.80
+        est = HeadcountEstimator()
+        est.add(_cluster_at(d, 50, rng), [1.25] * 50, now=0.0)
+        est.add(_cluster_at(q1, 4, rng), [1.25] * 4, now=1.0)
+        est.add(_cluster_at(q2, 3, rng), [1.25] * 3, now=2.0)
+        result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
+        assert result.raw_clusters == 3
+        assert result.rescued_clusters == 2
+        assert bucket_from_log2(result.log2_count) is HeadcountBucket.THREE
+
+    def test_four_voice_separation_unbroken(self):
+        """M3 regression bar: four balanced voices at the 0.10 proportional
+        floor still count as four, no rescue involved."""
+        est = HeadcountEstimator()
+        est.add(_synthetic_speakers(4, 10, seed=18, spread=0.02), [1.25] * 40, now=0.0)
+        result = est.estimate(speech_ratio=0.6, loudness_dbfs=-30.0)
+        assert result.raw_clusters == 4
+        assert result.rescued_clusters == 0

@@ -95,6 +95,13 @@ class Config:
     # A cluster only counts as a person while it holds at least this fraction
     # of all buffered speech evidence (see HeadcountEstimator min-mass).
     headcount_min_cluster_frac: float = 0.10
+    # M7 distinct-voice rescue: a cluster failing ONLY the proportional
+    # floor still counts when it passes the strengthened absolute floor and
+    # its centroid sits at least this cosine distance from every counted
+    # cluster. Calibrated offline 2026-07-12 (docs/M7-PROPOSAL.md): debris
+    # hugs its parent centroid (median 0.73), distinct low-airtime voices
+    # sit ~0.82. The M7 gate's calibration knob.
+    headcount_rescue_margin: float = 0.80
     headcount_smooth_tau_s: float = 20.0  # EMA time constant, log2 space
     headcount_hysteresis_k: int = 3  # consecutive updates to change bucket
 
@@ -191,6 +198,9 @@ class Config:
             ),
             headcount_min_cluster_frac=_env_float(
                 "RTR_HEADCOUNT_MIN_CLUSTER_FRAC", cls.headcount_min_cluster_frac
+            ),
+            headcount_rescue_margin=_env_float(
+                "RTR_HEADCOUNT_RESCUE_MARGIN", cls.headcount_rescue_margin
             ),
             headcount_smooth_tau_s=_env_float(
                 "RTR_HEADCOUNT_SMOOTH_TAU_S", cls.headcount_smooth_tau_s

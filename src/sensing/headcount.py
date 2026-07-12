@@ -25,6 +25,13 @@ state.HeadcountBucket). Design decisions, per the approved M2 proposal:
   toward a babble-density heuristic and confidence drops to a fixed low
   ceiling. Above ~16 the bucket is an ordinal "how crowded" signal, not a
   census.
+- **The stable middle (M7, docs/M7-PROPOSAL.md).** Three calibration-level
+  changes from the 2026-07-10 trio-evening evidence: undefined silhouette
+  no longer reads as maximal collapse (the animated-solo/pair overcount);
+  the dispersion smear ramp starts at the clustering threshold, because
+  mic-measured same-voice scatter (~0.6) lived inside the old ramp; and a
+  distinct-voice rescue counts low-airtime speakers whose (speaker-pure)
+  clusters the proportional evidence floor would silently starve.
 - **Latest-wins worker thread**, same pattern as emotion.EmotionWorker: a
   slow inference can never stall the DSP/VAD heartbeat, and jobs replace
   rather than queue.
@@ -235,15 +242,20 @@ def agglomerative_cluster(
     return labels
 
 
-def separation_score(embeddings: np.ndarray, labels: np.ndarray) -> float:
-    """Mean silhouette coefficient in [-1, 1]; 0.0 when undefined.
+def separation_score(embeddings: np.ndarray, labels: np.ndarray) -> float | None:
+    """Mean silhouette coefficient in [-1, 1]; None when undefined.
 
     Measures how cleanly the clustering separates: near 1 means distinct
     voices, near 0 means the embedding space has collapsed into babble.
+    Undefined (single cluster / n < 3) is None, NOT 0.0 — M7: a lone tight
+    cluster is a confident solo, and reading "undefined" as "maximally
+    collapsed" was the sep_collapse misfire behind the animated-solo/pair
+    overcounts (M4 part (d) phase 2b, the pool pair->16; reproduced offline
+    as an entire solo session publishing bucket 4, docs/M7-PROPOSAL.md).
     """
     n = embeddings.shape[0]
     if n < 3 or len(np.unique(labels)) < 2:
-        return 0.0
+        return None
     dist = 1.0 - np.clip(embeddings @ embeddings.T, -1.0, 1.0)
     scores = []
     for i in range(n):
@@ -298,7 +310,7 @@ def _mean_intra_cluster_distance(embeddings: np.ndarray, labels: np.ndarray) -> 
 class Estimate:
     log2_count: float  # continuous occupancy estimate, log2 people
     confidence: float  # 0..1
-    raw_clusters: int  # min-mass-passing cluster count (diagnostic)
+    raw_clusters: int  # mass-passing + rescued cluster count (diagnostic)
     crowd_weight: float  # 0 = pure count regime, 1 = pure babble regime
     # M4 observability (FIELD-NOTES 2026-07-06 debuggability gap): the raw
     # smear signals behind crowd_weight, pre-ramp, so a smoothed-bucket
@@ -306,6 +318,10 @@ class Estimate:
     # functions of these plus config, so raw values lose nothing.
     dispersion: float  # segment-weighted mean within-cluster cosine distance
     fragmentation: float  # fraction of segments in mass-failing stray clusters
+    # M7 observability: what the collapse/rescue logic actually saw, so a
+    # trio night's undercount frames attribute themselves from the log.
+    separation: float | None = None  # silhouette; None = undefined (1 cluster)
+    rescued_clusters: int = 0  # how many of raw_clusters came through rescue
 
 
 class HeadcountEstimator:
@@ -326,6 +342,7 @@ class HeadcountEstimator:
         min_cluster_evidence_frac: float = 0.10,
         count_reliable_max: int = 4,
         count_regime_max: int = 8,
+        rescue_margin: float = 0.80,
     ):
         self.buffer_s = buffer_s
         self.buffer_cap = buffer_cap
@@ -335,6 +352,14 @@ class HeadcountEstimator:
         self.min_cluster_evidence_frac = min_cluster_evidence_frac
         self.count_reliable_max = count_reliable_max
         self.count_regime_max = count_regime_max
+        # M7 distinct-voice rescue: a cluster failing only the proportional
+        # evidence floor still counts when its centroid sits at least this
+        # cosine distance from every mass-passing (and already-rescued)
+        # cluster centroid. Calibrated offline (docs/M7-PROPOSAL.md): a
+        # dominant speaker's scatter debris hugs its parent centroid
+        # (median 0.73), distinct low-airtime voices sit ~0.82; solos
+        # produce no rescue-eligible clusters at all.
+        self.rescue_margin = rescue_margin
         self._embeddings: list[np.ndarray] = []
         self._times: list[float] = []
         self._durations: list[float] = []
@@ -400,7 +425,8 @@ class HeadcountEstimator:
         # buffer fills. Requiring a fraction of total evidence scales with
         # the buffer: a solo speaker's debris stays debris, while real
         # additional speakers (>= ~10% of the talk time) still count.
-        raw = 0
+        passing: list[int] = []
+        failing: list[int] = []
         stray_segments = 0
         min_frac_s = self.min_cluster_evidence_frac * float(durations.sum())
         for label in np.unique(labels):
@@ -410,10 +436,52 @@ class HeadcountEstimator:
                 int(in_cluster.sum()) >= self.min_cluster_segments
                 or cluster_s >= self.min_cluster_speech_s
             ) and cluster_s >= min_frac_s:
-                raw += 1
+                passing.append(int(label))
             else:
+                failing.append(int(label))
                 stray_segments += int(in_cluster.sum())
-        raw = max(raw, 1)  # evidence exists, so someone is here
+
+        # M7 distinct-voice rescue (docs/M7-PROPOSAL.md). The proportional
+        # floor has a blind spot the 2026-07-10 trio evening exposed: with
+        # one speaker holding the floor, a real third voice at < 10% of the
+        # buffered airtime CANNOT exist — its (speaker-pure, measured)
+        # cluster fails the frac floor forever. A cluster failing only the
+        # proportional floor still counts when it passes a strengthened
+        # absolute floor (segments AND speech seconds, not OR) and its
+        # centroid sits >= rescue_margin from every counted cluster —
+        # distinct voices measure ~0.9 apart, a dominant speaker's debris
+        # hugs its parent. Guards: never rescue when nothing passed at all
+        # (an all-stray buffer is a solo/babble signature, not hidden
+        # people), and rescued clusters must also clear each other (two
+        # fragments of the same starved voice count once), greedily in mass
+        # order.
+        rescued = 0
+        if passing and failing:
+            def _centroid(label: int) -> np.ndarray:
+                c = emb[labels == label].mean(axis=0)
+                return c / max(float(np.linalg.norm(c)), 1e-10)
+
+            counted = [_centroid(lb) for lb in passing]
+            eligible = []
+            for label in failing:
+                in_cluster = labels == label
+                cluster_s = float(durations[in_cluster].sum())
+                if (
+                    int(in_cluster.sum()) >= self.min_cluster_segments
+                    and cluster_s >= self.min_cluster_speech_s
+                ):
+                    eligible.append((cluster_s, label, int(in_cluster.sum())))
+            for cluster_s, label, n_segs in sorted(eligible, reverse=True):
+                c = _centroid(label)
+                if all(
+                    1.0 - float(np.dot(c, other)) >= self.rescue_margin
+                    for other in counted
+                ):
+                    counted.append(c)
+                    rescued += 1
+                    stray_segments -= n_segs
+
+        raw = max(len(passing) + rescued, 1)  # evidence exists: someone is here
         # Fraction of evidence stuck in mass-failing stray clusters. A solo
         # speaker sheds a few strays; crowd babble under heavy overlap can
         # fragment into ALL strays — a regime signal min-mass would otherwise
@@ -442,7 +510,6 @@ class HeadcountEstimator:
         # the deadzones everything is continuous, so the transition zone
         # (~8-16) blends rather than jumps.
         count_pressure = _ramp(raw, self.count_reliable_max, self.count_regime_max)
-        sep_collapse = 1.0 - max(0.0, min(1.0, separation / 0.25))
         if playback_active and noise_floor_dbfs is not None:
             # Floor-relative ramp: quiet conversation over music sits a few
             # dB above the floor the music set; a packed talking crowd sits
@@ -452,15 +519,30 @@ class HeadcountEstimator:
         else:
             loud_term = _ramp(loudness_dbfs, -45.0, -20.0)
         saturation = _ramp(speech_ratio, 0.6, 0.95) * loud_term
-        # Same-speaker segment dispersion runs ~0.1-0.2 cosine distance;
-        # signal ramps over the upper half of the clustering threshold.
+        # M7 recalibration (docs/M7-PROPOSAL.md): mic-measured same-voice
+        # scatter is ~0.6 mean — INSIDE the old [0.5*threshold, threshold]
+        # ramp, so every ordinary session on real hardware carried a
+        # standing dispersion signal (the animated-pair bucket-8 and an
+        # offline solo session publishing 4 all night). Within-cluster
+        # dispersion is only babble evidence once it exceeds the distance
+        # at which the clusterer would have SPLIT the cluster — i.e. the
+        # cluster plausibly holds more than one voice (cross-voice pairs
+        # measure ~0.9 inside a merged blob).
         dispersion = _mean_intra_cluster_distance(emb, labels)
         dispersion_signal = _ramp(
-            dispersion, 0.5 * self.cluster_threshold, self.cluster_threshold
+            dispersion, self.cluster_threshold, 1.3 * self.cluster_threshold
         )
         # A solo speaker sheds up to ~20-30% strays; only heavier
         # fragmentation reads as babble confetti.
         smear = max(dispersion_signal, _ramp(fragmentation, 0.3, 0.8))
+        # M7 sep_collapse fix: undefined separation (single cluster) is NOT
+        # maximal collapse — it defers to the dispersion evidence. A tight
+        # lone cluster reads collapse ~0 (confident solo); one indistinct
+        # merged blob still reads collapsed through its internal dispersion.
+        if separation is None:
+            sep_collapse = dispersion_signal
+        else:
+            sep_collapse = 1.0 - max(0.0, min(1.0, separation / 0.25))
         crowd_weight = max(
             0.0, min(1.0, sep_collapse * max(count_pressure, saturation * smear))
         )
@@ -477,9 +559,11 @@ class HeadcountEstimator:
 
         # Confidence: counting regime earns it from separation quality and
         # evidence volume; the crowd regime is capped low — the number itself
-        # says "estimate, not count".
+        # says "estimate, not count". Undefined separation contributes the
+        # neutral 0.0 it always did (a lone cluster earns confidence from
+        # evidence volume, not silhouette).
         evidence = min(1.0, self.evidence_s / 15.0)
-        count_conf = evidence * max(0.2, min(1.0, 0.4 + separation))
+        count_conf = evidence * max(0.2, min(1.0, 0.4 + (separation or 0.0)))
         conf = (1.0 - crowd_weight) * count_conf + crowd_weight * 0.25
 
         return Estimate(
@@ -489,6 +573,8 @@ class HeadcountEstimator:
             crowd_weight=crowd_weight,
             dispersion=dispersion,
             fragmentation=fragmentation,
+            separation=separation,
+            rescued_clusters=rescued,
         )
 
 
@@ -560,6 +646,8 @@ class HeadcountReading:
     crowd_weight: float
     dispersion: float  # raw estimator signals, see Estimate (M4 observability)
     fragmentation: float
+    separation: float | None  # M7 observability: silhouette the collapse saw
+    rescued_clusters: int  # M7: distinct-voice rescues inside raw_clusters
     smoothed_log2: float  # the BucketSmoother EMA value that produced `bucket`
     at: float  # time.monotonic() when the estimate finished
     # M5 observability (the pool session's pair -> 16 attribution gap): the
@@ -704,6 +792,8 @@ class HeadcountWorker:
                     crowd_weight=estimate.crowd_weight,
                     dispersion=estimate.dispersion,
                     fragmentation=estimate.fragmentation,
+                    separation=estimate.separation,
+                    rescued_clusters=estimate.rescued_clusters,
                     smoothed_log2=(
                         smoothed_log2 if smoothed_log2 is not None else estimate.log2_count
                     ),

@@ -12,10 +12,12 @@ observation, so every placement must be a one-line edit:
 
 SEED PROVENANCE: transcribed cell-for-cell from the 2020 thesis
 ReadtheRoom.py GenrePicker function. The original used people-count cutoffs
-<=3 / <=6 / >6; M3 keys the rulebook at full power-of-2 bucket granularity,
-so each bucket starts from the nearest 2020 column (solo/pair/4 <- "<=3",
+<=3 / <=6 / >6; M3 keys the rulebook at full bucket granularity, so each
+bucket starts from the nearest 2020 column (solo/pair/4 <- "<=3",
 8 <- "<=6", 16..crowd <- ">6") and diverges from there through tuning. The
-seed is a starting point, not a source of truth.
+seed is a starting point, not a source of truth. M7's mid-rungs land
+exactly on the 2020 cutoffs: "3" <- "<=3" (small), "6" <- "<=6" (medium) —
+founder curation adjusts from there like any cell.
 """
 
 from __future__ import annotations
@@ -28,8 +30,8 @@ AROUSAL_BANDS = ("low", "mid", "high")
 # All publishable buckets, in ladder order (mirrors sensing BUCKET_LADDER +
 # CROWD, as strings — the rulebook is deliberately decoupled from the enum).
 BUCKETS = (
-    "solo", "pair", "4", "8", "16", "32", "64", "128", "256", "512", "1024",
-    "crowd",
+    "solo", "pair", "3", "4", "6", "8", "16", "32", "64", "128", "256",
+    "512", "1024", "crowd",
 )
 
 # --- 2020 GenrePicker seed grids: (valence_band, arousal_band) -> pool -----
@@ -75,7 +77,9 @@ _LARGE_2020 = {  # GenrePicker `people > 6`
 _BUCKET_SEED = {
     "solo": _SMALL_2020,
     "pair": _SMALL_2020,
+    "3": _SMALL_2020,  # M7 rung; 2020's "<=3" column verbatim
     "4": _SMALL_2020,
+    "6": _MEDIUM_2020,  # M7 rung; 2020's "<=6" column verbatim
     "8": _MEDIUM_2020,
     "16": _LARGE_2020,
     "32": _LARGE_2020,
@@ -102,6 +106,7 @@ RULEBOOK: dict[tuple[str, str, str], list[str]] = {
 # Rock is the only one with a mapped playlist today. ("8" already seeds Rock.)
 RULEBOOK[("solo", "low", "high")] = ["Soft Rock", "Rock"]
 RULEBOOK[("pair", "low", "high")] = ["Soft Rock", "Rock"]
+RULEBOOK[("3", "low", "high")] = ["Soft Rock", "Rock"]  # M7: rides with its seed family
 RULEBOOK[("4", "low", "high")] = ["Soft Rock", "Rock"]
 RULEBOOK[("16", "low", "high")] = ["Hard Rock", "Rock"]
 RULEBOOK[("32", "low", "high")] = ["Hard Rock", "Rock"]

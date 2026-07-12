@@ -314,6 +314,42 @@ loudness relative to a rolling noise floor rather than absolute dBFS — see
 [docs/M4-PROPOSAL.md](docs/M4-PROPOSAL.md) and the pool-session analysis in
 [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 
+## The stable middle (M7)
+
+Headcount had validated ends and a broken middle: the 2026-07-10 trio
+evening read three real people as solo/pair essentially all night, while
+an animated pair in a quiet room hit bucket 8
+([docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)). Root-caused offline on a
+rebuilt controlled-N TTS harness (`scripts/tts_harness.py`) — the
+clusters were speaker-pure; the accounting was wrong — and fixed with
+three calibration-level changes plus a ladder change
+([docs/M7-PROPOSAL.md](docs/M7-PROPOSAL.md)):
+
+- **sep_collapse fix:** a single cluster's undefined silhouette no longer
+  reads as maximal collapse (it deferred every mic-scatter solo into the
+  crowd path's arms).
+- **Dispersion ramp recalibrated to measured reality:** within-cluster
+  dispersion only signals babble past the clustering threshold itself
+  (mic-measured same-voice scatter ~0.6 lived inside the old ramp).
+- **Distinct-voice rescue:** a cluster failing only the proportional
+  evidence floor still counts when it has real absolute mass and sits
+  ≥ `RTR_HEADCOUNT_RESCUE_MARGIN` (0.80) from every counted centroid — a
+  quiet third person at < 10% airtime is a person, not debris (debris
+  hugs its parent at ~0.73; distinct voices measure ~0.82+). Frames
+  carry `headcount_separation` and `headcount_rescued_clusters`; the
+  dashboard notes "+N quiet voice(s)".
+- **Bucket ladder gains rungs 3 and 6** (1, 2, 3, 4, 6, 8, 16, …): a
+  true trio previously sat exactly on the pair/4 geometric boundary. No
+  rungs at 5/7/9/10 — exact counting is validated to ~4 and unresolvable
+  labels would poison the tap corpus.
+
+Offline (TTS harness, mic-degraded): solo now reads solo instead of a
+full session at bucket 4; the uneven-airtime trio publishes 3 instead of
+pair; the overlap trio publishes 3 instead of 8; the pool-proxy crowd
+blend still escalates. Live gate pending —
+[docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md) (the ladder night needs
+friends over, with mic recording).
+
 ## Performance budget (run this on the MacBook first)
 
 Budget arithmetic: the 2 s hop, minus emotion's measured 0.63 s floor (M1,

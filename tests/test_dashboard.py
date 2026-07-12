@@ -93,6 +93,8 @@ class TestEngineExtras:
                     crowd_weight=0.12345,
                     dispersion=0.45678,
                     fragmentation=0.25,
+                    separation=0.61234,
+                    rescued_clusters=1,
                     smoothed_log2=1.23456,
                     at=0.0,
                     recent_raw_log2=(1.0, 1.58496, 2.0),
@@ -114,6 +116,9 @@ class TestEngineExtras:
         assert frame["headcount_fragmentation"] == 0.25
         assert frame["headcount_smoothed_log2"] == 1.235
         assert frame["headcount_recent_raw_log2"] == [1.0, 1.585, 2.0]
+        # M7 observability: separation + rescue count ride the frame too.
+        assert frame["headcount_separation"] == 0.612
+        assert frame["headcount_rescued_clusters"] == 1
         assert frame["headcount_status"] == "ready"
 
 

@@ -314,7 +314,9 @@ def evaluate_variant(
             raw, frag = _mass_pass_count(labels, dur, est)
 
         if variant == "baseline":
-            separation = separation_score(emb, labels)
+            # Pre-M7 semantics: undefined silhouette read as 0.0 (the
+            # misfire). separation_score returns None post-M7, so map back.
+            separation = separation_score(emb, labels) or 0.0
             sep_collapse = 1.0 - max(0.0, min(1.0, separation / 0.25))
             count_pressure = _ramp(raw, est.count_reliable_max, est.count_regime_max)
             loud_term = _ramp(h["dbfs"], -45.0, -20.0)

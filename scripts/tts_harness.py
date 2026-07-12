@@ -257,6 +257,8 @@ def assemble(
 
     def place(v: str, clip: np.ndarray, at: int) -> int:
         end = min(at + len(clip), total)
+        if end <= at:  # turn landed past the session end
+            return at
         audio[at:end] += clip[: end - at]
         speakers[at // VAD_CHUNK : end // VAD_CHUNK] |= 1 << voices.index(v)
         return end
@@ -446,6 +448,27 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_replay_wav(args: argparse.Namespace) -> int:
+    """Replay a real recording (16 kHz-able WAV) through the pipeline —
+    the pool-regime regression check (convert m4a first, e.g. on macOS:
+    afconvert -f WAVE -d LEI16@16000 -c 1 in.m4a out.wav). The activity
+    mask is energy-based (no VAD model in the harness): a chunk counts as
+    active above an adaptive floor, which over-includes non-speech — so
+    treat counting-regime output as indicative and the crowd-blend
+    behavior (does it escalate ordinally?) as the actual check."""
+    embed = load_ecapa("speechbrain/spkrec-ecapa-voxceleb", args.threads)
+    audio = load_utterance(Path(args.wav))
+    n = len(audio) // VAD_CHUNK
+    rms = np.sqrt(
+        (audio[: n * VAD_CHUNK].reshape(n, VAD_CHUNK) ** 2).mean(axis=1)
+    )
+    floor = np.percentile(rms, 20)
+    activity = rms > max(3.0 * floor, 0.01 * rms.max())
+    speakers = activity.astype(np.int32)  # no ground truth: one bit
+    replay(Path(args.wav).stem, audio, activity, speakers, embed, args.truth)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--threads", type=int, default=0)
@@ -455,8 +478,16 @@ def main() -> int:
     run_p = sub.add_parser("run")
     run_p.add_argument("--only", help="substring filter on scenario names")
     run_p.add_argument("--snr-db", type=float, default=12.0)
+    wav_p = sub.add_parser("replay-wav")
+    wav_p.add_argument("wav")
+    wav_p.add_argument("--truth", type=int, default=0, help="known occupancy, for the report")
     args = parser.parse_args()
-    return {"synth": cmd_synth, "distances": cmd_distances, "run": cmd_run}[args.cmd](args)
+    return {
+        "synth": cmd_synth,
+        "distances": cmd_distances,
+        "run": cmd_run,
+        "replay-wav": cmd_replay_wav,
+    }[args.cmd](args)
 
 
 if __name__ == "__main__":
