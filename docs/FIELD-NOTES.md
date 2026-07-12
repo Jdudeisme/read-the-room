@@ -5,6 +5,39 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-07-11 (night) — founder requirement: the M6 operating envelope, and the external-speaker direction
+
+**Requirement (founder-stated):** music-aware emotion must work at
+listening volumes well above the gate's ~33% baseline — target at least
+~66% on the current setup. Stated durably, since volume sliders don't
+transfer across devices: **the correction must hold while music
+approaches voice level at the mic** (voices measure −25…−30 dBFS on
+this hardware; 33% music reads −31…−33 — voice wins comfortably; the
+only measured hard failure is ~90% / −22 dBFS, where nothing certifies
+— the M5 limit cycle). The 33–90% band is unmapped. Expected
+degradation order, to be verified by a volume-ladder measurement
+(monotone over a pull-measured track at 33/50/66/80%, taps per step):
+(1) stored pull signatures under-correct (measured at one volume;
+dominance scaling compensates only if the pull-vs-dominance
+relationship extrapolates — measure it), (2) strict-VAD certification
+thins, (3) blindness. Likely design successor: volume/dominance-aware
+pull correction — regress pull against dominance from the samples the
+estimator already banks, instead of a flat per-track mean. Pairs
+naturally with the cold-start seam (entry below) as M8 material.
+
+**External-speaker direction (same conversation):** the current
+geometry is worst-case by construction — the MacBook's speakers sit
+inches from its own mic, so music is heard near-field and voices
+room-attenuated. Playing via a Spotify Connect device across the room
+(the Echo Show is on the account's device list) inverts the geometry:
+voice near-field, music room-shaped. Plausibly worth more than any
+software fix, matches the real deployment (nobody parties off laptop
+speakers), and is a pure config change (`RTR_PLAYBACK_DEVICE_NAME`) —
+the M4 playback path is device-agnostic. Caveats when tried: pull
+signatures are implicitly per-acoustic-setup (they re-converge as refs
+accumulate, but first-session corrections will be approximate), and
+the volume ladder should be re-run in the new geometry.
+
 ## 2026-07-11 (late evening) — post-merge demo: the cold-start seam, field-observed
 
 Founder demo after the merge, continuous high-energy playlist, inert
