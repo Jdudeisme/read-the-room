@@ -68,6 +68,11 @@ class PlaybackConfig:
     advisory_db_over_floor: float = 10.0
     advisory_speech_eps: float = 0.05
     advisory_hops: int = 10
+    # Anchor persistence (M6): sessions that start mid-playback reload the
+    # last quiet anchor when it is younger than the age bound — floors
+    # drift with AC and weather, so a day-old anchor is a guess.
+    advisory_anchor_path: str = "data/advisory_anchor.json"
+    advisory_anchor_max_age_s: float = 43200.0
 
     @classmethod
     def from_env(cls) -> "PlaybackConfig":
@@ -106,5 +111,12 @@ class PlaybackConfig:
             ),
             advisory_hops=_env_int(
                 "RTR_PLAYBACK_ADVISORY_HOPS", cls.advisory_hops
+            ),
+            advisory_anchor_path=_env_str(
+                "RTR_PLAYBACK_ADVISORY_ANCHOR_PATH", cls.advisory_anchor_path
+            ),
+            advisory_anchor_max_age_s=_env_float(
+                "RTR_PLAYBACK_ADVISORY_ANCHOR_MAX_AGE_S",
+                cls.advisory_anchor_max_age_s,
             ),
         )

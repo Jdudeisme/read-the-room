@@ -187,6 +187,54 @@ class TestEnvelopeAdvisoryFrames:
         ) is False
 
 
+class TestAnchorPersistence:
+    """M6: parties start with music already on — the quiet anchor survives
+    restarts, bounded by age."""
+
+    QUIET = dict(playback_active=False, noise_floor_dbfs=-44.0,
+                 loudness_dbfs=-44.0, speech_ratio=0.0)
+    LOUD = dict(playback_active=True, noise_floor_dbfs=-30.0,
+                loudness_dbfs=-22.0, speech_ratio=0.0)
+
+    def test_anchor_survives_a_restart(self, tmp_path):
+        path = tmp_path / "anchor.json"
+        adv = EnvelopeAdvisory(hops=1, anchor_path=path)
+        adv.update(dict(self.QUIET))
+        assert json.loads(path.read_text(encoding="utf-8"))["anchor_dbfs"] == -44.0
+
+        # fresh session, starts mid-playback: the -44 anchor is live, so
+        # -22 music reads 22 dB over and the banner rises immediately —
+        # without the reload it would judge against the chased -30 floor
+        restarted = EnvelopeAdvisory(hops=1, anchor_path=path)
+        assert restarted.update(dict(self.LOUD)) is True
+
+    def test_stale_anchor_is_ignored(self, tmp_path):
+        path = tmp_path / "anchor.json"
+        path.write_text(
+            json.dumps({"schema_version": 1, "anchor_dbfs": -60.0, "ts": 100.0}),
+            encoding="utf-8",
+        )  # ts=100 is decades old
+        adv = EnvelopeAdvisory(hops=1, anchor_path=path, anchor_max_age_s=3600.0)
+        # falls back to the live floor: -22 vs -30 is 8 dB, no banner
+        assert adv.update(dict(self.LOUD)) is False
+
+    def test_corrupt_anchor_file_starts_unanchored(self, tmp_path):
+        path = tmp_path / "anchor.json"
+        path.write_text("not json", encoding="utf-8")
+        adv = EnvelopeAdvisory(hops=1, anchor_path=path)
+        assert adv.update(dict(self.LOUD)) is False  # live-floor fallback
+
+    def test_sub_half_db_wobble_does_not_rewrite(self, tmp_path):
+        path = tmp_path / "anchor.json"
+        adv = EnvelopeAdvisory(hops=1, anchor_path=path)
+        adv.update(dict(self.QUIET))
+        first = path.read_text(encoding="utf-8")
+        adv.update({**self.QUIET, "noise_floor_dbfs": -44.3})
+        assert path.read_text(encoding="utf-8") == first  # throttled
+        adv.update({**self.QUIET, "noise_floor_dbfs": -46.0})
+        assert json.loads(path.read_text(encoding="utf-8"))["anchor_dbfs"] == -46.0
+
+
 class TestAnnotations:
     def test_post_writes_displayed_snapshot(self, bridge, client, tmp_path):
         bridge.on_state(make_state(timestamp=1000.0))

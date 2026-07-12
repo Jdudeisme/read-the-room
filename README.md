@@ -16,13 +16,20 @@ from human-curated Spotify playlists (gentle-DJ: transitions on track
 boundaries only), human override capture (the strong labels), and
 contamination handling v1 now that the mic can hear the system's own
 output.
-**Milestone 5 (this branch):** the loop learns — a presence gate so
+**Milestone 5:** the loop learns — a presence gate so
 empty-room `played_through` lines can't pollute the corpus, learned
 tuning v1 as inspectable proposals (boundary, tier-cutoff, and pool
 weighting sections in the tuning report), the build-or-defer
 music-detection memo (defer; see [docs/M5-PROPOSAL.md](docs/M5-PROPOSAL.md)),
 an envelope advisory when music out-reads the room, and noise-floor
 observability.
+**Milestone 6 (this branch):** hear the room, not the record — M5's
+part (f) measured vocal music dragging certified-speech emotion by
+ΔV +0.26 / ΔA +0.39 (a mood-quadrant flip), so the emotion layer now
+subtracts the playing track's *measured* pull: reference taps on
+music-only playback windows build a per-track signature, scaled by a
+spectral music-dominance ramp ([docs/M6-PROPOSAL.md](docs/M6-PROPOSAL.md)).
+Plus advisory-anchor persistence across restarts.
 
 ## Architecture
 
@@ -253,13 +260,51 @@ and degrade to shadow mode; the label capture never depends on the
 provider being alive.
 
 M5 also adds an **envelope advisory**: when music out-reads the room at
-the mic (playback active, loudness well over the rolling noise floor,
-zero certified speech for ~20 s — the 93%-output limit cycle from the
-2026-07-10 session), the dashboard shows a "turn it down if you want me
-listening" banner (`RTR_PLAYBACK_ADVISORY_*`). Banner only; volume stays
-human-owned. The ML music-detection gate remains deliberately deferred —
-the measured case for and against, and what would flip the decision, is
-in [docs/M5-PROPOSAL.md](docs/M5-PROPOSAL.md).
+the mic (playback active, loudness well over the room's quiet-anchored
+floor, zero certified speech for ~20 s — the 93%-output limit cycle from
+the 2026-07-10 session), the dashboard shows a "turn it down if you want
+me listening" banner (`RTR_PLAYBACK_ADVISORY_*`). Banner only; volume
+stays human-owned. Since M6 the quiet anchor persists to
+`data/advisory_anchor.json` with an age bound, so sessions that start
+mid-playback — parties — begin anchored.
+
+## Music-aware emotion (M6)
+
+Vocal music drags certified-speech emotion toward the song's own mood —
+measured on 2026-07-11 at ΔV +0.26 / ΔA +0.39, a quadrant flip at normal
+listening volume ([docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)). The fix
+removes a measured pull, per track, rather than guessing:
+
+- **Pull signature (primary; the 2026-07-11 gate iteration):** the
+  model's read of speech-over-music proved *super-additive* — the first
+  gate run measured a valence pull ~4× the record's own signature — so
+  the estimator measures the interaction directly. While the
+  **clean-speech baseline** is fresh (readings taken with playback off
+  or dominance ≈ 0), every speech-over-music reading banks
+  `(reading − baseline) / m` as a pull sample for the playing track.
+- **Reference taps (cold-start prior):** while playback is active and a
+  window has no certified speech, the emotion model runs on it anyway;
+  the standalone response accumulates per track and stands in — scaled
+  by the measured per-axis super-additivity ratios, magnitude-capped —
+  until pull samples exist. Speech submissions always outrank reference
+  taps at the worker. Both signatures persist to
+  `data/track_signatures.json` (repeat plays sharpen them).
+- **Correction:** `corrected = clamp(raw − β_axis · m · pull)` upstream
+  of the V/A smoothing, where `m` is a music-dominance ramp on the
+  window's high-band spectral share (knots measured on the corpus) and
+  the per-axis `β`s default to 1.0 — subtract exactly what was measured
+  (`RTR_MUSIC_*`). A shift, never a mute — genuine mood changes still
+  move the reading (the 07-11 positive control held at +0.68 arousal
+  separation).
+- **Discount floor:** until the playing track has any usable evidence,
+  emotion confidence scales down by `1 − γ·m` instead.
+
+Every frame carries `emotion_music_dominance` and the applied
+`emotion_correction` (amounts, track, refs), so raw is always
+reconstructable offline; the dashboard shows a "hearing through music"
+chip while a correction is live. The ML music-detection gate stays
+deferred unless the part (f) re-run misses its < 0.2 target — see
+[docs/M6-PROPOSAL.md](docs/M6-PROPOSAL.md).
 
 **Contamination handling v1:** while playback is active, RoomState carries
 `playback_active`/`playback_track_id` (so all downstream evidence is
@@ -403,6 +448,43 @@ M5's engine-path additions are a few comparisons per hop (the envelope
 advisory) and additive state fields, so this is again the M2 gate re-run
 as a regression check; the numbers sit within run-to-run variance of the
 prior rows.
+
+### Milestone 6 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
+
+Gate progress — see [docs/M6-TEST-PLAN.md](docs/M6-TEST-PLAN.md) for the
+full checklist. **2026-07-11: parts (a), (b), (d), (e), (f) pass; part
+(c) — the contamination pull — FAILED at ΔV +0.325 / ΔA +0.274 against
+the < 0.2 target.** The mechanism (per-track signatures, dominance
+scaling, shift-not-mute) works as designed; the estimator is short: a
+single scalar β on the record's standalone signature can't cancel both
+axes because the valence pull on mixed speech measures ~4× the record's
+own signature while arousal measures ~1.5×. Full calibration record in
+the 2026-07-11 afternoon entry of
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
+
+**Estimator iteration (PC, same day):** the correction now subtracts a
+**measured pull signature** — built live from speech-over-music
+readings against a fresh clean-speech baseline — instead of a scaled
+standalone signature, with per-axis `β`s and the standalone path
+demoted to a capped cold-start prior.
+
+**Re-run (Mac, same evening): the gate PASSES.** (b) 277 tests; (c)
+**ΔV −0.06 / ΔA +0.07** against the < 0.2 target (pull signature
+measured V 0.51 / A 0.38 live against the record's standalone
+V 0.08 / A 0.32 — the interaction the first estimator couldn't see);
+(d) re-verified with 11 taps — arousal separation +0.89 with
+corrections active, shift-not-mute at the strongest margin yet. Full
+progression (baseline → failed standalone → pull) in the 2026-07-11
+evening entry of [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback` | headcount, contended hops | 1.00 s | 1.04 s | < 1.37 s | PASS |
+| `bench_headcount.py --fallback` | emotion, overall | 0.88 s | 1.09 s | < 1.2 s absolute | PASS |
+
+Reference taps ride the existing emotion worker at its existing rate
+limit and only fire in speech-idle windows, so the contended profile is
+unchanged — within run-to-run variance of every prior row.
 
 ## Tests
 

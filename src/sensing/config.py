@@ -98,6 +98,51 @@ class Config:
     headcount_smooth_tau_s: float = 20.0  # EMA time constant, log2 space
     headcount_hysteresis_k: int = 3  # consecutive updates to change bucket
 
+    # Music-aware emotion (M6): remove the playing track's measured pull
+    # from certified-speech readings. See sensing/music.py and
+    # docs/M6-PROPOSAL.md for the derivation of every default.
+    music_aware_enabled: bool = True
+    # Per-axis scale on the measured PULL signature (the mixed-window
+    # estimator). 1.0 = subtract exactly what was measured. Per-axis
+    # because the 2026-07-11 gate measured different super-additivity on
+    # each axis; the part (c) re-run moves these, not vibes.
+    music_beta_v: float = 1.0
+    music_beta_a: float = 1.0
+    # Cold-start prior: while a track has no pull samples yet, subtract
+    # its STANDALONE signature scaled by these — the super-additivity
+    # ratios measured 2026-07-11 (valence pull +0.33 vs signature
+    # +0.09..0.15 -> ~2.2 at the conservative end; arousal ~1.5).
+    music_standalone_scale_v: float = 2.2
+    music_standalone_scale_a: float = 1.5
+    # Per-axis magnitude cap on any subtraction — bounds the damage of a
+    # bad estimate (a correction should never be able to swing a reading
+    # across most of the [-1, 1] range).
+    music_max_correction: float = 0.6
+    # Clean-speech baseline: EMA over readings taken with playback off or
+    # dominance <= baseline_m_max; pull samples are banked only while the
+    # baseline is younger than baseline_max_age_s (a stale baseline would
+    # launder mood drift into the track's pull signature).
+    music_baseline_tau_s: float = 20.0
+    music_baseline_max_age_s: float = 300.0
+    music_baseline_m_max: float = 0.1
+    # A mixed window contributes a pull sample only at dominance >= this
+    # (dividing by a tiny m amplifies noise).
+    music_pull_m_floor: float = 0.25
+    # Dominance ramp knots on spectral_balance.high: 0 at/below lo
+    # (quiet-room speech measured 0.014-0.031), 1 at/above hi (speech over
+    # pop measured 0.257-0.484).
+    music_dominance_lo: float = 0.05
+    music_dominance_hi: float = 0.30
+    # Reference taps: a playback window counts as music-only (eligible to
+    # measure the track's pull) when its raw speech ratio is at most this.
+    music_ref_max_speech_ratio: float = 0.1
+    # A track's signature is trusted after this many reference taps.
+    music_min_refs: int = 3
+    # Discount floor while no signature exists: confidence scales by
+    # (1 - gamma * dominance).
+    music_discount_gamma: float = 0.5
+    music_signatures_path: str = "data/track_signatures.json"
+
     # Trend detection over the history buffer.
     trend_horizon_s: float = 60.0
     # Energy-score slope (per minute) beyond which trend reads rising/falling.
@@ -152,6 +197,48 @@ class Config:
             ),
             headcount_hysteresis_k=_env_int(
                 "RTR_HEADCOUNT_HYSTERESIS_K", cls.headcount_hysteresis_k
+            ),
+            music_aware_enabled=_env_bool(
+                "RTR_MUSIC_AWARE_ENABLED", cls.music_aware_enabled
+            ),
+            music_beta_v=_env_float("RTR_MUSIC_BETA_V", cls.music_beta_v),
+            music_beta_a=_env_float("RTR_MUSIC_BETA_A", cls.music_beta_a),
+            music_standalone_scale_v=_env_float(
+                "RTR_MUSIC_STANDALONE_SCALE_V", cls.music_standalone_scale_v
+            ),
+            music_standalone_scale_a=_env_float(
+                "RTR_MUSIC_STANDALONE_SCALE_A", cls.music_standalone_scale_a
+            ),
+            music_max_correction=_env_float(
+                "RTR_MUSIC_MAX_CORRECTION", cls.music_max_correction
+            ),
+            music_baseline_tau_s=_env_float(
+                "RTR_MUSIC_BASELINE_TAU_S", cls.music_baseline_tau_s
+            ),
+            music_baseline_max_age_s=_env_float(
+                "RTR_MUSIC_BASELINE_MAX_AGE_S", cls.music_baseline_max_age_s
+            ),
+            music_baseline_m_max=_env_float(
+                "RTR_MUSIC_BASELINE_M_MAX", cls.music_baseline_m_max
+            ),
+            music_pull_m_floor=_env_float(
+                "RTR_MUSIC_PULL_M_FLOOR", cls.music_pull_m_floor
+            ),
+            music_dominance_lo=_env_float(
+                "RTR_MUSIC_DOMINANCE_LO", cls.music_dominance_lo
+            ),
+            music_dominance_hi=_env_float(
+                "RTR_MUSIC_DOMINANCE_HI", cls.music_dominance_hi
+            ),
+            music_ref_max_speech_ratio=_env_float(
+                "RTR_MUSIC_REF_MAX_SPEECH_RATIO", cls.music_ref_max_speech_ratio
+            ),
+            music_min_refs=_env_int("RTR_MUSIC_MIN_REFS", cls.music_min_refs),
+            music_discount_gamma=_env_float(
+                "RTR_MUSIC_DISCOUNT_GAMMA", cls.music_discount_gamma
+            ),
+            music_signatures_path=_env_str(
+                "RTR_MUSIC_SIGNATURES_PATH", cls.music_signatures_path
             ),
             torch_threads=_env_int("RTR_TORCH_THREADS", cls.torch_threads),
             os_truststore=_env_bool("RTR_OS_TRUSTSTORE", cls.os_truststore),

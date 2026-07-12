@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import json
 import logging
 import threading
 import time
 from collections import deque
+from pathlib import Path
 
 from mapping import Mapper
 from sensing.state import RoomState
@@ -43,25 +45,38 @@ class EnvelopeAdvisory:
     We remember the floor from playback-inactive frames and judge loud
     playback against that. A session that starts mid-playback has no
     anchor yet and falls back to the live floor (step-detection only)
-    until its first quiet, playback-free stretch."""
+    until its first quiet, playback-free stretch.
+
+    M6: the anchor persists to disk (parties start with music already
+    on — 2026-07-11's session did). A saved anchor younger than
+    `anchor_max_age_s` seeds the session; older ones are ignored, since
+    room floors drift with AC and weather. Persistence is best-effort:
+    a failed read/write logs and never touches the verdict."""
 
     def __init__(
         self,
         db_over_floor: float = 10.0,
         speech_eps: float = 0.05,
         hops: int = 10,
+        anchor_path: Path | str | None = None,
+        anchor_max_age_s: float = 43200.0,
     ):
         self.db_over_floor = db_over_floor
         self.speech_eps = speech_eps
         self.hops = max(1, hops)
         self._streak = 0
         self._anchor: float | None = None
+        self._anchor_path = None if anchor_path is None else Path(anchor_path)
+        self._anchor_max_age_s = anchor_max_age_s
+        self._saved_anchor: float | None = None
+        self._load_anchor()
 
     def update(self, frame: dict) -> bool:
         floor = frame.get("noise_floor_dbfs")
         if frame.get("playback_active") is not True:
             if floor is not None:
                 self._anchor = floor
+                self._persist_anchor()
             self._streak = 0
             return False
         reference = self._anchor if self._anchor is not None else floor
@@ -73,6 +88,51 @@ class EnvelopeAdvisory:
         )
         self._streak = self._streak + 1 if blind else 0
         return self._streak >= self.hops
+
+    def _load_anchor(self) -> None:
+        if self._anchor_path is None or not self._anchor_path.exists():
+            return
+        try:
+            data = json.loads(self._anchor_path.read_text(encoding="utf-8"))
+            age = time.time() - float(data["ts"])
+            if 0 <= age <= self._anchor_max_age_s:
+                self._anchor = float(data["anchor_dbfs"])
+                self._saved_anchor = self._anchor
+                log.info(
+                    "advisory anchor restored: %.1f dBFS (%.0f s old)",
+                    self._anchor, age,
+                )
+            else:
+                log.info("saved advisory anchor is stale (%.0f s); ignoring", age)
+        except Exception:
+            log.exception("advisory anchor cache unreadable; starting unanchored")
+
+    def _persist_anchor(self) -> None:
+        # Throttle on meaningful change — quiet stretches update the anchor
+        # every hop, and a 0.5 dB wobble isn't worth a disk write.
+        if self._anchor_path is None or self._anchor is None:
+            return
+        if (
+            self._saved_anchor is not None
+            and abs(self._anchor - self._saved_anchor) < 0.5
+        ):
+            return
+        try:
+            self._anchor_path.parent.mkdir(parents=True, exist_ok=True)
+            self._anchor_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "anchor_dbfs": round(self._anchor, 1),
+                        "ts": time.time(),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self._saved_anchor = self._anchor
+        except Exception:
+            log.exception("failed to persist advisory anchor; continuing")
 
 
 class DashboardBridge:

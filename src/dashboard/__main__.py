@@ -117,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
             db_over_floor=playback_config.advisory_db_over_floor,
             speech_eps=playback_config.advisory_speech_eps,
             hops=playback_config.advisory_hops,
+            anchor_path=playback_config.advisory_anchor_path,
+            anchor_max_age_s=playback_config.advisory_anchor_max_age_s,
         )
         if controller is not None
         else None

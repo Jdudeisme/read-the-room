@@ -116,6 +116,9 @@
   <div class="chips">
     <span class="chip" title="contamination status: is our own output audible?">
       playback <b id="pbactive">off</b></span>
+    <span class="chip" id="musicaware" style="display:none"
+          title="M6: the playing track's measured pull is being subtracted from emotion readings">
+      hearing through music <b id="musicawarerefs"></b></span>
     <span class="chip">emotion age <b id="emostale">—</b></span>
     <span class="chip">headcount age <b id="hcstale">—</b></span>
     <span id="conn" title="websocket"></span>
@@ -315,6 +318,11 @@ function updatePlayback(f) {
 
   // Envelope advisory (M5): server-computed blind signature, banner only.
   document.body.classList.toggle("advisory-on", f.envelope_advisory === true);
+
+  // Music-aware emotion (M6): chip lights while a correction is applied.
+  const corr = f.emotion_correction;
+  $("musicaware").style.display = corr ? "inline-flex" : "none";
+  if (corr) $("musicawarerefs").textContent = `refs ${corr.refs}`;
 
   const live = f.playback_status === "active" && f.now_playing;
   document.body.classList.toggle("playback-on", !!live);
