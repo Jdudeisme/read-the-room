@@ -5,7 +5,34 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
-## 2026-07-11 (evening) — M6 gate re-run: the pull estimator lands it
+## 2026-07-11 (late evening) — post-merge demo: the cold-start seam, field-observed
+
+Founder demo after the merge, continuous high-energy playlist, inert
+mapping. What worked and what didn't, in one sequence (three banked
+frames confirm it): monotone over a **pull-measured** track read flat at
+dominance 1.0 (21:06:30, basis `pull`); deliberate animation read
+excited (21:06:58); then the **next** track arrived with `basis: None`
+(21:07:15) — no pull signature, not even the cold-start prior engaged
+yet — and the monotone could no longer bring the reading back down
+until a crossfade gap let the voice read true (dominance → 0) and the
+EMA walked home to the flat quadrant.
+
+Root cause, by design: pull signatures are per-track, and building one
+needs a clean-speech baseline no older than
+`RTR_MUSIC_BASELINE_MAX_AGE_S` (300 s). Under continuously crossfading
+playback there is never a no-music speech window, so the baseline ages
+out and every unmeasured track stays at cold start indefinitely — 4 of
+52 known tracks have pull refs after the gate day. **M6's residual
+limitation: correction quality is gated on per-track measurement
+opportunities that continuous playback structurally denies.**
+
+Mitigation candidates for a future milestone (not tuned in-session):
+opportunistic baseline harvesting during low-dominance windows — the
+crossfade gaps the founder watched read correctly are exactly the
+moments to bank near-clean speech samples; a genre-level or global mean
+pull as the cold-start prior instead of none; per-track signatures do
+accumulate across sessions, so a stable playlist rotation self-heals
+over time — new music will always cold-start.
 
 **Context.** The PC's iteration (`0e83099`) replaced the failed
 standalone-signature estimator with a **pull estimator**: measure the
