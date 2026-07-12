@@ -466,10 +466,16 @@ the 2026-07-11 afternoon entry of
 **measured pull signature** — built live from speech-over-music
 readings against a fresh clean-speech baseline — instead of a scaled
 standalone signature, with per-axis `β`s and the standalone path
-demoted to a capped cold-start prior. Replaying the gate's own numbers
-through the new estimator cancels both axes to the baseline. The (c)
-re-run on the Mac is pending; parts (d)/(e)/(f) set the regression
-bars.
+demoted to a capped cold-start prior.
+
+**Re-run (Mac, same evening): the gate PASSES.** (b) 277 tests; (c)
+**ΔV −0.06 / ΔA +0.07** against the < 0.2 target (pull signature
+measured V 0.51 / A 0.38 live against the record's standalone
+V 0.08 / A 0.32 — the interaction the first estimator couldn't see);
+(d) re-verified with 11 taps — arousal separation +0.89 with
+corrections active, shift-not-mute at the strongest margin yet. Full
+progression (baseline → failed standalone → pull) in the 2026-07-11
+evening entry of [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 
 | Benchmark | Scenario | mean | p95 | Budget | Verdict |
 |---|---|---|---|---|---|

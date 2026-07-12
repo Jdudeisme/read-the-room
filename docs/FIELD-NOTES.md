@@ -5,6 +5,46 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-07-11 (evening) — M6 gate re-run: the pull estimator lands it
+
+**Context.** The PC's iteration (`0e83099`) replaced the failed
+standalone-signature estimator with a **pull estimator**: measure the
+speech-over-music interaction directly, as monotone-speech readings over
+the track against a fresh no-music baseline, per track. Re-run per the
+revised part (c) protocol (same room, same track `…5ynNMdW7`, same
+volume, inert mapping): (b) 277 tests green, then phases 20:42–20:58.
+
+**The pull warm-up measured what the record's own signature couldn't:**
+pull V **0.51** / A **0.38** from 22 samples, vs the standalone
+signature's V 0.08 / A 0.32 — the 6× valence interaction from the
+afternoon's failure analysis, now captured by the estimator itself.
+
+| run | ΔV | ΔA | phase-2 mood |
+|---|---|---|---|
+| 2026-07-11 baseline (no fix) | +0.26 | +0.39 | chill, every tap |
+| standalone estimator (failed gate) | +0.33 | +0.27 | chill, every tap |
+| **pull estimator (this run)** | **−0.06** | **+0.07** | **flat, every tap** |
+
+**Part (c): PASS.** Both axes under 0.2 with margin (P1 mean
+V −0.078 / A −0.423 over 7 taps; P2 mean V −0.140 / A −0.353 over 8,
+basis `pull` on every frame, corrections tracking dominance 0.37–0.94).
+The monotone finally reads as a monotone with the record playing.
+Valence lands slightly negative — mild over-correction, well inside
+target; noted for β fine-tuning if it ever drifts further.
+
+**Part (d): PASS, redone properly.** First attempt banked one tap (the
+founder was mid-story); redone 20:55–20:58 with 11: mean V +0.109 /
+A **+0.533**, moods excited/tense, confidence 0.84–0.99, **arousal
+separation from monotone-over-music +0.89** — all with pull corrections
+actively applied (cV up to 0.47 at dominance 0.83). Shift-not-mute
+holds with the strongest margin yet measured.
+
+**Gate verdict: M6 PASSES** — (a)/(e)/(f) from the afternoon run stand
+as regression bars (bench row in README; anchor persistence; 30-min
+sweep), (b) and (c) re-ran green post-iteration, (d) re-verified the
+trade-off under the new estimator. The emotion layer hears the room
+through the record: the DJ's feedback loop no longer flatters itself.
+
 ## 2026-07-11 (afternoon) — M6 gate: five parts pass, part (c) fails honestly
 
 **Gate context** (`docs/M6-TEST-PLAN.md`, Mac, quiet apartment): (a)
