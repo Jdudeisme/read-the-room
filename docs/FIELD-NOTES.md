@@ -5,6 +5,152 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-07-15 (12:29–12:53) — M7 gate part (c), two-person run: crowd-path fix validated, but the pair overcounts to 6 via the rescue — MILESTONE DOES NOT PASS
+
+**Setup.** Founder + 1 friend (only two people available, so the trio
+phases 4/5/7 — the milestone's centerpiece — could not run; this session
+covers the phases that need ≤2 people: 1, 2, 3, 6). One continuous
+dashboard run, `RTR_PLAYBACK_ENABLED=0` (no music the whole session),
+built-in mic **pinned** via `RTR_INPUT_DEVICE=MacBook Pro Microphone`
+(the system default was a SteelSeries Arctis headset — would have
+captured the whole gate through a wireless gaming mic; caught and fixed
+pre-flight). Quiet closed room, mic ~34%. Founder recorded raw audio
+(voice memo) for the whole session per the standing founder ask. 24
+taps (11 good / 13 wrong).
+
+**Result: the crowd-path half of M7 is validated live; the milestone
+fails on a different, milder overcount that M7 introduced/amplified.**
+
+**What passed.**
+- **Phase 2 (solo loud/animated):** held solo/pair, `crowd_weight` ~0
+  throughout. This is the sep_collapse regression — pre-M7 this exact
+  loud-animated-solo signature drove the crowd path to bucket 8. Dead.
+- **Phase 6 (silence hold):** textbook. Bucket froze at its last value
+  (4), raw/rescued/dispersion frozen identically every frame,
+  speech_ratio 0, room floor −54 dBFS, staleness grew linearly
+  (+2 s/hop). Silence-is-absence-of-evidence semantics intact (M7
+  didn't touch that path).
+- **The crowd path never engaged in ANY regime all session.**
+  `crowd_weight` peaked at 0.10 and sat ~0 through loud, quiet, animated,
+  and silent stretches. The M4/M7 sep_collapse fix holds.
+
+**What failed — phase 3 (pair animated), the headline test.** Two people
+read **3→4→6**, peaking at bucket 6 (12:44:52–12:45:11) — above the
+"anything over 4 fails" line. The driver is NOT the crowd path
+(`crowd_weight` ~0 on every one of these frames); it is the **M7
+distinct-voice rescue promoting this mic's quiet-voice fragments to
+counted people.** The rescued count tracks the raw overcount almost 1:1:
+
+| time  | verdict | bucket | raw | rescued | crowd | note |
+|---|---|---|---|---|---|---|
+| 12:40:19 | good  | 4 | 3 | 0 | 0.07 | animated, one-over |
+| 12:42:21 | wrong | 4 | 5 | 4 | 0.10 | rescue firing hard |
+| 12:44:28 | wrong | 4 | **8** | **7** | 0.01 | two people → raw 8 |
+| 12:44:52 | wrong | **6** | 6 | 4 | 0.01 | peak overcount |
+| 12:46:53 | good  | pair | 1 | 0 | 0.03 | brief tight-cluster moment |
+| 12:52:26 | wrong | 4 | 4 | 3 | 0.00 | still elevated at wrap |
+
+**Mechanism, confirmed live.** Dispersion sat 0.50–0.62 all night — this
+built-in mic's same-voice scatter (the M3 finding, unchanged). Anything
+that widens that scatter fragments one voice into extra raw clusters, and
+the rescue (margin 0.80) then counts the fragments as distinct low-airtime
+voices. Two widening factors observed directly:
+1. **Quiet speech fragments worse than loud** (M3's monotone-scatter
+   effect). Counterintuitively, going *calmer* drove the count UP
+   (quiet pair → 6), not down; loud animated pulled it back toward 3–4
+   but never to pair once the 90 s buffer had filled with fragments.
+2. **Founder-observed confound:** leaning toward the laptop to type to
+   Claude changes the founder's voice geometry mid-conversation → same
+   voice at a new distance/angle reads as a new cluster. Partly a
+   testing artifact (nobody types to the DJ at a real party), but it
+   demonstrates the underlying distance-sensitivity cleanly.
+
+**Assessment.** M7 shipped two things: the sep_collapse/dispersion-ramp
+fix (crowd path) — **validated, keep it** — and the distinct-voice rescue
++ 3/6 ladder rungs. On this acoustic setup the rescue converts the
+pre-existing quiet-voice fragmentation into a bucket-3–6 overcount for a
+mere pair, and the new rungs give it somewhere to land. The "stable
+middle" is not stable here: a two-person conversation swung across
+pair/3/4/6 depending on vocal dynamics and posture.
+
+**Next steps (the pre-scoped escalation, offline, NO in-session tuning
+per the test plan).**
+1. Recalibrate `RTR_HEADCOUNT_RESCUE_MARGIN` from tonight's recorded
+   audio — 0.80 is too permissive for this mic's fragment scatter
+   (fragments are clearing it and getting rescued).
+2. Stronger candidate: **gate the rescue on loudness/speech_ratio** so
+   quiet, fragmenting speech (the worst-SNR case) cannot rescue — the
+   overcount peaks tracked the quiet stretches exactly.
+3. The trio phases (4/5/7) still need a scheduled 3-person night to
+   finish part (c); but the rescue must be re-tuned first, or the trio
+   phase will inherit this same inflation.
+4. External-mic direction reinforced again (Nth data point): the whole
+   failure rides on this mic's 0.5–0.6 same-voice scatter.
+
+**Recording.** Founder's voice memo (friend = Greg, founder = Jordan),
+24.4 min, covers 12:29–12:53 (start wall-clock ~12:29:26 so frames
+align). Parked outside the repo next to the pool recording:
+`~/Documents/readtheroom/m7-gate-2026-07-15-greg-jordan.m4a` +
+`m7-gate-2026-07-15.wav` (16 kHz mono, converted and verified — do NOT
+commit; the loose m4a was moved out of the working tree because it
+isn't gitignored there). This is the recalibration asset for the
+rescue-margin / rescue-gating fix (task) and lets it be validated
+offline via `tts_harness.py replay-wav` without a second friends-night.
+
+## 2026-07-12 (afternoon) — M7 gate parts 0/(a)/(b)/(d)/(e-diff): offline parts pass; part (d) needed a harness fix
+
+**Setup.** Mac, `milestone-7-stable-middle` at ec2aa76, defaults for all
+M7 knobs (rescue margin 0.80; `MIN_INTERVAL_S=4.0` is the standing
+pre-approved Mac fallback, not an M7 override). Corpus repo cloned to
+the Mac for the first time (previously synced by hand?); both sides
+checksum-identical, `tuning_report.py` reads 235 records back cleanly.
+
+**Parts 0/(a)/(b): pass.** 287 tests green; bench `--fallback` headcount
+contended p95 1.04 s (< 1.37), emotion overall p95 1.09 s (< 1.2) — rows
+in the README table. Part (e) diff half verified: `git diff
+main..milestone-7-stable-middle -- src/sensing/emotion.py
+src/sensing/music.py` is empty; the only engine change threads
+`rescue_margin` into the estimator constructor.
+
+**Part (d) — pool replay: PASS, with one real finding about the harness,
+not the product.** First run of `replay-wav` against real audio (the PC
+validated against the TTS pool *proxy*; the recording lives on the Mac —
+rescued from `~/.Trash`, now parked at
+`Documents/readtheroom/UofA Pool RTR Test M3 copy.m4a` + `pool.wav`).
+As shipped, the replay produced **zero hops**: the energy mask's
+3.0×-floor threshold with no hangover left no contiguous active run ≥
+`speech_segments`' 0.75 s min-run, so no embeddings ever reached the
+estimator. On fan-dominated audio the adaptive floor (p20 of chunk RMS
+≈ the fan level) makes 3× *under*-inclusive — the docstring's stated
+intent is over-inclusion.
+
+Fixed harness-side (product code untouched): 1.25× floor + 0.6 s
+gap-closing as a VAD-hangover stand-in. Mask sensitivity sweep, full
+replay per variant (true N=7, 3:22):
+
+| mask | active frac | raw mode | peak crowd_weight | peak bucket | escalates past raw? |
+|---|---|---|---|---|---|
+| 2.0× + 0.4 s | 0.33 | 3 | 0.10 | 4 | no |
+| 1.5× + 0.4 s | 0.51 | 4 | 0.10 | 4 | no |
+| 1.25× + 0.6 s (new default) | 0.79 | 5 | 0.19 | **6** | **yes** |
+| 1.05× + 1.0 s (≈ live VAD regime) | 0.99 | 6 | 0.22 | **8** | **yes** |
+
+The checkpoint judges the over-inclusive regime — the live 2026-07-06
+failure had the real VAD certifying fan+speech nearly continuously —
+and there the blend escalates ordinally: crowd_weight rises from 0 to
+~0.2 and the bucket climbs past the raw cluster count (6 vs raw 5;
+8 vs raw 6 at the live-like mask). The babble path survived the
+sep-collapse fix. Caveat, stated plainly: escalation strength is
+monotone in mask inclusiveness, and the conservative masks show none —
+the pass rests on the live-like regime being the right model, which the
+07-06 session's near-continuous VAD certification supports. Under M7
+the escalation is also *graded* (bucket 6–8, cw ≤ 0.22) rather than the
+old phantom-16 blowup — consistent with the recalibrated dispersion
+ramp only firing past the clustering threshold.
+
+**Pending:** part (c) ladder night (founder + 2–3 friends, ~1 h, record
+raw audio), part (e) phase-5 live half, part (f) 30-min DJ sweep.
+
 ## 2026-07-11 (TV night, 22:15–23:28) — first deliberate media-audio session
 
 **Setup.** Solo founder watching TV; AC on low; music playing from the

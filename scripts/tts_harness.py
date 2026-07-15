@@ -463,7 +463,19 @@ def cmd_replay_wav(args: argparse.Namespace) -> int:
         (audio[: n * VAD_CHUNK].reshape(n, VAD_CHUNK) ** 2).mean(axis=1)
     )
     floor = np.percentile(rms, 20)
-    activity = rms > max(3.0 * floor, 0.01 * rms.max())
+    # 1.25x floor + 0.6s gap-closing (VAD hangover stand-in), calibrated
+    # 2026-07-12 on the pool recording: the original 3.0x floor with no
+    # hangover left no contiguous run alive past speech_segments' 0.75s
+    # min-run (zero hops), and the crowd blend's escalation is monotone in
+    # mask inclusiveness — the live failure this replays had the real VAD
+    # certifying fan+speech nearly continuously, so the mask must stay
+    # over-inclusive to reproduce that regime.
+    activity = rms > max(1.25 * floor, 0.01 * rms.max())
+    max_gap = int(0.6 * SR / VAD_CHUNK)
+    idx = np.flatnonzero(activity)
+    for a, b in zip(idx[:-1], idx[1:]):
+        if 0 < b - a - 1 <= max_gap:
+            activity[a:b] = True
     speakers = activity.astype(np.int32)  # no ground truth: one bit
     replay(Path(args.wav).stem, audio, activity, speakers, embed, args.truth)
     return 0

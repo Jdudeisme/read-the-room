@@ -522,6 +522,22 @@ Reference taps ride the existing emotion worker at its existing rate
 limit and only fire in speech-idle windows, so the contended profile is
 unchanged — within run-to-run variance of every prior row.
 
+### Milestone 7 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
+
+Gate in progress — see [docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md) for
+the full checklist. 2026-07-12: part 0 (setup: 287 tests green, corpus
+synced and identical both ways, `.env` at defaults for the M7 knobs)
+and parts (a)/(b) pass. Parts (c)–(f) pending the ladder night.
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback` | headcount, contended hops | 0.99 s | 1.04 s | < 1.37 s | PASS |
+| `bench_headcount.py --fallback` | emotion, overall | 0.87 s | 1.09 s | < 1.2 s absolute | PASS |
+
+M7's engine-path addition is centroid arithmetic (O(k²) on a handful of
+clusters) inside the existing clustering pass — within run-to-run
+variance of every prior row, as required.
+
 ## Tests
 
 ```bash
