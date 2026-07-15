@@ -98,9 +98,21 @@ class Config:
     # M7 distinct-voice rescue: a cluster failing ONLY the proportional
     # floor still counts when it passes the strengthened absolute floor and
     # its centroid sits at least this cosine distance from every counted
-    # cluster. Calibrated offline 2026-07-12 (docs/M7-PROPOSAL.md): debris
-    # hugs its parent centroid (median 0.73), distinct low-airtime voices
-    # sit ~0.82. The M7 gate's calibration knob.
+    # cluster.
+    #
+    # SHELVED (default off) 2026-07-15. The offline calibration assumed
+    # debris hugs its parent centroid (~0.73) while distinct voices sit
+    # ~0.82, leaving a clean margin. The two-person gate (FIELD-NOTES
+    # 2026-07-15) disproved this on the validated hardware: a SINGLE
+    # speaker's quiet/animated scatter throws off sub-cluster centroids
+    # spanning 0.80-1.00 — the same range distinct voices occupy — so no
+    # rescue_margin separates "same-speaker fragment" from "third person",
+    # and a mere pair inflated to bucket 6. The premise (a far cluster is a
+    # distinct person) requires same-/cross-speaker distance distributions
+    # that do NOT overlap; on a consumer mic with real conversational
+    # speech they do. Kept behind a flag for a future lower-scatter mic; on
+    # this hardware the crowd/babble path carries the middle instead.
+    headcount_rescue_enabled: bool = False
     headcount_rescue_margin: float = 0.80
     headcount_smooth_tau_s: float = 20.0  # EMA time constant, log2 space
     headcount_hysteresis_k: int = 3  # consecutive updates to change bucket
@@ -198,6 +210,9 @@ class Config:
             ),
             headcount_min_cluster_frac=_env_float(
                 "RTR_HEADCOUNT_MIN_CLUSTER_FRAC", cls.headcount_min_cluster_frac
+            ),
+            headcount_rescue_enabled=_env_bool(
+                "RTR_HEADCOUNT_RESCUE_ENABLED", cls.headcount_rescue_enabled
             ),
             headcount_rescue_margin=_env_float(
                 "RTR_HEADCOUNT_RESCUE_MARGIN", cls.headcount_rescue_margin

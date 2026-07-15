@@ -342,6 +342,7 @@ class HeadcountEstimator:
         min_cluster_evidence_frac: float = 0.10,
         count_reliable_max: int = 4,
         count_regime_max: int = 8,
+        rescue_enabled: bool = False,
         rescue_margin: float = 0.80,
     ):
         self.buffer_s = buffer_s
@@ -353,12 +354,15 @@ class HeadcountEstimator:
         self.count_reliable_max = count_reliable_max
         self.count_regime_max = count_regime_max
         # M7 distinct-voice rescue: a cluster failing only the proportional
-        # evidence floor still counts when its centroid sits at least this
-        # cosine distance from every mass-passing (and already-rescued)
-        # cluster centroid. Calibrated offline (docs/M7-PROPOSAL.md): a
-        # dominant speaker's scatter debris hugs its parent centroid
-        # (median 0.73), distinct low-airtime voices sit ~0.82; solos
-        # produce no rescue-eligible clusters at all.
+        # evidence floor still counts when its centroid sits at least
+        # rescue_margin from every mass-passing (and already-rescued)
+        # cluster centroid. SHELVED (rescue_enabled default False,
+        # FIELD-NOTES 2026-07-15): on the validated consumer mic a single
+        # speaker's scatter produces sub-cluster centroids across the whole
+        # 0.80-1.00 range, overlapping the distinct-voice range, so the
+        # centroid-distance premise fails and a pair inflated to bucket 6.
+        # Kept behind the flag for a future lower-scatter mic; see config.
+        self.rescue_enabled = rescue_enabled
         self.rescue_margin = rescue_margin
         self._embeddings: list[np.ndarray] = []
         self._times: list[float] = []
@@ -456,7 +460,7 @@ class HeadcountEstimator:
         # fragments of the same starved voice count once), greedily in mass
         # order.
         rescued = 0
-        if passing and failing:
+        if self.rescue_enabled and passing and failing:
             def _centroid(label: int) -> np.ndarray:
                 c = emb[labels == label].mean(axis=0)
                 return c / max(float(np.linalg.norm(c)), 1e-10)

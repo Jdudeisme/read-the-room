@@ -73,19 +73,45 @@ mere pair, and the new rungs give it somewhere to land. The "stable
 middle" is not stable here: a two-person conversation swung across
 pair/3/4/6 depending on vocal dynamics and posture.
 
-**Next steps (the pre-scoped escalation, offline, NO in-session tuning
-per the test plan).**
-1. Recalibrate `RTR_HEADCOUNT_RESCUE_MARGIN` from tonight's recorded
-   audio — 0.80 is too permissive for this mic's fragment scatter
-   (fragments are clearing it and getting rescued).
-2. Stronger candidate: **gate the rescue on loudness/speech_ratio** so
-   quiet, fragmenting speech (the worst-SNR case) cannot rescue — the
-   overcount peaks tracked the quiet stretches exactly.
-3. The trio phases (4/5/7) still need a scheduled 3-person night to
-   finish part (c); but the rescue must be re-tuned first, or the trio
-   phase will inherit this same inflation.
-4. External-mic direction reinforced again (Nth data point): the whole
-   failure rides on this mic's 0.5–0.6 same-voice scatter.
+**Offline resolution (same day, on the Mac).** The pre-scoped escalation
+(recalibrate `rescue_margin`, or gate the rescue on loudness) was
+investigated against the recording and **both were ruled out by
+measurement**, so the rescue is shelved instead. Instrumenting the real
+rescue path on the failure window (`scratchpad/rescue_diag.py`, raw
+non-normalized audio so `loudness_dbfs` stays truthful — the recording's
+levels match the live session's within ~1 dB, and the recording is NOT
+AGC-flattened, so offline thresholds transfer to live) measured the
+rescued clusters' centroid distances: **span 0.800–1.001, median 0.841,
+p75 0.889.** One person's own scatter lands across the entire
+distinct-voice distance range, so:
+1. **Raising `rescue_margin` cannot work** — no threshold separates
+   same-speaker fragments (0.80–1.00) from real distinct voices (~0.9);
+   they occupy the same range.
+2. **Loudness-gating alone is insufficient** — over-rescue occurred at
+   −18 dBFS (loud, super-animated: raw 9 / rescued 8) as well as at
+   −40 dBFS (quiet: raw 6 / rescued 5).
+
+**Decision (founder-approved): shelve the distinct-voice rescue behind a
+default-off flag** (`RTR_HEADCOUNT_RESCUE_ENABLED=0`), ship the validated
+sep_collapse/crowd-path fix, and reframe M7's charter to the coarser
+honest claim (2–4 read as pair-to-small-group, never a crowd — see
+`docs/M7-CHARTER-REVISION.md`). Rationale in full: exact speaker counting
+from short-segment embeddings on a consumer mic is unreliable past ~2
+because same-/cross-speaker distances overlap — a hardware+method
+property, not a tunable bug. This serves the founder constraint (laptop
+*or phone* mic, no external-mic dependence); a phone helps only via
+placement, not by closing the overlap. **Validation:** with the rescue
+off, replaying tonight's failure window (which had published a sustained
+bucket 6) now reads **solo 37 / pair 40 hops, never above pair**; 288
+tests green (rescue mechanics retained under `rescue_enabled=True`
+fixtures for a future lower-scatter mic; a new regression pins the
+default decline). The rescue code stays for that future mic.
+
+**Remaining:** the trio phases (4/5/7) still need a scheduled 3-person
+night to finish part (c) — but now to verify the trio reads
+pair/small-group and does NOT inflate (per the revised charter), not that
+it counts exactly 3. External-mic/placement direction reinforced again:
+the whole failure rides on this mic's 0.5–0.6 same-voice scatter.
 
 **Recording.** Founder's voice memo (friend = Greg, founder = Jordan),
 24.4 min, covers 12:29–12:53 (start wall-clock ~12:29:26 so frames
@@ -93,9 +119,10 @@ align). Parked outside the repo next to the pool recording:
 `~/Documents/readtheroom/m7-gate-2026-07-15-greg-jordan.m4a` +
 `m7-gate-2026-07-15.wav` (16 kHz mono, converted and verified — do NOT
 commit; the loose m4a was moved out of the working tree because it
-isn't gitignored there). This is the recalibration asset for the
-rescue-margin / rescue-gating fix (task) and lets it be validated
-offline via `tts_harness.py replay-wav` without a second friends-night.
+isn't gitignored there). It was the evidence base for the shelve
+decision above (the centroid-distance measurement and the rescue-off
+validation replay) and stays as the regression asset for the day the
+rescue is re-enabled on a lower-scatter mic.
 
 ## 2026-07-12 (afternoon) — M7 gate parts 0/(a)/(b)/(d)/(e-diff): offline parts pass; part (d) needed a harness fix
 

@@ -321,34 +321,50 @@ evening read three real people as solo/pair essentially all night, while
 an animated pair in a quiet room hit bucket 8
 ([docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)). Root-caused offline on a
 rebuilt controlled-N TTS harness (`scripts/tts_harness.py`) — the
-clusters were speaker-pure; the accounting was wrong — and fixed with
-three calibration-level changes plus a ladder change
-([docs/M7-PROPOSAL.md](docs/M7-PROPOSAL.md)):
+clusters were speaker-pure; the accounting was wrong
+([docs/M7-PROPOSAL.md](docs/M7-PROPOSAL.md)).
+
+**What M7 delivers, after the 2026-07-15 two-person gate:** the
+*overcount* half — a solo or pair never blowing up into a crowd — is
+fixed and validated live. The *exact-count* half (resolving a quiet
+third person) proved unachievable on a consumer mic and is shelved. The
+honest claim is now the coarser one: **2–4 people read as pair-to-small-
+group and never inflate to a crowd**, with the crowd/babble path — not
+exact clustering — carrying the middle.
+
+Shipped and validated:
 
 - **sep_collapse fix:** a single cluster's undefined silhouette no longer
   reads as maximal collapse (it deferred every mic-scatter solo into the
-  crowd path's arms).
+  crowd path's arms). Live 2026-07-15: `crowd_weight` stayed ~0 through
+  loud, quiet, and animated speech — the bucket-8 driver is dead.
 - **Dispersion ramp recalibrated to measured reality:** within-cluster
   dispersion only signals babble past the clustering threshold itself
   (mic-measured same-voice scatter ~0.6 lived inside the old ramp).
-- **Distinct-voice rescue:** a cluster failing only the proportional
-  evidence floor still counts when it has real absolute mass and sits
-  ≥ `RTR_HEADCOUNT_RESCUE_MARGIN` (0.80) from every counted centroid — a
-  quiet third person at < 10% airtime is a person, not debris (debris
-  hugs its parent at ~0.73; distinct voices measure ~0.82+). Frames
-  carry `headcount_separation` and `headcount_rescued_clusters`; the
-  dashboard notes "+N quiet voice(s)".
 - **Bucket ladder gains rungs 3 and 6** (1, 2, 3, 4, 6, 8, 16, …): a
   true trio previously sat exactly on the pair/4 geometric boundary. No
   rungs at 5/7/9/10 — exact counting is validated to ~4 and unresolvable
   labels would poison the tap corpus.
 
-Offline (TTS harness, mic-degraded): solo now reads solo instead of a
-full session at bucket 4; the uneven-airtime trio publishes 3 instead of
-pair; the overlap trio publishes 3 instead of 8; the pool-proxy crowd
-blend still escalates. Live gate pending —
-[docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md) (the ladder night needs
-friends over, with mic recording).
+Shelved (`RTR_HEADCOUNT_RESCUE_ENABLED=0`, default off):
+
+- **Distinct-voice rescue.** The idea — count a low-airtime cluster that
+  sits ≥ `RTR_HEADCOUNT_RESCUE_MARGIN` from every counted centroid as a
+  quiet extra person — assumed same-speaker and cross-speaker centroid
+  distances don't overlap. The 2026-07-15 gate disproved that on the
+  validated mic: one person's quiet/animated scatter produces sub-cluster
+  centroids spanning **0.80–1.00**, the same range distinct voices
+  occupy, so the rescue counted a single speaker's fragments as a crowd
+  and a mere pair read bucket 6. No `rescue_margin` separates the two
+  distributions. The code is kept behind the flag for a future
+  lower-scatter mic; on this hardware the crowd path carries the middle.
+
+Live gate 2026-07-15 (two people; trio phases need a third): the
+overcount fix passed (solo stays solo, loud pair holds pair/3, silence
+holds), the rescue failed and is now shelved. With the rescue off, the
+recorded audio replays at solo/pair across the whole session — no
+inflation. Full write-up in [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md);
+remaining phases in [docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md).
 
 ## Performance budget (run this on the MacBook first)
 

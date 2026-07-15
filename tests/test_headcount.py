@@ -85,7 +85,7 @@ class Test2020Regressions:
         dominant = _cluster_at(dominant_c, 30, rng)
         frag_a = _cluster_at(_center_at(dominant_c, 0.74, rng), 3, rng)
         frag_b = _cluster_at(_center_at(dominant_c, 0.76, rng), 3, rng)
-        est = HeadcountEstimator()
+        est = HeadcountEstimator(rescue_enabled=True)  # exercise the decline path
         est.add(np.vstack([dominant, frag_a, frag_b]), [1.25] * 36, now=0.0)
         result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
         assert result is not None
@@ -459,8 +459,15 @@ class TestRegimes:
 
 class TestM7StableMiddle:
     """The trio-evening failure pair: mic-scatter solos must not read as
-    crowds (sep_collapse misfire + dispersion ramp), and low-airtime real
-    voices must not be starved by the proportional evidence floor (rescue)."""
+    crowds (sep_collapse misfire + dispersion ramp) — the shipped fix.
+
+    The distinct-voice rescue (the undercount half) is SHELVED default-off
+    (FIELD-NOTES 2026-07-15): on the validated mic a solo's scatter spans
+    the distinct-voice centroid-distance range, so the rescue inflated a
+    pair to bucket 6. Its mechanics are still covered by the tests below
+    with rescue_enabled=True (for a future lower-scatter mic); the DEFAULT
+    behavior — declining to rescue — is pinned by
+    test_rescue_off_by_default_does_not_inflate_a_pair."""
 
     def test_mic_scatter_solo_stays_counting_regime(self):
         """THE overcount fix. A solo speaker at mic-measured scatter (~0.6
@@ -509,7 +516,7 @@ class TestM7StableMiddle:
         rng = np.random.default_rng(12)
         dominant_c = _unit(rng.standard_normal(192))
         quiet_c = _center_at(dominant_c, 0.92, rng)
-        est = HeadcountEstimator()
+        est = HeadcountEstimator(rescue_enabled=True)
         est.add(_cluster_at(dominant_c, 40, rng), [1.25] * 40, now=0.0)
         est.add(_cluster_at(quiet_c, 4, rng), [1.25] * 4, now=1.0)  # 9% of 55s
         result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
@@ -526,7 +533,7 @@ class TestM7StableMiddle:
         rng = np.random.default_rng(13)
         dominant_c = _unit(rng.standard_normal(192))
         debris_c = _center_at(dominant_c, 0.75, rng)
-        est = HeadcountEstimator()
+        est = HeadcountEstimator(rescue_enabled=True)
         est.add(_cluster_at(dominant_c, 40, rng), [1.25] * 40, now=0.0)
         est.add(_cluster_at(debris_c, 4, rng), [1.25] * 4, now=1.0)
         result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
@@ -539,7 +546,7 @@ class TestM7StableMiddle:
         a solo/babble scatter signature, not a room full of hidden people —
         vacuous rescue would count same-voice confetti as a crowd."""
         blob = _synthetic_speakers(1, 80, seed=4, spread=0.12)  # all-stray
-        est = HeadcountEstimator()
+        est = HeadcountEstimator(rescue_enabled=True)
         est.add(blob, [1.25] * 80, now=0.0)
         result = est.estimate(speech_ratio=0.5, loudness_dbfs=-35.0)
         assert result.raw_clusters == 1
@@ -559,7 +566,7 @@ class TestM7StableMiddle:
         if 1.0 - float(quiet_b @ dominant_c) < 0.85:  # keep the fixture honest
             quiet_b = _center_at(quiet_a, 0.75, np.random.default_rng(15))
         assert 1.0 - float(quiet_b @ dominant_c) >= 0.85
-        est = HeadcountEstimator()
+        est = HeadcountEstimator(rescue_enabled=True)
         est.add(_cluster_at(dominant_c, 60, rng), [1.25] * 60, now=0.0)
         est.add(_cluster_at(quiet_a, 4, rng), [1.25] * 4, now=1.0)
         est.add(_cluster_at(quiet_b, 3, rng), [1.25] * 3, now=2.0)
@@ -575,7 +582,7 @@ class TestM7StableMiddle:
         rng = np.random.default_rng(16)
         dominant_c = _unit(rng.standard_normal(192))
         tiny_c = _center_at(dominant_c, 0.92, rng)
-        est = HeadcountEstimator()
+        est = HeadcountEstimator(rescue_enabled=True)
         est.add(_cluster_at(dominant_c, 40, rng), [1.25] * 40, now=0.0)
         est.add(_cluster_at(tiny_c, 1, rng), [1.25], now=1.0)
         result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
@@ -591,7 +598,7 @@ class TestM7StableMiddle:
         q1 = _center_at(d, 0.92, rng)
         q2 = _center_at(d, 0.90, rng)  # independent direction: ~0.9 from q1 too
         assert 1.0 - float(q1 @ q2) >= 0.80
-        est = HeadcountEstimator()
+        est = HeadcountEstimator(rescue_enabled=True)
         est.add(_cluster_at(d, 50, rng), [1.25] * 50, now=0.0)
         est.add(_cluster_at(q1, 4, rng), [1.25] * 4, now=1.0)
         est.add(_cluster_at(q2, 3, rng), [1.25] * 3, now=2.0)
@@ -607,4 +614,22 @@ class TestM7StableMiddle:
         est.add(_synthetic_speakers(4, 10, seed=18, spread=0.02), [1.25] * 40, now=0.0)
         result = est.estimate(speech_ratio=0.6, loudness_dbfs=-30.0)
         assert result.raw_clusters == 4
+        assert result.rescued_clusters == 0
+
+    def test_rescue_off_by_default_does_not_inflate_a_pair(self):
+        """THE 2026-07-15 fix. By default the rescue is off: a dominant
+        speaker plus a far-tail cluster that the rescue WOULD have counted
+        (real mass, 0.92 from the parent — see
+        test_rescue_counts_distinct_low_airtime_voice, which enables it and
+        gets raw 2) instead stays at raw 1. On a consumer mic that far-tail
+        cluster is one person's own scatter, not a third voice, so declining
+        it is correct — the pair reads pair, not the bucket-6 overcount."""
+        rng = np.random.default_rng(12)  # same fixture as the enabled test
+        dominant_c = _unit(rng.standard_normal(192))
+        quiet_c = _center_at(dominant_c, 0.92, rng)
+        est = HeadcountEstimator()  # rescue_enabled defaults False
+        est.add(_cluster_at(dominant_c, 40, rng), [1.25] * 40, now=0.0)
+        est.add(_cluster_at(quiet_c, 4, rng), [1.25] * 4, now=1.0)
+        result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
+        assert result.raw_clusters == 1
         assert result.rescued_clusters == 0
