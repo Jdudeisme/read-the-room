@@ -100,12 +100,24 @@ from short-segment embeddings on a consumer mic is unreliable past ~2
 because same-/cross-speaker distances overlap — a hardware+method
 property, not a tunable bug. This serves the founder constraint (laptop
 *or phone* mic, no external-mic dependence); a phone helps only via
-placement, not by closing the overlap. **Validation:** with the rescue
-off, replaying tonight's failure window (which had published a sustained
-bucket 6) now reads **solo 37 / pair 40 hops, never above pair**; 288
-tests green (rescue mechanics retained under `rescue_enabled=True`
-fixtures for a future lower-scatter mic; a new regression pins the
-default decline). The rescue code stays for that future mic.
+placement, not by closing the overlap. **Validation (faithful engine
+replay — real Silero VadGate, engine-matched 5 s window / 2 s hop / 4 s
+headcount cadence; a first quick check with the harness energy mask
+overstated both directions and is superseded):** rescue ON reproduces
+the live failure on the full session — buckets 4/6/8 on 137/281 hops;
+rescue OFF (the shipped default) reads **solo 126 / pair 110 /
+bucket-3 45, never above 3**, crowd_weight ≈ 0 on every hop. The
+residual one-over 3 (~16% of hops) is same-voice scatter occasionally
+splitting the pair into three raw clusters — inside the revised
+charter's bar (pair-to-small-group, never a crowd). 288 tests green
+(rescue mechanics retained under `rescue_enabled=True` fixtures for a
+future lower-scatter mic; a new regression pins the default decline).
+Methodology caveat, recorded for honesty: the rescued-centroid distance
+span (0.80–1.00) was measured with energy-mask segments, which can
+include non-speech; treat the exact span as approximate. The
+conclusion does not rest on it — the live session's own tapped frames
+(real VAD) show the rescue promoting 1–7 phantom clusters on a
+two-person room, 10 of 14 founder-labeled wrong.
 
 **Remaining:** the trio phases (4/5/7) still need a scheduled 3-person
 night to finish part (c) — but now to verify the trio reads

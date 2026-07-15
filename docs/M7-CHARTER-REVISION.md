@@ -47,8 +47,12 @@ over-reach past that self-declared ceiling.
 - Distinct-voice rescue — kept in code, **default off**
   (`RTR_HEADCOUNT_RESCUE_ENABLED=0`). Its mechanics remain under test
   (rescue-enabled fixtures) for a future lower-scatter mic; the default
-  decline is pinned by a regression test. With the rescue off, the
-  recorded gate audio replays at solo/pair across the whole session.
+  decline is pinned by a regression test. Faithful engine replay of the
+  gate audio (real Silero VAD): rescue ON sustains 4/6/8 on 137/281
+  hops (the live failure reproduced); rescue OFF reads solo 126 /
+  pair 110 / bucket-3 45 and never exceeds 3, crowd_weight ≈ 0 — the
+  residual one-over 3 is same-voice scatter splitting a pair into
+  three raw clusters, within the reframed claim.
 
 ## Proposed mission re-wording
 

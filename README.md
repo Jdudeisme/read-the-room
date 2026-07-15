@@ -361,10 +361,16 @@ Shelved (`RTR_HEADCOUNT_RESCUE_ENABLED=0`, default off):
 
 Live gate 2026-07-15 (two people; trio phases need a third): the
 overcount fix passed (solo stays solo, loud pair holds pair/3, silence
-holds), the rescue failed and is now shelved. With the rescue off, the
-recorded audio replays at solo/pair across the whole session — no
-inflation. Full write-up in [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md);
-remaining phases in [docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md).
+holds), the rescue failed and is now shelved. A faithful engine replay
+of the session audio (real Silero VAD, engine-matched loop) measures the
+before/after: rescue ON sustains buckets 4/6/8 on 137 of 281 hops — the
+live failure, reproduced; rescue OFF reads solo 126 / pair 110 / a
+one-over bucket 3 on 45, and **never exceeds 3** (crowd_weight ≈ 0
+throughout). The residual one-over 3 is the mic's same-voice scatter
+occasionally splitting two voices into three raw clusters — inside the
+revised charter's bar. Full write-up in
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md); remaining phases in
+[docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md).
 
 ## Performance budget (run this on the MacBook first)
 
