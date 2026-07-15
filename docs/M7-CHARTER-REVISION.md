@@ -2,9 +2,9 @@
 
 **For the PC session.** The M7 gate caught a real design flaw, as every
 gate has. This note records what it found, what shipped, and the
-proposed re-wording of M7's mission. Nothing here is committed as
-doctrine yet — it needs the founder's sign-off, because it narrows what
-the milestone claims.
+re-wording of M7's mission. **Founder-approved 2026-07-15** — the
+revised mission below is doctrine; the open decisions at the bottom are
+resolved as noted.
 
 ## What the gate found
 
@@ -72,16 +72,16 @@ the mic physically cannot keep. A trio reading "pair / small group" is
 correct enough for the rulebook — the DJ needs the room's density, not a
 census.
 
-## Open decisions for the founder / PC
+## Decisions (resolved by founder approval, 2026-07-15)
 
-1. **Accept the re-wording?** If yes, it edits M7_PROMPT.md's Mission and
-   the milestone's gate criteria (drop "trio publishes 3"; keep "never
-   above 4 / never a crowd for ≤4 people").
-2. **Re-word or replace the gate's part (c) pass condition** accordingly,
-   then finish it with a real 3-person night — verifying the trio reads
-   pair/small-group and does *not* inflate, rather than that it counts
-   exactly 3.
-3. **Where does exact small-N counting go, if anywhere?** Candidates are
+1. **Re-wording: ACCEPTED.** The revised mission above supersedes
+   M7_PROMPT.md's Mission and the milestone's gate criteria (drop "trio
+   publishes 3"; keep "never above 4 / never a crowd for ≤4 people").
+2. **Gate part (c) pass condition is re-worded accordingly** — the
+   remaining 3-person night verifies the trio reads pair/small-group and
+   does *not* inflate, rather than that it counts exactly 3.
+3. **Where does exact small-N counting go, if anywhere?** Deferred to a
+   future milestone (not scoped now). Candidates are
    research-grade (proper diarization with temporal modeling, overlap
    detection, longer-context speaker models) or hardware (a lower-scatter
    mic re-enables the existing rescue). Either is a future milestone, not
