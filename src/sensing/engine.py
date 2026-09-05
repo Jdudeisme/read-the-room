@@ -21,6 +21,8 @@ today and the M2 dashboard tomorrow plug in identically.
 from __future__ import annotations
 
 import logging
+import platform
+import socket
 import time
 from typing import Protocol
 
@@ -55,6 +57,27 @@ class AudioSource(Protocol):
 
     def start(self) -> None: ...
     def stop(self) -> None: ...
+
+
+def capture_source_info(source, config: Config) -> dict:
+    """Describe the capture path a measurement was made through.
+
+    An M6 signature is the pull a track exerts on emotion readings *through
+    one microphone on one machine* — reusing it behind a different capture
+    path subtracts a correction that was never measured there. Stamped into
+    the signature file so it is self-describing; resolved at save time
+    because device_name is only populated once the stream opens.
+    """
+    return {
+        "host": socket.gethostname(),
+        "platform": f"{platform.system()} {platform.release()}",
+        "capture": type(source).__name__,
+        "input_device": (
+            getattr(source, "device_name", "") or config.input_device or "default"
+        ),
+        "capture_rate": int(getattr(source, "capture_rate", config.sample_rate)),
+        "stamped_at": time.time(),
+    }
 
 
 class Engine:
@@ -114,7 +137,9 @@ class Engine:
         # (cold-start prior) — subtracted from speech readings.
         self._signatures = (
             TrackSignatureStore(
-                config.music_signatures_path, min_refs=config.music_min_refs
+                config.music_signatures_path,
+                min_refs=config.music_min_refs,
+                source_fn=lambda: capture_source_info(self.source, config),
             )
             if config.music_aware_enabled and config.emotion_enabled
             else None
