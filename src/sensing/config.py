@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
+
+log = logging.getLogger(__name__)
 
 
 def _env_str(name: str, default: str) -> str:
@@ -34,6 +37,34 @@ def _env_bool(name: str, default: bool) -> bool:
     if value in ("0", "false", "no", "off"):
         return False
     return default
+
+
+_truststore_injected = False
+
+
+def inject_os_truststore() -> None:
+    """Route HTTPS verification through the OS certificate store.
+
+    Behind TLS-intercepting proxies/AV, certifi's bundle lacks the
+    intercepting root and every HTTPS call fails to verify. Entry points call
+    this FIRST, before any client is constructed: httpx keeps the SSLContext
+    it was built with, so a provider created pre-injection stays broken for
+    the life of the process (the M4 Spotify path hit exactly this). Honors
+    RTR_OS_TRUSTSTORE; best-effort and idempotent.
+    """
+    global _truststore_injected
+    if _truststore_injected:
+        return
+    load_dotenv()  # no-op if no .env file
+    if not _env_bool("RTR_OS_TRUSTSTORE", True):
+        return
+    try:
+        import truststore
+
+        truststore.inject_into_ssl()
+        _truststore_injected = True
+    except Exception:  # pragma: no cover - best-effort
+        log.warning("truststore injection failed; falling back to certifi")
 
 
 @dataclass(frozen=True)

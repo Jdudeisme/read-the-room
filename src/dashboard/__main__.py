@@ -12,6 +12,12 @@ from pathlib import Path
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Must precede SpotifyProvider construction below: httpx keeps the
+    # SSLContext it was built with, so injecting later cannot rescue it.
+    from sensing.config import inject_os_truststore
+
+    inject_os_truststore()
+
     parser = argparse.ArgumentParser(
         prog="read-the-room-dashboard",
         description="Live shadow-mode dashboard: sensing engine + mapping layer.",
