@@ -39,6 +39,7 @@ import argparse
 import datetime as dt
 import json
 import platform
+import sys
 import time
 import wave
 from pathlib import Path
@@ -60,6 +61,10 @@ DEAF_CAPTURE_DBFS = -45.0
 # PortAudio delivers in bursts; poll well under the block period so the ring
 # never has to absorb more than a few blocks between reads.
 POLL_S = 0.1
+
+# Non-tty progress cadence: frequent enough to show the take is alive,
+# sparse enough that a 90 s capture logs nine lines instead of nine hundred.
+PROGRESS_REPORT_S = 10.0
 
 
 def main() -> int:
@@ -135,6 +140,11 @@ def main() -> int:
     chunks: list[np.ndarray] = []
     position = 0
     t0 = time.monotonic()
+    # A \r-updated counter is right at a terminal and wrong everywhere else:
+    # piped or captured, every poll becomes its own line (~900 of them for a
+    # 90 s take). Redraw only on a tty; otherwise report at intervals.
+    live = sys.stdout.isatty()
+    next_report = PROGRESS_REPORT_S
     try:
         while True:
             elapsed = time.monotonic() - t0
@@ -145,7 +155,13 @@ def main() -> int:
             if new.size:
                 chunks.append(new)
             captured_s = sum(c.size for c in chunks) / config.sample_rate
-            print(f"\r  {elapsed:5.1f} s elapsed / {captured_s:5.1f} s captured", end="")
+            if live:
+                print(
+                    f"\r  {elapsed:5.1f} s elapsed / {captured_s:5.1f} s captured", end=""
+                )
+            elif elapsed >= next_report:
+                print(f"  {elapsed:5.1f} s elapsed / {captured_s:5.1f} s captured")
+                next_report += PROGRESS_REPORT_S
     except KeyboardInterrupt:
         source.stop()
         print("\naborted; nothing written.")
@@ -231,7 +247,7 @@ def main() -> int:
         ok = False
     if ok:
         print("\ncapture looks healthy. Next:")
-        print(f"  python scripts/analyze_headcount_wav.py {wav_path}")
+        print(f"  {sys.executable} scripts/analyze_headcount_wav.py {wav_path}")
     return 0
 
 
