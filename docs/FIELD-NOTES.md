@@ -5,6 +5,253 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-06 (later) — dominance-ramp recalibration on the Lenovo: the M6 pull estimator is alive here, on provisional knots
+
+**Setup.** Same room/mic/speakers as the morning entry, now on
+`milestone-7-stable-middle` with **`main` merged in locally (not
+pushed)**. The merge was forced by a real gap: the milestone branch
+predates `234de7f` (truststore at the entry points) and `f07a2df`
+(signature schema v3 source stamp), so on this machine Spotify
+hard-failed TLS (`CERTIFICATE_VERIFY_FAILED` — no `inject_os_truststore`
+anywhere in `src/` on the branch) and any signature written would have
+been v2, unstamped. Post-merge: 291 tests green, rescue still defaulted
+off. Founder executed every live step; DJ inert; ladder signatures
+redirected to a scratch file so the real
+`data/track_signatures-lenovo.json` was not polluted by refs measured
+across four volumes.
+
+**The ladder** (single track on repeat, Taylor Swift "Welcome To New
+York (Taylor's Version)", Spotify app 100 %, 40 s per take):
+
+| take | high-band mean | p10 | max | loudness | speech_ratio |
+|---|---|---|---|---|---|
+| speech only (control) | 0.0132 | 0.008 | 0.0198 | −38.7 | 0.755 |
+| speech+music, 56 % | 0.0317 | 0.0241 | 0.0446 | −32.4 | 0.649 |
+| speech+music, 76 % | 0.0475 | 0.0422 | 0.0556 | −28.7 | 0.294 |
+| music only, 56 % | 0.0655 | 0.0391 | 0.0982 | −32.3 | 0.0 |
+| music only, 76 % (×3) | 0.0572 / 0.0389 / 0.0541 | — | 0.083 | −30.8 / −32.5 / −29.5 | ~0 |
+
+**Findings.**
+
+1. **The dominance proxy is a *fraction*, so speech suppresses exactly
+   the signal the correction needs.** Music-only reads high-band 0.050–
+   0.066; add a talking human and the same music reads **0.032**. Speech
+   energy is low/mid-band and dilutes the ratio. The windows that most
+   need correcting are the ones where the evidence for correcting them
+   is weakest. This is structural, not a mis-set knob — worth considering
+   whether an *absolute* high-band energy measure (or a ratio against the
+   noise floor) is the better dominance signal. Flagging as a candidate,
+   not proposing a change: it is published-sensor-semantics territory.
+
+2. **Volume is a weak lever on this hardware, and it trades against
+   certification.** 56 % → 76 % Windows volume moved mic-side loudness
+   only **1.5 dB** and moved high-band share *down* — laptop speaker DSP
+   is evidently compressing. Meanwhile `speech_ratio` fell **0.649 →
+   0.294**: louder music buys dominance and costs the VAD. Three
+   music-only takes at a fixed 76 % spread 0.0389–0.0572 (loudness 3 dB),
+   so **song section dominates the volume axis entirely**. Any future
+   knot work must average across sections, not sample one.
+
+3. **Knots applied to `.env` (this machine only):
+   `RTR_MUSIC_DOMINANCE_LO=0.022`, `RTR_MUSIC_DOMINANCE_HI=0.050`**
+   (committed defaults 0.05/0.30 are the Mac's and were left untouched
+   in `config.py`, per the calibration-constant rule). Calibrated on the
+   *speech-over-music* band rather than the music-only band, since that
+   is the band the pull estimator consumes.
+
+   **Verified live, and it works:** with the new knots,
+   speech-over-music at ~68 % measured `dominance_mean` **0.296** (was
+   0.000), `pull_refs` went **0 → 4 → 6**, and
+   `emotion_correction.basis` read **`pull` on 10/10** corrected frames
+   (applied correction valence −0.023, arousal +0.001; measured
+   `pull_valence` 0.0229, `pull_arousal` 0.3799). M6's primary estimator
+   has never run on this machine before today.
+
+4. **The knots are provisional, and the reason is in the data.** Three
+   speech-only control takes produced maxima of **0.0198, 0.0298,
+   0.0346** — a rising upper tail that crosses the `LO` of 0.022 that
+   was fitted on the first of them. Speech-only and speech-over-music
+   overlap at the tails (speech-only max 0.0198 vs speech-over-music min
+   0.0184 in the 56 % pair). Consequences: some speech-only windows will
+   register non-zero m, and the low tail of speech-over-music (p10
+   ≈ 0.024 at 56 %) still falls under `m_max` 0.1 and is absorbed as
+   clean baseline. The knots are a working improvement over knots that
+   were provably wrong here, **not a settled calibration**. Before they
+   are trusted: re-run the ladder on ≥2 more tracks, average over
+   sections, and take ≥3 speech-only controls to bound that tail.
+
+5. **The morning's 0.018 reading remains unexplained.** This morning the
+   same track at −31.1 dBFS measured high-band mean 0.018 with dominance
+   pinned at 0; tonight the same track at comparable level measured
+   0.039–0.066. Tonight's section variance (±20 %) does **not** span the
+   gap. Candidates not distinguished: a Spotify normalisation/EQ setting,
+   a Windows audio-enhancement toggle, or a genuinely different section.
+   Recorded as an open discrepancy rather than rationalised — it is a
+   caution that this path's spectral behaviour is not yet stable enough
+   to hang a calibration on.
+
+6. **M7 does not fix this laptop's solo→pair overcount.** Clean solo,
+   no music, on the merged M7 branch: **`pair` on 20/20 frames**.
+   Diagnostics: `raw_clusters` 2, `dispersion` **0.588**, `separation`
+   0.156, `fragmentation` 0.07, `crowd_weight` **0.0**,
+   `rescued_clusters` 0. M7's machinery is working exactly as specified —
+   the sep_collapse misfire is dead and the crowd path is silent at this
+   dispersion (the recalibrated ramp starts at threshold 0.70; 0.588
+   sits below it). But M7 targets *crowd inflation*, not raw
+   over-segmentation: one voice splits into two clusters that both clear
+   the min-mass floor. This is charter-compliant — "never inflate into a
+   crowd" holds, and exact counting was explicitly deferred — but it is
+   a live product fact for this machine: **a solo founder feeds `pair`
+   into the rulebook**, and every recommendation and annotation captured
+   solo on this laptop inherits that. Worth deciding whether solo-on-this-
+   mic deserves its own investigation before corpus accumulates here.
+
+**Process errors this session, recorded so they are not repeated.**
+`pkill -f "python.exe -m dashboard"` does not kill Windows processes from
+Git Bash; it failed silently, the replacement dashboard died on
+`[Errno 10048] address in use` after printing its startup banner, and two
+verification takes were measured against the **stale process with the old
+knots** before the discrepancy (dominance 0.0 where the arithmetic said
+0.09) exposed it. Use `Get-CimInstance Win32_Process | Stop-Process`, and
+**always confirm the serving process is the one you just started** — the
+banner is printed before `uvicorn` binds, so it proves nothing.
+
+**Open, in priority order.** (a) Re-run the ladder across ≥2 tracks and
+≥3 controls before treating the knots as calibrated; (b) settle the
+morning/evening spectral discrepancy; (c) decide whether the solo→pair
+reading on this mic gets its own investigation, given it colours all
+solo corpus captured here; (d) the M7 branch still needs only part (f)
+before merge — this session did not touch that, and nothing was pushed.
+
+## 2026-09-06 (afternoon) — calibration session: RTR's first run on the Lenovo (JPad)
+
+**Setup.** Solo founder, quiet closed room, laptop mic
+(`Microphone Array on SoundWire D`, 16 kHz, no resampler), music on the
+laptop's own speakers via Spotify Connect (`JPAD`), DJ inert (empty
+mapping via a session-only `RTR_PLAYBACK_PLAYLISTS_PATH`; `.env`
+untouched). Branch `main` (M7 unmerged). Purpose: establish this
+machine's baselines before continuing the project here — the Mac's
+numbers do not transfer.
+
+**Findings.**
+
+1. **The machine is roughly 3–4× the Mac's headroom, and passes
+   `--concurrent`, which the Mac never has.** Emotion 0.34 s mean /
+   0.36 s p95 (Mac: 0.66 / 0.66). `--fallback`: headcount 0.23 / 0.25
+   (Mac: 1.00 / 1.02), emotion overall 0.35 / 0.39. `--concurrent`:
+   headcount 0.25 / 0.30, emotion 0.40 / 0.42. So the aggressive `.env`
+   already in place here — `RTR_HEADCOUNT_MIN_INTERVAL_S=2.0`,
+   `RTR_TORCH_THREADS=0` — is *earned* on this hardware, not a leftover
+   to reconcile with the Mac's gate config. `pytest`: 280 passed.
+
+2. **The engine ran deaf for seven minutes and said nothing.** The
+   first dashboard instance opened its stream cleanly, logged
+   `capturing from 'Microphone Array on SoundWire D'`, and then
+   delivered near-silence: loudness never above −41.5 dBFS,
+   `speech_ratio` 0.000 across the entire 300-frame history,
+   `valence`/`arousal`/`headcount_bucket` null throughout — through
+   90 s of deliberate speech. The hardware was fine the whole time: a
+   direct `sd.InputStream` on the same device read RMS −31.5 dBFS
+   (peak −11.9), and the project's own `MicSource`, driven standalone,
+   filled its ring at **99.8 % of real time** at RMS −36.8 dBFS with
+   `dsp.analyze` agreeing. A plain restart fixed it — same device, same
+   config, `speech_ratio` 0.72 mean afterwards. Root cause not
+   isolated (PortAudio/MME stream stalling at startup is the working
+   hypothesis; the SoundWire array may still have been initialising).
+   **The observability gap is the real finding:** `MicSource._callback`
+   (`audio.py:165`) discards PortAudio's `status` flag, and nothing
+   anywhere asserts "am I receiving anything?", so a deaf engine is
+   pixel-identical to a quiet room. This is the macOS-permission
+   failure mode from the README, reproduced on Windows without the
+   permission. Candidate: warn when N consecutive windows sit at
+   `speech_ratio == 0` *and* below a plausible floor. Cheap, and it
+   would have saved this session twenty minutes.
+
+3. **Baseline listening volume on this path: Windows 75 % + Spotify
+   100 % → −31.1 dBFS mic-side** (mean over 39 s, spread −31.8…−30.2,
+   single track on repeat). The Mac's protocol number was ~33 % output.
+   Measured against the M6 target of −31…−33 dBFS; we sit at the loud
+   edge of it. Two protocol notes learned the hard way: Spotify
+   **advances to the next track** unless repeat-one is on, and per-song
+   mastering moves the mic-side level by several dB (one swap moved it
+   −31 → −38), so repeat-one is mandatory for anything per-track.
+
+4. **The M6 pull estimator cannot run on this laptop as configured,
+   and fails silently in a way that also poisons its own reference.**
+   `emotion_music_dominance` measured **0.000 on every frame** with
+   music at the correct target level. The numbers, both live:
+
+   | signal | high-band share |
+   |---|---|
+   | speech, no music (39 s, `speech_ratio` 0.72) | mean 0.008, max 0.017 |
+   | music at −31.1 dBFS, silent human (39 s) | mean 0.018, max 0.034 |
+   | `RTR_MUSIC_DOMINANCE_LO` / `_HI` in force | 0.05 / 0.30 |
+
+   Both distributions sit entirely below `LO`, so the ramp maps
+   everything to m = 0. Consequences, from `engine.py:359-378`: pull
+   samples require `m >= RTR_MUSIC_PULL_M_FLOOR` (0.25) and can
+   therefore **never** be banked here — the primary M6 estimator is
+   dead on this hardware. Worse, the `clean` test is
+   `m <= RTR_MUSIC_BASELINE_M_MAX` (0.1), so every speech-over-music
+   reading is classified as clean-speech and folded into the baseline
+   the estimator measures pull *against*. Nothing reports either.
+   The 2026-07-11 TV-night entry raised the ramp-calibration
+   hypothesis for room-shaped Echo audio; this session says it holds on
+   **laptop speakers too**, on this machine — so it is the ramp, not
+   the geometry.
+
+   *Proposal only, not applied (no in-session tuning).* The two
+   distributions do separate — speech max 0.017 vs music mean 0.018 /
+   max 0.034 — so a ramp of roughly `LO ≈ 0.018`, `HI ≈ 0.034` would
+   put music at target level near m = 1 while leaving quiet-room speech
+   silent. That is a two-point sketch, not a calibration: it wants a
+   proper volume ladder (say 40/55/75/90 %, silent human) plus a
+   speech-only run at each level to confirm speech never crosses `LO`,
+   and a re-think of whether `m_max` 0.1 / `m_floor` 0.25 still divide
+   the space sensibly once the knots move. **Until that lands, running
+   the M6 part (c) protocol here would measure nothing and quietly
+   corrupt the clean baseline.**
+
+5. **A solo speaker reads `pair` on this mic — `main` reproduces the
+   M7 overcount.** Over 39 s of continuous solo speech: bucket `solo` 8
+   frames / `pair` 12. Frame detail: `headcount_raw_clusters` 2,
+   `headcount_recent_raw_log2` 1.09–1.17, `headcount_smoothed_log2`
+   1.03, `headcount_dispersion` **0.551**, `headcount_fragmentation`
+   ~0.15, `headcount_crowd_weight` 0.0, confidence 0.57. One voice is
+   splitting into two raw clusters, and the dispersion sits inside the
+   `[0.5·threshold, threshold]` = [0.35, 0.70] ramp exactly as
+   M7-PROPOSAL describes — this machine's scatter (0.551) is the same
+   regime the proposal measured at ~0.60. `crowd_weight` 0.0 means the
+   crowd path is not (yet) implicated; this is the plain solo→pair
+   overcount, not the pool blowup. The M7 branch's dispersion-ramp
+   recalibration — `ramp(dispersion, threshold, 1.3·threshold)` —
+   targets precisely this, and its measured effect included
+   "solo_mic pair→solo".
+
+**What this session produced.** `data/track_signatures-lenovo.json`,
+schema v3, correctly stamped
+(`host JPad / Windows 11 / MicSource / Microphone Array on SoundWire D
+/ 16000`) — the source-stamp work from `f07a2df` doing its job on the
+first machine that needed it. One standalone signature banked: Taylor
+Swift, "Welcome To New York (Taylor's Version)"
+(`spotify:track:1hR8BSuEqPCCZfv93zzzz9`), valence −0.2333, arousal
+0.3689, **refs 37**, `pull_refs 0` — the cold-start prior is real, the
+pull half is empty for the reason in finding 4.
+
+**Next, in order.** (a) Recalibrate the dominance ramp on this path
+from a proper volume ladder; (b) re-run the M6 part (c) protocol only
+afterwards; (c) do the headcount work on `milestone-7-stable-middle`,
+not `main` — a solo founder reading `pair` will distort any mapping or
+annotation captured here. Open question worth settling early: the M7
+branch is the project's actual head state and `main` is behind it;
+this laptop should probably not accumulate corpus on `main` at all.
+
+**Instrumentation note for future sessions.** `/ws` replays up to 300
+history frames on connect (`app.py:70`) before any live frame. Anything
+sampling the socket must drain that replay first or it will silently
+measure the *oldest* frames in the buffer — this cost real time here
+before it was spotted.
+
 ## 2026-07-11 (TV night, 22:15–23:28) — first deliberate media-audio session
 
 **Setup.** Solo founder watching TV; AC on low; music playing from the
