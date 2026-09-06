@@ -4,14 +4,21 @@
 `docs/FIELD-NOTES.md`. Human-executed on the reference machine.
 **Question owner:** founder. **Written:** 2026-09-06.
 
-> **What the first run changed.** Condition F (movement) was added mid-session
-> and turned out to be the largest effect measured — roughly twice position's
-> — so it is now part of the table rather than an afterthought. Holding
-> posture fixed is good hygiene for isolating position, but it suppresses the
-> variability that the phenomenon under study may depend on; run both. The
-> run did not reproduce `raw_clusters` 2 in any condition, so the protocol
-> below is necessary but not yet sufficient — see open item (a) in the
-> FIELD-NOTES entry for the simultaneous live-and-capture test that follows it.
+> **What the first run changed.** Three corrections, all from the same night:
+>
+> 1. **Capture length was wrong** (see the box under Conditions). 90 s barely
+>    reaches buffer saturation, which is where the split lives.
+> 2. **Condition F (movement) was added mid-session and dominates.** Scatter
+>    moved ~3× the noise floor on posture versus ~1.6× on position. Holding
+>    posture fixed is good hygiene for isolating position, but it suppresses
+>    the variable that turned out to matter most; run both.
+> 3. **The split did eventually reproduce** — offline, in a natural-speech
+>    capture at scatter 0.637, in the nine windows after the buffer
+>    saturated. So candidate 4 below, not 1, is the live hypothesis.
+>
+> Open items live in the FIELD-NOTES addendum. The live-vs-offline test
+> attempted there was confounded (two processes, two separate mic streams)
+> and is unresolved.
 
 FIELD-NOTES 2026-09-06 records the fact twice: a solo founder on the Lenovo
 reads `pair`, with `raw_clusters` 2 and `dispersion` 0.551 (afternoon, `main`)
@@ -50,8 +57,19 @@ FIELD-NOTES entry.
    edge of a documented hardware regime, and the split is expected for this
    class of mic rather than something the room or the driver did.
 
-Candidate 3 is the null hypothesis and is the most likely of the three. The
-protocol is designed to fail cleanly into it.
+4. **Speaking style — posture and movement while talking.** Added after the
+   first run, which measured it as the largest effect and the only one that
+   reproduced the split. Turning toward the screen, shifting, gesturing
+   changes the direct-to-reflected balance continuously, so the same voice
+   samples a range of channels within one buffer. Measured ladder, all solo,
+   one night, same mic: seated and still 0.508–0.558 scatter (never splits);
+   deliberate movement 0.589 (clusters form but fail the mass floor); natural
+   speech 0.637 (two mass-passing clusters). The 0.70 cut behaves as a
+   threshold on scatter, and this is the candidate that crosses it.
+
+Candidate 3 remains the null hypothesis. **Candidate 4 is the live one** —
+candidate 1 measured at roughly half candidate 4's effect and is not
+established.
 
 ## Instruments
 
@@ -79,8 +97,14 @@ the 300-frame `/ws` replay).
 
 ## Conditions
 
-Five captures, 90 s each, **one variable at a time**. Total speaking time
-~8 minutes.
+Captures of **4–5 minutes each**, **one variable at a time**.
+
+> **Not 90 seconds.** The first run sized captures to `buffer_s` (90 s), which
+> was wrong: a 90 s file *reaches* buffer saturation only at its final
+> instant, so it spends almost none of its length in the steady state where
+> the split actually lives. The one capture that did reproduce
+> `raw_clusters` 2 showed it in its last nine windows and nowhere earlier.
+> Use `--seconds 240` or more.
 
 | # | condition | `--note` |
 |---|---|---|
@@ -118,7 +142,7 @@ has no numpy and fails at import.
 
 ```bash
 # once per condition, changing --note and the physical setup between takes
-.venv/Scripts/python.exe scripts/capture_room_wav.py --seconds 90 --note "center, enhancements as-is"
+.venv/Scripts/python.exe scripts/capture_room_wav.py --seconds 240 --note "center, enhancements as-is"
 ```
 
 The script warns if the capture came back below the deaf-stream floor

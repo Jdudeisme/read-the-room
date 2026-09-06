@@ -141,6 +141,76 @@ capture while verifying the progress fix, contrary to the "never start a live
 mic session yourself" rule in CLAUDE.md; the file was deleted immediately.
 The rule is easy to violate under the heading of a "plumbing check".
 
+### Addendum, same night — open item (a) attempted: the split *does* reproduce offline, and 90 s was the wrong capture length
+
+**Setup.** Dashboard running from the same branch (shadow mode, cold start),
+plus a one-off scratch recorder — kept out of the repo — that captured room
+audio and the `/ws` frame stream in a single process, waiting for
+`headcount_status == "ready"` before starting its clock and filtering the
+bridge's 300-frame history replay by wall-clock timestamp. 90 s, natural
+speech with movement, centre of the room. Both processes opened their own
+stream on the array; continuity 99.9 %, −31.7 dBFS.
+
+1. **First offline reproduction of `raw_clusters` 2.**
+
+   | | raw_clusters | dispersion | scatter | ≥0.70 |
+   |---|---|---|---|---|
+   | live dashboard | 1 ×43 | 0.579 | — | — |
+   | same window, offline (`main`) | **{1: 34, 2: 9}** | 0.558 | **0.637** | **30.7 %** |
+   | same window, offline (M7) | {1: 34, 2: 9} | 0.558 | 0.637 | 30.7 % |
+
+   The nine 2-cluster windows are t = 73–89 — the last nine — with
+   `fragmentation` 0.03–0.12 and `confidence` 0.44–0.48. These are two
+   mass-passing clusters, not the debris of finding 4 above.
+
+2. **Scatter is the driver, and it is a threshold effect at the 0.70 cut.**
+   The session's ladder, all solo, same machine, same mic, same night: still
+   0.508–0.558 → never splits; movement 0.589 → 4 clusters but every one
+   fails the mass floor; natural speech 0.637 → two mass-passing clusters.
+   This supersedes the position framing entirely. **Position was never the
+   driver; speaking style is**, and the mechanism is that scatter has to
+   climb far enough for average linkage to separate two groups that both
+   clear the 10 % evidence floor.
+
+3. **The split is a steady-state property of a saturated buffer, and 90 s is
+   too short to see it.** Sizing captures to `buffer_s` was wrong: a 90 s
+   file *reaches* saturation only at its final instant, so each of the four
+   captures above had roughly one window at steady state. This capture had
+   nine, and every one of them split. It also explains the evening live
+   session's `pair` 20/20 on M7 — a long-running session sits in that regime
+   continuously rather than touching it once. **Protocol correction: these
+   captures want 4–5 minutes, not 90 seconds.**
+
+4. **Correction to finding 1 above: M7 smooths the split, it does not prevent
+   it.** On this file M7 reads `solo` 42 / `pair` 1 — the EMA and 3-update
+   hysteresis absorb nine split windows and flip once at the very end. M7's
+   fix addresses the *crowd-path inflation* (a single clean cluster scored as
+   babble); it does nothing for a buffer that genuinely splits, and sustained,
+   M7 reads `pair` too. That is exactly what the evening session recorded.
+   Finding 1's "M7 kills it on every file" is true of those four files
+   because none of them split; it is not a general claim.
+
+5. **The live-vs-offline comparison is confounded; open item (a) is NOT
+   settled.** The dashboard and the recorder each opened a *separate* stream
+   on the array, so they did not receive identical samples — live dispersion
+   0.579 vs offline 0.558, a gap sitting right at the session's A/E noise
+   floor of 0.019–0.023. The live/offline disagreement therefore cannot be
+   attributed to the engine path. Settling (a) honestly requires the engine
+   to consume a *file* rather than a microphone, i.e. a file-backed source in
+   `src/sensing/audio.py` — REQUIRES-REVIEW, not attempted.
+
+   Sideways observation worth its own test: two concurrent streams from this
+   array produced measurably different embedding spread from the same room
+   and the same seconds. That is a capture-path (protocol candidate 2)
+   result arriving by accident, and it is unexplained.
+
+**Open items, revised.** (a′) Confirm the split across a properly saturated
+buffer — 4–5 min natural-speech capture; not yet run. (b′) Settle
+live-vs-offline with a file-backed source (REQUIRES-REVIEW). (c′) Merge M7
+before further solo corpus, still standing, but now understood as fixing
+crowd-path inflation only — it does not make a genuinely split buffer read
+`solo`. (d′) The concurrent-stream difference in (5), unexplained.
+
 ## 2026-09-06 (later) — dominance-ramp recalibration on the Lenovo: the M6 pull estimator is alive here, on provisional knots
 
 **Setup.** Same room/mic/speakers as the morning entry, now on
