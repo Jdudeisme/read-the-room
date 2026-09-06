@@ -15,8 +15,8 @@ presence windows 60/30 s. The provenance is written at the constant's site.
 - **Never adjust a calibration constant, threshold, ramp, or default** because
   it "looks wrong" or a test would be easier to write. Changing one is a
   calibration event: it needs a measurement protocol, a FIELD-NOTES entry, and
-  usually a live re-gate on the Mac. If a value seems wrong, file it as a
-  finding with your evidence; do not patch it.
+  usually a live re-gate on the reference machine. If a value seems wrong,
+  file it as a finding with your evidence; do not patch it.
 - When you add a tunable, follow the house pattern: measured default, provenance
   comment at the definition, `RTR_*` env var wired in `from_env`, documented in
   `.env.example`. All three or none.
@@ -113,9 +113,9 @@ one is wrong, check AUDIT.md/ROADMAP.md first — several are already tracked.
   `milestone-7-stable-middle` while its gate is open). New work branches from
   `main` after the milestone merges.
 - Refactors touching the engine path must show the **benchmark regression row**
-  (`python scripts/bench_headcount.py --fallback` on the Mac, within
-  run-to-run variance of the last README table row). That run is a human/Mac
-  step — request it, don't fake it.
+  (`python scripts/bench_headcount.py --fallback` on the **reference machine**,
+  within run-to-run variance of the last reference-machine README row — not the
+  historical Mac rows). Compare like with like; the budgets differ.
 - Changes to headcount behavior must reproduce the committed replay evidence:
   `scripts/m7_replay_session.py` on the 2026-07-15 gate WAV must yield the
   recorded histogram (solo 126 / pair 110 / bucket-3 45) unless the change
@@ -146,9 +146,22 @@ one is wrong, check AUDIT.md/ROADMAP.md first — several are already tracked.
   `torch 2.2.x`, `numpy<2`, `speechbrain<1.1`, `transformers<4.50`. The demo
   target is a 2019 Intel MacBook Pro on the last Intel-macOS torch wheels.
   Do not bump pins; the reasons are commented in `pyproject.toml`.
-- **Two machines**: Windows dev box builds; the Intel Mac validates and runs
-  gates. Performance claims only count from the Mac. When driving a browser at
-  a localhost dashboard, confirm which machine is serving first.
+- **Reference machine (founder direction, 2026-09-06)**: the Windows laptop
+  (`JPad`) is the primary development **and** gate machine. Performance claims,
+  benchmarks, and live calibrations count from it. The 2019 Intel MacBook Pro
+  is a secondary compatibility target: its README gate rows (M2–M7) stay as
+  historical record and are **not** comparable to new rows — the budget
+  arithmetic differs (Mac 1.37 s from a 0.63 s emotion floor; reference machine
+  ~1.66 s from 0.34 s). See `docs/MACHINE-DOCTRINE-REVISION.md`. When driving a
+  browser at a localhost dashboard, confirm which machine is serving first.
+- **Per-machine calibration is not doctrine until measured twice.** This
+  machine's `.env` carries recalibrated dominance knots
+  (`RTR_MUSIC_DOMINANCE_LO=0.022`, `_HI=0.050`) that make the M6 pull estimator
+  work here at all — but they are **PROVISIONAL**: fitted to one track, with
+  three speech-only controls disagreeing at the tail (FIELD-NOTES 2026-09-06).
+  Do not promote them to `config.py` defaults until the ladder is re-run across
+  ≥2 tracks and ≥3 speech-only controls. The Mac-measured defaults in
+  `config.py` stay untouched meanwhile.
 - Scripts that replay engine behavior must source constants consistently with
   the session being replayed — note that the Mac's `.env` sets
   `RTR_HEADCOUNT_MIN_INTERVAL_S=4.0` while the `Config()` default is 2.0
@@ -165,8 +178,9 @@ Get explicit human sign-off on plan **and** diff for:
   handling) or adding a **new capture/log of room-derived data** (privacy:
   default new captures to off).
 - **Live-session protocols** (gates, soak runs, characterization sessions):
-  these are human-run on the Mac with people in the room. You write the
-  protocol; a human executes it. Never start a live mic session yourself.
+  these are human-run on the reference machine with people in the room. You
+  write the protocol; a human executes it. Never start a live mic session
+  yourself.
 - Deleting or rewriting anything in `docs/` — proposals, test plans, and
   FIELD-NOTES are the project's evidentiary record; they are append/extend,
   not clean-up targets.

@@ -83,7 +83,9 @@ deliberately thin; M2's dashboard swaps in without touching the engine.
 Requires **Python 3.12** — not newer. The demo target (2019 Intel MacBook Pro)
 is capped at torch 2.2.2, the last PyTorch release with Intel-macOS wheels,
 and its wheels stop at Python 3.12. Both platforms pin the same torch version
-so performance numbers transfer.
+so the runtime is identical. Note that *performance* and *calibration* do not
+transfer between machines — see
+[docs/MACHINE-DOCTRINE-REVISION.md](docs/MACHINE-DOCTRINE-REVISION.md).
 
 ### Windows
 
@@ -205,7 +207,7 @@ Recommendations become actual music through **Spotify Connect** (control
 traffic only — playback decode/output never happens in this process, so the
 engine's performance budget is untouched). Requires Spotify **Premium**.
 
-First time on the Mac? [docs/M4-TEST-PLAN.md](docs/M4-TEST-PLAN.md) is a
+Setting this up for the first time? [docs/M4-TEST-PLAN.md](docs/M4-TEST-PLAN.md) is a
 step-by-step walkthrough (setup + the milestone gate) written to be run
 with Claude Code — ask it to walk you through the M4 test plan.
 
@@ -314,11 +316,21 @@ loudness relative to a rolling noise floor rather than absolute dBFS — see
 [docs/M4-PROPOSAL.md](docs/M4-PROPOSAL.md) and the pool-session analysis in
 [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 
-## Performance budget (run this on the MacBook first)
+## Performance budget (run this on the reference machine first)
 
-Budget arithmetic: the 2 s hop, minus emotion's measured 0.63 s floor (M1,
-2019 Intel MacBook Pro), leaves **1.37 s (p95) for headcount**. Both models
-run on their own worker threads, so the real risk is CPU contention:
+**Reference machine, from 2026-09-06: the Windows laptop (`JPad`).** It is
+now the primary development *and* gate machine; performance claims and live
+calibrations count from it ([docs/MACHINE-DOCTRINE-REVISION.md](docs/MACHINE-DOCTRINE-REVISION.md)).
+The 2019 Intel MacBook Pro is retained as a secondary compatibility target —
+its gate rows below are kept as **historical record** and are *not*
+comparable to new rows, because the budget arithmetic differs.
+
+Budget arithmetic: the 2 s hop, minus emotion's measured floor on the
+reference machine (**0.34 s**, 2026-09-06), leaves **~1.66 s (p95) for
+headcount**. On the Mac the same arithmetic gave 1.37 s from a 0.63 s
+emotion floor (M1) — that is the number every gate row through M7 was
+judged against. Both models run on their own worker threads, so the real
+risk is CPU contention:
 
 ```bash
 python scripts/bench_headcount.py               # standalone timing
@@ -352,7 +364,27 @@ budget, the fallbacks — in order — are:
 2. **Swap `RTR_EMOTION_MODEL`** to a smaller checkpoint (a wav2vec2-*base*
    valence/arousal fine-tune ≈ 4× cheaper) and re-run the benchmark.
 
-### Results (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
+### Results — reference machine (Windows laptop `JPad`, `RTR_TORCH_THREADS=0`, 2026-09-06)
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_emotion.py` | solo | 0.34 s | 0.36 s | < 2.0 s hop | OK |
+| `bench_headcount.py --fallback` | headcount, contended hops | 0.23 s | 0.25 s | < 1.66 s | PASS |
+| `bench_headcount.py --fallback` | emotion, overall | 0.35 s | 0.39 s | < 1.2 s absolute | PASS |
+| `bench_headcount.py --concurrent` | headcount, every hop | 0.25 s | 0.30 s | < 1.66 s | **PASS** |
+| `bench_headcount.py --concurrent` | emotion, every hop | 0.40 s | 0.42 s | < 1.2 s absolute | PASS |
+
+This machine passes `--concurrent` — the strict every-hop gate the Mac has
+never passed — so its `.env` runs headcount every hop
+(`RTR_HEADCOUNT_MIN_INTERVAL_S=2.0`, `RTR_TORCH_THREADS=0`) rather than the
+Mac's every-other-hop fallback. Full context in the 2026-09-06 entries of
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
+
+### Results — historical (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
+
+Kept for provenance; judged against the Mac's 1.37 s budget, not the
+reference machine's 1.66 s. Every milestone gate table below (M2–M6) is
+likewise historical and Mac-anchored.
 
 | Benchmark | Scenario | mean | p95 | Budget | Verdict |
 |---|---|---|---|---|---|
