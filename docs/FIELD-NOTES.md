@@ -5,6 +5,142 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-06 (night) — the solo→pair split taken offline: two independent causes, and the room is the smaller one
+
+**Setup.** Solo founder, JPad, `Microphone Array on SoundWire D` opened
+natively at 16 kHz (no resampler), quiet apartment, no music, DJ inert,
+**dashboard not running**. Branch `headcount-solo-split-instruments` off
+`main` (M7 unmerged). Four 90 s WAV captures, all continuity ≥ 99.8 %,
+written to `data/captures/` (gitignored, local by design). Founder executed
+every capture; the analysis is offline and touched no microphone.
+
+Prompted by the founder's observation that the earlier sessions ran with the
+laptop ~2 ft from a wall and corner, and the laptop has since moved to the
+centre of the apartment — i.e. open item (c) of the entry below, with a
+specific hypothesis attached.
+
+**New instruments** (`scripts/capture_room_wav.py`,
+`scripts/analyze_headcount_wav.py`, `docs/HEADCOUNT-SOLO-SPLIT-PROTOCOL.md`).
+Capture runs through `MicSource`, so the WAV carries the real path including
+any driver-side processing; each file gets a provenance sidecar. Analysis
+replays the engine's VAD/window/submission schedule through the same
+estimator and smoother. Both are measurement-only and change no constant.
+**Replays mirror `Config.from_env()`** — this machine's `.env` over
+`config.py` defaults: `window_s` 5.0, `hop_s` 2.0, `vad_threshold` 0.5,
+`cluster_threshold` 0.70, `buffer_s` 90.0, `min_interval_s` 2.0,
+`min_speech_ratio` 0.2, `min_cluster_frac` 0.10.
+
+The analysis reports **`scatter`** — all-pairs cosine distance over the final
+buffer. `dispersion` is measured *within* clusters, so it is computed after
+any split and understates the spread that caused it; `scatter` is
+clustering-independent and directly comparable to the ~0.35 clean-audio /
+~0.6 laptop-mic same-speaker figures already recorded in `headcount.py`'s
+min-mass comment.
+
+**Findings.**
+
+1. **The bucket inflation is `main`'s sep_collapse misfire, and M7 kills it
+   on every file.** Same WAV, same config, only the `sensing` package
+   differing (a git worktree of `milestone-7-stable-middle` on `PYTHONPATH`):
+
+   | branch | buckets | raw_clusters | dispersion | scatter | crowd_weight max |
+   |---|---|---|---|---|---|
+   | `main` | solo 11 / **pair 24** / **4** 8 | 1 ×43 | 0.497 | 0.531 | 0.313 |
+   | M7 | **solo 43/43** | 1 ×43 | 0.497 | 0.531 | **0.0** |
+
+   The clustering-side numbers are identical to three decimals across
+   branches — the control proving the crowd path is the only thing that
+   moved. Mechanism: `separation_score` returns 0.0 when there is a single
+   cluster (silhouette undefined, `len(np.unique(labels)) < 2`), and `main`'s
+   `sep_collapse = 1.0 - separation/0.25` reads that 0.0 as **maximum**
+   collapse — a perfectly clean solo scores identically to total babble.
+   With `sep_collapse` pinned at 1.0, `crowd_weight` = saturation × smear
+   ≈ 0.53 × 0.52 ≈ 0.28, `log2_babble` ≈ 6.9, and the estimate lands on
+   log2 2.06 → bucket `4`. It ratchets upward as the buffer fills, which is
+   the README's M2-era "solo → pair → 4 → 8 as the evidence buffer filled"
+   signature arriving by a different route. M7's fix (`separation is None`
+   → `sep_collapse = dispersion_signal`, over the recalibrated ramp
+   `(threshold, 1.3·threshold)`) reads 0 at our dispersion, so nothing leaks.
+   `confidence` sat 0.35–0.39 on `main`, just clearing
+   `RTR_MAPPING_MIN_HEADCOUNT_CONFIDENCE=0.35` — these inflated readings were
+   being consumed by the mapper, not discarded. **This is hard evidence for
+   the entry below's next-step (c): no solo corpus on `main` from this
+   machine.**
+
+2. **Four controlled captures; `raw_clusters` 2 never reproduced.** All four
+   read one cluster on every window, and `solo` 43/43 under M7:
+
+   | condition | scatter | dispersion | ≥0.70 | clusters at 0.70 | raw | level |
+   |---|---|---|---|---|---|---|
+   | A centre, still | 0.531 | 0.497 | 7.0 % | 1 | 1 ×43 | −31.1 |
+   | E centre, still (repeat of A) | 0.508 | 0.478 | 3.2 % | 1 | 1 ×43 | −34.0 |
+   | B wall+corner, still | 0.558 | 0.546 | 5.7 % | 1 | 1 ×43 | −34.2 |
+   | F centre, natural speech + movement | 0.589 | 0.542 | **17.7 %** | **4** | 1 ×43 | −34.6 |
+
+   Both live sessions produced `raw_clusters` 2 (afternoon 0.551 on `main`,
+   evening 0.588 on M7). Four seated captures did not.
+
+3. **First measurement of this mic's solo scatter, and posture beats
+   position roughly 2:1.** The A/E gap — identical conditions, 16 minutes
+   apart — is **0.023 scatter / 0.019 dispersion**, and that is the session's
+   noise floor. Against it: movement moves scatter **+0.070 (≈3×)**,
+   position **+0.038 (≈1.6×)**. Position is therefore *not established* by
+   this session: n = 1 per cell at 1.6× a two-sample noise estimate is not a
+   finding, and it is the smaller of the two effects. This inverts the
+   hypothesis that opened the session.
+
+4. **Movement does form extra clusters; the min-mass floor correctly rejects
+   them.** F produced 4 clusters at the 0.70 cut, but `fragmentation` stayed
+   ≤ 0.066 with one cluster holding ~94 % of segments. "A solo speaker's
+   debris stays debris" — the proportional floor doing exactly its job. The
+   live sessions' 2 clusters were *balanced* (both clearing the 10 % floor);
+   nothing here came close to that shape.
+
+5. **Buffer density is not the missing variable.** Hypothesis: a live session
+   banks fewer segments (natural pauses fail the speech-ratio gate), so
+   debris more easily clears the proportional floor. Tested on F by varying
+   `min_interval_s` — 2.0 / 6.0 / 10.0 s giving 179 / 66 / 39 buffered
+   segments — and `raw_clusters` stayed 1 in all three. Diagnostic sweep
+   only; no config changed and none proposed.
+
+6. **The 0.70 cut is cliff-adjacent, and the sub-threshold structure is
+   noisy.** Threshold sweeps (diagnostic, not a tuning result): A
+   `0.50:16 0.60:5 0.65:4 0.70:1`, E `0.50:15 0.60:3 0.65:1 0.70:1`, F
+   `0.50:22 0.60:11 0.65:7 0.70:4`. Two takes that should be identical gave
+   7.0 % vs 3.2 % of pairs over the cut and 4 vs 1 clusters at 0.65. Any
+   future claim about this threshold needs many more takes than four.
+
+7. **Level variance is take-to-take, not positional.** A −31.1, B −34.2,
+   E −34.0, F −34.6 dBFS. B's quiet reading initially looked like a corner
+   effect; E reproduced it in the centre, so it is seating distance drifting
+   between takes. Boundary reinforcement would predict the corner *louder*,
+   which is a further reason not to read finding 3's +0.038 as geometry yet.
+
+**What this session produced.** Two scripts and a protocol doc (committed);
+four WAV + sidecar pairs and five result JSONs in `data/captures/` (local).
+The WAVs make every number above re-derivable without another live session,
+which was the point.
+
+**Open, in priority order.** (a) The split still has **no offline
+reproduction**. Decisive next test: run the dashboard and the capture script
+*simultaneously*, then compare the dashboard's live `raw_clusters` against
+the same 90 s analysed offline — if they disagree on identical audio, the
+split lives in the engine path rather than the acoustics, which is chaseable
+in code. (b) Position is unresolved at 1.6× noise and is now the *lower*
+priority of the two acoustic candidates; it needs repeats per cell before it
+is anything. (c) Merge M7 before any further solo corpus is captured on this
+machine — finding 1 makes this urgent rather than advisable.
+
+**Process errors this session, recorded so they are not repeated.** The
+capture script's `\r`-updated progress counter emitted ~900 lines (32 KB) for
+one 90 s take when stdout was not a tty; fixed in-session (tty-aware, 10 s
+cadence otherwise). The system `python` on this machine has no numpy, so the
+venv interpreter must be named explicitly in every protocol command — this
+cost the first attempt at condition A. And Claude ran a 2 s microphone
+capture while verifying the progress fix, contrary to the "never start a live
+mic session yourself" rule in CLAUDE.md; the file was deleted immediately.
+The rule is easy to violate under the heading of a "plumbing check".
+
 ## 2026-09-06 (later) — dominance-ramp recalibration on the Lenovo: the M6 pull estimator is alive here, on provisional knots
 
 **Setup.** Same room/mic/speakers as the morning entry, now on

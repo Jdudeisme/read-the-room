@@ -1,7 +1,17 @@
 # Protocol: why does a solo speaker read `pair` on JPad?
 
-**Status:** proposed, not yet run. Human-executed on the reference machine.
+**Status:** first run 2026-09-06 (night) — results and open items in
+`docs/FIELD-NOTES.md`. Human-executed on the reference machine.
 **Question owner:** founder. **Written:** 2026-09-06.
+
+> **What the first run changed.** Condition F (movement) was added mid-session
+> and turned out to be the largest effect measured — roughly twice position's
+> — so it is now part of the table rather than an afterthought. Holding
+> posture fixed is good hygiene for isolating position, but it suppresses the
+> variability that the phenomenon under study may depend on; run both. The
+> run did not reproduce `raw_clusters` 2 in any condition, so the protocol
+> below is necessary but not yet sufficient — see open item (a) in the
+> FIELD-NOTES entry for the simultaneous live-and-capture test that follows it.
 
 FIELD-NOTES 2026-09-06 records the fact twice: a solo founder on the Lenovo
 reads `pair`, with `raw_clusters` 2 and `dispersion` 0.551 (afternoon, `main`)
@@ -79,6 +89,7 @@ Five captures, 90 s each, **one variable at a time**. Total speaking time
 | C | center of room, Windows mic enhancements **off** | `center, enhancements off` |
 | D | center of room, **wired headset mic** (bypasses the array) | `center, headset mic` |
 | E | repeat of A, at the end of the session | `center, enhancements as-is (repeat)` |
+| F | center, **natural speech and movement** — look at the screen, shift, turn your head, gesture; do not read the passage | `center, natural speech and movement` |
 
 **E is not optional.** Take-to-take variance on this machine is known to be
 large — three music-only takes at fixed volume spread 0.0389–0.0572 on the
