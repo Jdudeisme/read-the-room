@@ -211,6 +211,58 @@ before further solo corpus, still standing, but now understood as fixing
 crowd-path inflation only — it does not make a genuinely split buffer read
 `solo`. (d′) The concurrent-stream difference in (5), unexplained.
 
+### Addendum 2, same night — the 4-minute capture REFUTES addendum 1's finding 3
+
+Ran (a′). 239.9 s of natural speech, centre of the room, single stream
+(dashboard stopped first, given (d′)), −33.5 dBFS, 118 analysed windows, 154
+segments buffered, scatter 0.623 with 27.9 % of pairs over the cut — the same
+spread as the capture that split.
+
+1. **There is no saturated-buffer regime. Addendum 1 finding 3 is wrong.**
+   `raw_clusters` came back `{1: 115, 2: 3}`, and the three split windows are
+   **t = 11, 15, 17 s — the start, when the buffer is nearly empty** — then
+   never again across ~100 saturated windows. In the 90 s capture the splits
+   fell in the tail; here they fall at the head. Addendum 1 generalised from
+   one file in which they happened to land late. What the split actually is:
+   **an intermittent artifact of a scatter distribution straddling the 0.70
+   cut**, firing in a small fraction of windows (3/118 ≈ 2.5 % here, 9/43 in
+   the 90 s file) at unpredictable times.
+
+2. **Early-session over-split is real, and the mechanism inverts the one the
+   code documents.** `headcount.py`'s min-mass comment introduces the
+   proportional floor because the absolute floor "fails at buffer scale" —
+   with 100+ segments, 2-segment fragments accumulate. The converse is
+   equally true and previously unrecorded: with a nearly *empty* buffer the
+   10 % floor is trivially cleared (2 segments of ~12 is 17 %), so debris
+   counts as a person. **The floor's protection scales with buffer size, so
+   the estimator is most over-split-prone in the first ~20 s of any
+   session.** Note also that `confidence` was *higher* on the three wrong
+   windows (0.78 / 0.65 / 0.64) than on correct ones, because `separation` is
+   well-defined and good precisely when it wrongly splits — an honest-
+   uncertainty inversion worth remembering.
+
+3. **M7 absorbed all of it: `solo` 118/118, `crowd_weight` 0.0.** `main` on
+   the same file read `solo` 81 / `pair` 37 via the sep_collapse misfire
+   (`crowd_weight` max 0.172). On four minutes of natural solo speech M7 is
+   correct throughout and `main` is wrong a third of the time. This
+   strengthens (c′) rather than changing it.
+
+4. **The original sustained phenomenon is still unreproduced.** The evening
+   session's `pair` 20/20 with `raw_clusters` 2 *on M7* has no counterpart
+   here: four minutes of the same activity produced three split windows total
+   and never moved M7's bucket. Across six captures tonight — two positions,
+   three speaking styles, three buffer densities, 90 s and 240 s — nothing
+   produced a *sustained* two-cluster regime. Whatever did, in that session,
+   remains unidentified.
+
+**Open items after addendum 2.** (a″) Sustained `raw_clusters` 2 is still
+unreproduced offline; the untested remaining difference is the live engine
+path, which stays blocked on a file-backed source (REQUIRES-REVIEW) since the
+two-stream comparison in addendum 1 (5) was confounded. (b″) Early-session
+over-split (finding 2) is a newly recorded behaviour and deserves its own
+look — it is cheap to characterise from the captures already in
+`data/captures/`. (c′) unchanged and now better evidenced. (d′) unchanged.
+
 ## 2026-09-06 (later) — dominance-ramp recalibration on the Lenovo: the M6 pull estimator is alive here, on provisional knots
 
 **Setup.** Same room/mic/speakers as the morning entry, now on

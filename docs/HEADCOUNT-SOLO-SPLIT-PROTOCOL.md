@@ -12,9 +12,12 @@
 >    moved ~3× the noise floor on posture versus ~1.6× on position. Holding
 >    posture fixed is good hygiene for isolating position, but it suppresses
 >    the variable that turned out to matter most; run both.
-> 3. **The split did eventually reproduce** — offline, in a natural-speech
->    capture at scatter 0.637, in the nine windows after the buffer
->    saturated. So candidate 4 below, not 1, is the live hypothesis.
+> 3. **The split reproduces, but only intermittently** — offline, in
+>    natural-speech captures at scatter 0.62–0.64, in 2.5–21 % of windows at
+>    unpredictable points in the take. It is an artifact of a scatter
+>    distribution straddling the 0.70 cut, not a stable regime, and a
+>    *sustained* two-cluster reading has never reproduced. So candidate 4
+>    below, not 1, is the live hypothesis.
 >
 > Open items live in the FIELD-NOTES addendum. The live-vs-offline test
 > attempted there was confounded (two processes, two separate mic streams)
@@ -99,12 +102,14 @@ the 300-frame `/ws` replay).
 
 Captures of **4–5 minutes each**, **one variable at a time**.
 
-> **Not 90 seconds.** The first run sized captures to `buffer_s` (90 s), which
-> was wrong: a 90 s file *reaches* buffer saturation only at its final
-> instant, so it spends almost none of its length in the steady state where
-> the split actually lives. The one capture that did reproduce
-> `raw_clusters` 2 showed it in its last nine windows and nowhere earlier.
-> Use `--seconds 240` or more.
+> **Not 90 seconds.** The split is intermittent — it fires in a small,
+> unpredictable fraction of windows (2.5–21 % across the first run's
+> captures) — so a 90 s take gives you ~43 windows and far too small a sample
+> to estimate that rate. A 240 s take gives ~118 and also covers the
+> first ~20 s separately, which matters: the estimator over-splits early,
+> while the buffer is too sparse for the 10 % evidence floor to reject debris.
+> Report the split *rate* and where in the take it fell, never just whether
+> it happened. Use `--seconds 240` or more.
 
 | # | condition | `--note` |
 |---|---|---|
