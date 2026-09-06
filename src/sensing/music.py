@@ -52,6 +52,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,7 +63,11 @@ log = logging.getLogger(__name__)
 # v2 (2026-07-11 gate iteration): signatures carry pull_* fields — the
 # measured speech-over-music interaction — alongside the standalone
 # response. v1 files load with pull fields empty.
-SCHEMA_VERSION = 2
+# v3: files carry a "source" stamp naming the capture path that measured
+# them. A signature is only valid behind the mic it was measured through,
+# and v1/v2 files record nothing about their hardware — they load with
+# source None, meaning unknown, never assumed-compatible.
+SCHEMA_VERSION = 3
 
 # Running mean for the first samples, then an EMA with this effective
 # horizon — signatures keep adapting (mic position, volume changes)
@@ -165,9 +170,20 @@ class TrackSignatureStore:
     locking needed. A missing or corrupt file is an empty store, never a
     crash: signatures are an optimization, not a dependency."""
 
-    def __init__(self, path: Path | str | None, min_refs: int = 3):
+    def __init__(
+        self,
+        path: Path | str | None,
+        min_refs: int = 3,
+        source_fn: Callable[[], dict] | None = None,
+    ):
         self.path = None if path is None else Path(path)
         self.min_refs = max(1, min_refs)
+        # Provenance, resolved lazily at save time: the capture device is only
+        # known once the stream is open, well after this store is built. A
+        # signature measures a track's pull through ONE capture path, so a
+        # file without it cannot be compared across mics or machines.
+        self._source_fn = source_fn
+        self.loaded_source: dict | None = None
         self._signatures: dict[str, TrackSignature] = {}
         self._dirty = False
         self._last_save = 0.0
@@ -220,6 +236,8 @@ class TrackSignatureStore:
             return
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
+            # v1/v2 files predate the stamp; None means "unknown hardware".
+            self.loaded_source = data.get("source")
             for track_id, s in data.get("signatures", {}).items():
                 self._signatures[track_id] = TrackSignature(
                     float(s["valence"]),
@@ -230,10 +248,28 @@ class TrackSignatureStore:
                     float(s.get("pull_arousal", 0.0)),
                     int(s.get("pull_refs", 0)),
                 )
-            log.info("loaded %d track signature(s)", len(self._signatures))
+            log.info(
+                "loaded %d track signature(s) measured on %s",
+                len(self._signatures),
+                self.loaded_source or "unknown hardware (unstamped file)",
+            )
         except Exception:
             log.exception("track signature cache unreadable; starting empty")
             self._signatures = {}
+
+    def _describe_source(self) -> dict | None:
+        """Hardware stamp for this file, or None if it cannot be determined.
+
+        Best-effort by contract: signatures are an optimization, not a
+        dependency, so a failing probe must never cost us the write.
+        """
+        if self._source_fn is None:
+            return None
+        try:
+            return self._source_fn() or None
+        except Exception:  # pragma: no cover - best-effort
+            log.exception("could not describe capture source; leaving unstamped")
+            return None
 
     def _maybe_save(self) -> None:
         if time.monotonic() - self._last_save >= _SAVE_INTERVAL_S:
@@ -249,6 +285,7 @@ class TrackSignatureStore:
                 json.dumps(
                     {
                         "schema_version": SCHEMA_VERSION,
+                        "source": self._describe_source(),
                         "signatures": {
                             t: s.to_dict() for t, s in self._signatures.items()
                         },

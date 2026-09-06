@@ -147,6 +147,11 @@ def run(config: PlaybackConfig, open_browser: bool = True) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Before the token-exchange client is built (run() below).
+    from sensing.config import inject_os_truststore
+
+    inject_os_truststore()
+
     config = PlaybackConfig.from_env()
     if not config.client_id:
         print(

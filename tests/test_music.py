@@ -152,7 +152,7 @@ class TestTrackSignatureStore:
         store.add_pull_reference("t1", 0.33, 0.55)
         store.flush()
         data = json.loads(path.read_text(encoding="utf-8"))
-        assert data["schema_version"] == 2
+        assert data["schema_version"] == 3
 
         reloaded = TrackSignatureStore(path, min_refs=1)
         sig = reloaded.get("t1")
@@ -176,6 +176,44 @@ class TestTrackSignatureStore:
         sig = TrackSignatureStore(path, min_refs=3).lookup("t1")
         assert sig.refs == 44
         assert sig.pull_refs == 0  # pull evidence starts honest, not guessed
+
+    def test_source_stamp_written_and_read_back(self, tmp_path):
+        path = tmp_path / "sig.json"
+        stamp = {"host": "JPAD", "input_device": "Microphone Array"}
+        store = TrackSignatureStore(path, min_refs=1, source_fn=lambda: stamp)
+        store.add_reference("t1", 0.3, -0.2)
+        store.flush()
+        assert json.loads(path.read_text(encoding="utf-8"))["source"] == stamp
+        # a later session can tell which capture path measured these
+        assert TrackSignatureStore(path, min_refs=1).loaded_source == stamp
+
+    def test_unstamped_file_loads_with_source_none(self, tmp_path):
+        """v1/v2 files predate the stamp - unknown hardware, not a crash."""
+        path = tmp_path / "sig.json"
+        path.write_text(
+            json.dumps({
+                "schema_version": 2,
+                "signatures": {"t1": {"valence": 0.1, "arousal": 0.2,
+                                      "refs": 9}},
+            }),
+            encoding="utf-8",
+        )
+        store = TrackSignatureStore(path, min_refs=1)
+        assert store.loaded_source is None
+        assert store.get("t1").refs == 9
+
+    def test_a_failing_probe_never_costs_the_write(self, tmp_path):
+        """Provenance is best-effort; signatures are not."""
+        def boom():
+            raise OSError("no audio device")
+
+        path = tmp_path / "sig.json"
+        store = TrackSignatureStore(path, min_refs=1, source_fn=boom)
+        store.add_reference("t1", 0.3, -0.2)
+        store.flush()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["source"] is None
+        assert data["signatures"]["t1"]["refs"] == 1
 
     def test_pull_and_standalone_accumulate_independently(self):
         store = TrackSignatureStore(None, min_refs=3)

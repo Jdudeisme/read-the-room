@@ -8,6 +8,12 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Before anything opens an HTTPS client (model downloads, providers):
+    # a client keeps the SSLContext it was built with.
+    from sensing.config import inject_os_truststore
+
+    inject_os_truststore()
+
     parser = argparse.ArgumentParser(
         prog="read-the-room",
         description="Live room-sensing engine: loudness, speech, and emotion.",
