@@ -102,9 +102,12 @@ only if no wired headset is available, and say so in the write-up.
 
 ## Running it
 
+Use the venv interpreter explicitly - the system `python` on this machine
+has no numpy and fails at import.
+
 ```bash
 # once per condition, changing --note and the physical setup between takes
-python scripts/capture_room_wav.py --seconds 90 --note "center, enhancements as-is"
+.venv/Scripts/python.exe scripts/capture_room_wav.py --seconds 90 --note "center, enhancements as-is"
 ```
 
 The script warns if the capture came back below the deaf-stream floor
@@ -115,7 +118,7 @@ cost twenty minutes on 2026-09-06.
 Then, all five at once:
 
 ```bash
-python scripts/analyze_headcount_wav.py data/captures/*.wav --sweep \
+.venv/Scripts/python.exe scripts/analyze_headcount_wav.py data/captures/*.wav --sweep \
   --json data/captures/results.json
 ```
 
