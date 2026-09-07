@@ -5,6 +5,191 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-06 (evening, 20:01–23:02) — first four-person live session on the reference machine: the DJ holds for three hours, the bucket never does
+
+**Setup.** Founder + 3 guests (**known N = 4**, founder-reported), JPad,
+`Microphone Array on SoundWire D`, quiet apartment, social evening —
+**non-gating**. Branch `main` @ `9ec06ea`; **M7 unmerged**. Full dashboard
+with playback enabled, Spotify Connect target `JPAD` — the laptop's own
+speakers, so mic and output were co-located (the loudest contamination case,
+chosen deliberately over the two Echo devices available). Config is this
+machine's `.env` over `config.py` defaults: `cluster_threshold` 0.70,
+`min_cluster_frac` 0.10, `smooth_tau_s` 20.0, `hysteresis_k` 3,
+`min_interval_s` 2.0, `buffer_s` 90.0, mapping dwell 30 s,
+`min_headcount_confidence` 0.35, and the **PROVISIONAL** dominance knots
+`LO=0.022 / HI=0.050`.
+
+Founder asked for the run; Claude launched the dashboard and did the
+analysis afterwards. Guest arrival/departure times were **not recorded** —
+see open item (d). Chronologically this session **follows** the capture
+session in the entry below, which finished its four takes and its commits
+shortly before 20:00; the explicit clock times in both headings are the
+ordering, not the words "evening" and "night".
+
+**What ran.** Three hours one minute, **zero provider errors**.
+
+| | |
+|---|---|
+| Recommendations selected | 181 |
+| Pushed at a track boundary | 44 (gentle-DJ held the other 137) |
+| `played_through` | 43 |
+| Vetoes | 4 skip + 3 manual → override rate **7/50 = 0.14** |
+| Annotations | 6 good / 1 wrong |
+| Presence gate | 39 occupied (38 `fresh`, 1 `handoff`), 4 `absent` excluded |
+| Tiers selected | high 103 / low 41 / mid 37 |
+
+The selector drew from the curated pools throughout — MF DOOM out of Hip-Hop
+high, Oscar Peterson / Ella / Sinatra out of Jazz, Michael Jackson out of
+Pop high, a Beethoven cello sonata at `('pair','low','mid')`. Nothing
+drifted to Spotify autoplay.
+
+**Findings.**
+
+1. **The playback loop is durable.** Three hours unattended, no
+   `ProviderError`, no degrade to shadow, no lost label. The presence gate
+   did its job unprompted: 4 completions were marked `absent` and excluded
+   from the rates rather than banked as weak positives.
+
+2. **Headcount under-published against known N = 4, all evening.** Buckets
+   across all 181 selections, read off the fired rulebook cell:
+
+   | bucket | selections | share |
+   |---|---|---|
+   | `solo` | 98 | 54 % |
+   | `pair` | 60 | 33 % |
+   | `4` | 23 | 13 % |
+
+   It never published above `4`. By 30-minute bin the `4` readings cluster
+   20:30–22:30 (peak 10/30 in the 22:00 bin) and vanish at either end, which
+   is at least consistent with guests arriving and leaving — but with no
+   logged ground-truth times that is a story, not a measurement.
+
+   **Judged against the right claim.** The founder-approved re-wording of
+   2026-07-15 (`docs/M7-CHARTER-REVISION.md`, on the M7 branch) sets M7's
+   bar at *"2–4 people in ordinary conversation read as pair-to-small-group
+   and never inflate into a crowd"*, and explicitly **drops "trio publishes
+   3"** as a pass condition — exact small-N counting is declared out of
+   reach on a consumer mic. So the interesting deviation here is **not**
+   that the count was inexact. Never-above-4 and never-a-crowd both **held**
+   all evening. What is off-claim is `solo` at **54 %**: that is below the
+   "pair-to-small-group" floor, not merely short of exact. Note also that
+   this ran on `main`, which has **no rung 3** — so the 21 records of
+   finding 3 sitting at raw log2 ≈ 1.585 (exactly three speakers) had
+   nowhere to land and were rounded to `pair` or `4`. That is an argument
+   **for** the merge, not evidence against M7; the claim itself is untested
+   here, because the code that makes it was not running. Testing it is
+   `docs/M7-PART-F-RUN-SHEET.md`.
+
+3. **Two separable causes, and the smoother is the smaller one.** Over the
+   59 corpus records carrying state, raw clustering read **one cluster in
+   35/59**. But when it did resolve 3–4 speakers the published bucket still
+   lagged: of the **21** records whose `recent_raw_log2` window reached
+   ≥ 1.585 (3+ speakers), published was `pair` 15, `4` 4, `solo` 2. Worst
+   single case: `recent_raw_log2` held `[2.0]×5` — four clusters across five
+   consecutive submissions — while `smoothed_log2` sat at 1.390 and the
+   frame published `pair`. Median (max recent raw − smoothed) is only 0.074
+   though, max 1.833: the lag bites hard but rarely. The dominant term is
+   that raw itself read 1.
+
+4. **`fragmentation` says the buffer was confetti, not merged voices.**
+   `fragmentation` is the fraction of segments in **mass-failing stray
+   clusters** (`headcount.py:421`), so high means most evidence was rejected
+   by the proportional floor. Grouped by raw cluster count:
+
+   | raw_clusters | n | frag (med) | dispersion (med) |
+   |---|---|---|---|
+   | 1 | 35 | **0.887** | 0.548 |
+   | 2 | 11 | 0.722 | 0.487 |
+   | 3 | 10 | 0.440 | 0.528 |
+   | 4 | 3 | 0.448 | 0.539 |
+
+   In the single-cluster majority, ~89 % of buffered segments sat in
+   clusters that failed the 10 % mass floor. **Inference, not established:**
+   four overlapping speakers over co-located music produce many short
+   sub-threshold clusters, and `min_cluster_frac` rejects them — a different
+   mechanism from the "very similar voices merge" trade the threshold
+   doctrine describes. The 2026-07-06 pool entry recorded the opposite
+   failure (`pair` → `16`). Nothing here justifies touching a constant; it
+   justifies a protocol. See open item (c).
+
+5. **`main`'s `sep_collapse` misfire did not express.**
+   `headcount_crowd_weight` was **exactly 0 in all 59 records**, and every
+   error ran *downward* — the misfire inflates upward. So this corpus is not
+   contaminated in the direction the entry below's finding 1 predicts. That
+   is luck, not process: it was still captured on the branch that entry said
+   not to capture on.
+
+6. **M6 ran in the field here for the first time, on the provisional
+   knots.** 17 of 51 records carried a live correction, basis `pull` **11** /
+   `standalone` 6 — the pull estimator accumulated genuine speech-over-music
+   samples rather than living on the cold-start prior. |ΔV| med 0.077 /
+   max 0.600, |ΔA| med 0.045 / max 0.600, with **two corrections pinned at
+   the `RTR_MUSIC_MAX_CORRECTION=0.6` cap**. Dominance `m` was median 0.000
+   with 17/51 at or above the provisional `HI=0.050` — bimodal here, not a
+   gentle ramp. The signature store grew **3 → 54 tracks, 37 carrying
+   `pull_refs`**. This is the largest pull corpus yet on these knots and it
+   still does **not** meet the promotion bar (≥ 2 tracks and ≥ 3 speech-only
+   controls, run as a ladder); the knots stay PROVISIONAL and `config.py`
+   stays untouched.
+
+7. **Selection genre attribution is lost on the queue path.** 49 of 50
+   override records carry `genre: null, tier: null`. `controller.py:303`
+   assigns `self._now = new` straight from `provider.now_playing()`, whose
+   `Track` is unstamped by construction (`provider.py:62–67`: "Stamped by
+   TrackSelector, None straight off the provider"). Only the immediate
+   `_play_now` path (`controller.py:372`) writes a stamped track, and the
+   next 5 s poll overwrites it — which is why exactly one record survived
+   with `Rock/high`. **Consequence:** M5's per-cell pool weighting gets no
+   genre evidence from the strongest label set the project has collected.
+   `recommendation.matched_cell` and `genre_pool` survive on every record,
+   so single-genre cells are recoverable offline by inference; multi-genre
+   pools (`['Soft Rock','Rock']`) are not. Records are already
+   `schema_version` 2 and both fields exist — the fix is a fill, not a
+   schema change.
+
+8. **Envelope, with the speakers next to the mic.** `speech_ratio` median
+   0.38 and loudness median −28.3 dBFS against a noise-floor median −27.7 —
+   the room stayed audible over its own output all evening. The quiet anchor
+   persisted once at 20:02 (−35.1 dBFS) and never re-anchored, which is
+   correct: it only re-anchors on quiet windows. No advisory complaint was
+   recorded in either direction.
+
+**What this session produced.** `data/overrides/2026-09-06.jsonl` (50 lines),
+`data/annotations/2026-09-06.jsonl` (7), and the signature store at 54
+tracks — all local by design. No code and no config changed.
+
+**Open, in priority order.** (a) **Merge M7** — only part (f) remains
+(parts 0/(a)/(b)/(d)/(e) passed 2026-07-12; part (c) closed 2026-08-09 as a
+defensible pass under the revised charter). Flagged by two consecutive
+sessions now; this one captured a three-hour corpus on `main` anyway. The
+run sheet for part (f) is `docs/M7-PART-F-RUN-SHEET.md` — it wants a 4–6
+person gathering, because the checkpoint that matters (`matched_cell` on
+rungs `3` / `6`) is unobservable below 3 occupants.
+(b) **Fill the attribution on the queue path** (finding 7) — cheap,
+additive, and every session until it lands produces genre-blind strong
+labels. (c) **The fragmentation hypothesis needs a protocol, not an
+opinion:** a known-N room is the only way to test whether `min_cluster_frac`
+is what collapses a crowded buffer. Protocol shape — capture a known-N
+session to WAV, record per-window raw cluster **mass distribution** alongside
+`fragmentation`, then sweep `min_cluster_frac` offline over that recorded
+buffer and report how the published bucket moves. Acceptance is the sweep
+existing and being reproducible, not any particular number. Human-run
+capture. (d) **Log ground truth next time** — arrivals and departures by wall
+clock. Without it a known-N session supports only aggregate claims, which is
+most of why finding 2 stops where it does.
+
+**Process errors this session, recorded so they are not repeated.** Claude
+launched the live-mic dashboard session; it was founder-requested and
+non-gating, but CLAUDE.md's "never start a live mic session yourself" is
+written without that exemption, and the boundary is worth restating rather
+than eroding. The corpus was captured on `main` against the previous entry's
+open item (c). And during analysis Claude twice reported a number off a
+**guessed field name** before reading its definition — `pull_samples` (the
+field is `pull_refs`, producing a false "0 tracks with pull samples") and
+`fragmentation` read as cluster *balance* when it is stray-cluster *mass*,
+which inverted the finding. Both were caught and corrected before this entry
+was written; the cheap habit is to read the field's definition first.
+
 ## 2026-09-06 (night) — the solo→pair split taken offline: two independent causes, and the room is the smaller one
 
 **Setup.** Solo founder, JPad, `Microphone Array on SoundWire D` opened
