@@ -5,6 +5,197 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-23 (evening, 19:44–20:12) — XVF3800 four-leg control session: the AGC flattens affect; the bucket climbs on mic level, not on embedding drift
+
+**Setup.** Solo founder, one quiet room, one sitting, continuous speech
+in the same rough style on every leg — the §4 control protocol of
+`docs/XVF3800-BASELINE-AND-SETUP-PROTOCOL.md`, run as written. JPad
+(reference machine), branch `main` @ `cb70574`. Config is this machine's
+`.env` over `config.py` defaults (`cluster_threshold` 0.70,
+`min_interval_s` 2.0, `buffer_s` 90.0, `smooth_tau_s` 20.0,
+`hysteresis_k` 3); `RTR_PLAYBACK_ENABLED=0` forced by shell env var
+(`.env` has 1), so shadow mode throughout — `playback_active` false on
+every frame of every leg, and the PROVISIONAL dominance knots in `.env`
+were never exercised. XVF3800 firmware `VERSION 2 0 6`. **Non-gating.**
+
+Founder launched each dashboard and did the talking; Claude verified each
+launch (process command line + port), took the snapshots and did the
+device control and the analysis. Each leg ran on a **fresh dashboard
+process** — the 600 s `/ws` replay history would otherwise have mixed
+legs. Snapshot tool: `leg_snapshot.py`, kept beside `xvf_host.exe`
+outside the repo (drains the `/ws` replay once at leg end, saves derived
+frames — no audio — and tabulates the five §4 measurements). Frames saved
+locally to `data/xvf-legs/leg{A,B,C,D}.jsonl`, uncommitted by design.
+
+Device indices this boot (they moved since 2026-09-13, as the protocol
+warns): built-in MME `1`, XVF3800 WASAPI `15` (was 14), XVF3800 WDM-KS
+`21` (was 25).
+
+| Leg | Clock | Device | Device state | `PP_AGCGAIN` read-backs |
+|---|---|---|---|---|
+| A | 19:44–19:50 | built-in array, MME `1` | stock (no XVF in path) | 5.506 idle, before session |
+| B | 19:52–19:57 | XVF3800 WASAPI 48 kHz `15` | **stock AGC** | 5.175 after leg |
+| C | 19:58–20:04 | XVF3800 WDM-KS 16 kHz `21` | **stock AGC** | 3.856 after leg |
+| D | 20:07–20:12 | XVF3800 WDM-KS 16 kHz `21` | **AGC frozen at gain 2.0** | 2.0 at start and end (see finding 6) |
+
+All writes runtime-only; `SAVE_CONFIGURATION` not run. The device was
+left frozen at gain 2.0 after the session (reverts on power cycle).
+
+**The five measurements.** Loudness and valence/arousal over frames with
+`speech_ratio >= 0.3`; dispersion "settled" = second half of each leg.
+
+| | A: built-in | B: XVF WASAPI, stock | C: XVF WDM-KS, stock | D: XVF WDM-KS, AGC frozen |
+|---|---|---|---|---|
+| Frames / span | 180 / 6.0 min | 151 / 5.0 min | 164 / 5.4 min | 157 / 5.2 min |
+| **1.** Loudness p10 / p50 / p90 (dBFS) | −37.5 / −34.4 / −33.0 | −25.0 / −24.2 / −23.3 | −23.9 / −23.2 / −22.6 | −31.5 / −29.4 / −27.9 |
+| p90−p10 spread · stdev | **4.56** · 2.49 dB | 1.66 · 1.05 dB | **1.33** · 1.03 dB | **3.57** · 2.31 dB |
+| corr(loudness, arousal) | +0.696 | +0.159 | −0.138 | +0.755 |
+| **2.** Bucket frames | solo 118 · pair 60 · None 2 | solo 12 · pair 16 · 4 50 · **8 69** · None 4 | pair 12 · 4 22 · **8 123** · None 7 | solo 14 · pair 76 · 4 65 · None 2 |
+| Trajectory | oscillates solo↔pair; **ends solo** | pair t+32 s, 4 t+64 s, **8 t+152 s**; ends 8 | pair t+14 s, **8 t+38 s**; ends 8 | pair t+32 s, 4 t+136 s; oscillates pair↔4; ends 4 |
+| `raw_clusters` frames | 1: 178 | 1: 143 · 2: 4 | 1: 153 · 2: 4 | 1: 142 · 2: 13 |
+| `crowd_weight` range · 2nd-half median | 0.00–0.35 · 0.05 | 0.00–0.63 · 0.35 | 0.00–0.64 · 0.38 | 0.00–0.48 · 0.22 |
+| **3.** Dispersion, settled | 0.573–0.598 | 0.592–0.631 | 0.607–0.645 | 0.587–0.632 |
+| **4.** Valence p5 / p50 / p95 | −0.353 / −0.035 / +0.288 | −0.251 / −0.007 / +0.169 | −0.255 / −0.008 / +0.191 | −0.123 / +0.041 / +0.297 |
+| Valence ≥+0.25 · ≤−0.25 | 11 · 21 of 177 | 0 · 9 of 145 | 2 · 10 of 157 | 15 · 0 of 154 |
+| Arousal p5 / p50 / p95 | −0.276 / +0.049 / +0.248 | −0.005 / +0.073 / +0.172 | −0.076 / +0.014 / +0.094 | −0.202 / −0.045 / +0.140 |
+| Arousal stdev | 0.163 | 0.058 | 0.055 | 0.125 |
+| Arousal ≥+0.25 · ≤−0.25 | 9 · 11 of 177 | 1 · 0 of 145 | 0 · 0 of 157 | 0 · 7 of 154 |
+| **5.** Speech ratio median / peak | 0.88 / 0.97 | 0.89 / 0.96 | 0.88 / 0.95 | 0.88 / 0.96 |
+| Noise floor (last) | never seeded | −54.2 dBFS | −47.6 dBFS | −43.1 dBFS |
+
+The protocol's acceptance is met: four legs, recorded device state, five
+measurements tabulated. No constant was changed.
+
+**Findings.**
+
+1. **Finding A (flat affect) is the AGC.** C→D, the only change being
+   adaptation frozen at gain 2.0: loudness spread 1.33 → 3.57 dB, arousal
+   stdev 0.055 → 0.125, corr(loudness, arousal) −0.14 → +0.76, frames
+   clearing a ±0.25 cutoff 12 → 22. D lands near the built-in control
+   (A: 4.56 dB, 0.163, +0.70). Leg A also answers §5 Q1's other half:
+   the audeering model *does* produce range on this speaker when the
+   capture path leaves level dynamics intact (52 cutoff crossings), so
+   "the model is just conservative" is not the main story on this mic.
+   The 2026-09-13 flatness was the AGC doing a speakerphone's job.
+
+2. **Finding B (solo ratchet) is mostly a *level* effect through the
+   crowd path's absolute-dBFS terms — not AGC-induced embedding drift.**
+   The protocol's bonus hypothesis was that a continuously varying gain
+   drives same-voice ECAPA scatter. Dispersion says no: C→D it barely
+   moved (0.607–0.645 → 0.587–0.632), and all four legs, built-in
+   included, sit in the same 0.57–0.65 band. What did move is level.
+   With playback off, `HeadcountEstimator` computes
+   `loud_term = ramp(loudness_dbfs, −45, −20)` and the babble target
+   `log2 = 3 + 7·speech_ratio·loud01` on **absolute** dBFS
+   (`headcount.py:444-473`; the floor-relative variant applies only
+   while `playback_active`, per M4). Reconstructed from published
+   frame fields, medians over each leg's second half:
+
+   | Leg | loudness p50 | `loud_term` | saturation | smear | sat·smear | `crowd_weight` (observed) | babble target log2 |
+   |---|---|---|---|---|---|---|---|
+   | A | −34.4 | 0.42 | 0.31 | 0.67 | 0.21 | 0.05 | 5.50 |
+   | B | −24.2 | 0.84 | 0.76 | 0.75 | 0.55 | 0.35 | 8.35 |
+   | C | −23.2 | 0.87 | 0.67 | 0.78 | 0.52 | 0.38 | 8.26 |
+   | D | −29.4 | 0.64 | 0.49 | 0.74 | 0.37 | 0.22 | 6.87 |
+
+   `smear` is nearly flat across legs (0.67–0.78); `loud_term` doubles
+   between the built-in and the XVF. And level acts twice: it raises
+   `crowd_weight` *and* the babble target it blends toward. With
+   `raw_clusters` overwhelmingly 1 (log2 0), the blend is roughly
+   `crowd_weight × target`:
+   A ≈ 0.05 × 5.5 ≈ 0.3 (solo), D ≈ 0.22 × 6.9 ≈ 1.5 (pair/4 border),
+   C ≈ 0.38 × 8.3 ≈ 3.1 (bucket 8) — which reproduces the observed
+   trajectories to first order (ignoring smoothing). The AGC matters to
+   Finding B only because it pins the talker at its −23.5 dBFS target;
+   freezing at gain 2.0 cost ~6 dB and took median `crowd_weight` from
+   0.38 to 0.22.
+
+   **The general statement: with playback off, microphone gain is a
+   calibration input to the crowd path.** The `−45…−20` loudness ramps
+   are absolute and were set on other capture paths; a hotter mic reads
+   as a louder, denser room. This extends the 2026-07-06 pool finding
+   (absolute-dBFS saturation false-firing under a fan) from *room noise*
+   to *capture gain*. Filed as a finding — the ramp endpoints are not
+   touched here and any change is a calibration event with its own
+   protocol.
+
+   Residual not accounted for: observed `crowd_weight` sits below
+   sat·smear on every leg by a factor that differs (A ≈ 0.24, C ≈ 0.73),
+   which is the `sep_collapse` term. `separation` is **not published** in
+   dashboard frames (the frame carries dispersion/fragmentation/
+   crowd_weight/raw_clusters/smoothed_log2 but not separation), so this
+   factor cannot be attributed from the socket. Instrumentation gap.
+
+3. **The 2026-09-13 path to `4` was different, and is still open.** On
+   09-13, `raw_clusters` reached 2–4 with `crowd_weight` ~0.001 — the
+   real-count path. Today `raw_clusters` read 1 on ≥ 91 % of frames on
+   every XVF leg (2 on the rest, never higher) and the crowd path carried
+   the climb. Continuous speech (today)
+   versus natural speech with pauses (09-13) moves `speech_ratio`
+   (0.88 vs 0.60), which feeds `saturation` directly; that is the leading
+   candidate for why the crowd path was dormant then and dominant now.
+   Not tested.
+
+4. **Endpoint (B vs C): minor.** WDM-KS runs ~1 dB hotter and slightly
+   tighter, with higher dispersion and a faster climb (8 at t+38 s vs
+   t+152 s). Same regime; WDM-KS remains the preferred path (native
+   16 kHz, no resampler).
+
+5. **§5 Q2 — freezing the AGC costs no certification.** Speech ratio was
+   0.88–0.89 median on all four legs. By the same token, the 09-13
+   headline (0.60 median, "cleanest certification measured") did **not**
+   reproduce as a *mic* property under continuous speech — the built-in
+   array matched the XVF3800 exactly. The 09-13 figure reflects talking
+   style; a natural-speech A/C pair would be needed to claim a
+   certification advantage for the array.
+
+6. **The §3 setup script lands on 2.012, not 2.0.** It writes
+   `PP_AGCGAIN 2.0` *before* `PP_AGCONOFF 0` (correctly — gain applies
+   regardless of adaptation), but adaptation is still live between the
+   two calls and nudged the gain (3.524 → 2.0 → read back 2.012035). A
+   second `PP_AGCGAIN 2.0` after the freeze held exactly (read 2 three
+   seconds later, and 2 at start and end of leg D). 0.05 dB is
+   negligible, but the protocol's stated purpose for the gain write is
+   run-to-run comparability, so the script now re-pins after freezing
+   and fails loudly if the read-back isn't 2. Fixed in the protocol
+   doc's §3.
+
+7. **Noise-floor margin (§5 Q3) — not readable from these legs.** Leg D's
+   p50 sat 13.8 dB over its floor against
+   `RTR_PLAYBACK_ADVISORY_DB_OVER_FLOOR=10.0`, but continuous-speech legs
+   give the quiescent-window floor almost nothing to seed on: leg A never
+   seeded it at all, and B/C/D landed at −54.2 / −47.6 / −43.1 dBFS —
+   *rising* as gain fell, which is the wrong direction for a real floor.
+   Treat these floors as unreliable; the margin question still wants the
+   first XVF3800 playback session.
+
+**Caveats.** One speaker, one room, one sitting; fixed leg order A→D
+(fatigue or warm-up confounds D); continuous speech, unlike 09-13's
+natural speech; stock gain wandered 5.5 → 3.5 across B and C, so B and C
+are not at identical gain. The decomposition in finding 2 uses medians
+of per-frame reconstructions from published fields, not the estimator's
+internal values.
+
+**Operating state going forward (proposal — founder to confirm).** Use
+the XVF3800 on WDM-KS with the AGC frozen at gain 2.0, applied by the §3
+script after every plug-in or reboot, and record "AGC frozen at gain
+2.0" in every session entry. It beat stock on every measure here at no
+certification cost. It still over-counts a solo speaker relative to the
+built-in array (ends `4`, not `solo`); for headcount-sensitive sessions
+that is a trade to weigh, not a solved problem.
+
+**Next, in order.** (a) Publish `separation` in the dashboard frame
+alongside the other M4 observability fields, so `crowd_weight` can be
+fully decomposed from the socket. (b) Decide, as a calibration question
+with its own protocol, whether the playback-off crowd path should key on
+floor-relative loudness the way the playback-on path already does — it
+would make the crowd path mic-gain-invariant, but it changes published
+bucket semantics (REQUIRES-REVIEW) and the pool-session evidence must be
+re-checked against it. (c) A natural-speech A/D pair to settle findings 3
+and 5. (d) Beam steering (§5 Q5) drops in priority: dispersion is the
+same on the built-in array, so the array's re-steering is not what
+distinguishes it.
+
 ## 2026-09-06 (evening, 20:01–23:02) — first four-person live session on the reference machine: the DJ holds for three hours, the bucket never does
 
 **Setup.** Founder + 3 guests (**known N = 4**, founder-reported), JPad,
