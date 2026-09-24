@@ -176,13 +176,21 @@ are not at identical gain. The decomposition in finding 2 uses medians
 of per-frame reconstructions from published fields, not the estimator's
 internal values.
 
-**Operating state going forward (proposal — founder to confirm).** Use
-the XVF3800 on WDM-KS with the AGC frozen at gain 2.0, applied by the §3
-script after every plug-in or reboot, and record "AGC frozen at gain
-2.0" in every session entry. It beat stock on every measure here at no
-certification cost. It still over-counts a solo speaker relative to the
-built-in array (ends `4`, not `solo`); for headcount-sensitive sessions
-that is a trade to weigh, not a solved problem.
+**Operating state going forward — founder decision, 2026-09-23.**
+*Whenever the XVF3800 is used*, it runs on WDM-KS with the AGC frozen at
+gain 2.0, and every session entry records "AGC frozen at gain 2.0". It
+beat both stock endpoints on every measure here at no certification
+cost. Applied automatically by `scripts/xvf3800_dashboard.py`, which
+freezes, pins, verifies the read-back, resolves the WDM-KS index, and
+refuses to start the dashboard on an unverified device state.
+
+Deliberately **not** decided: which microphone is the everyday default.
+On this session's evidence the built-in array out-scored the frozen
+XVF3800 on both affect range (52 vs 22 cutoff crossings) and solo
+headcount (ends `solo` vs `4`). The array's plausible advantages —
+far-field pickup and echo cancellation under playback — were not
+exercised (solo, near-field, shadow mode). That call waits for a
+playback session comparing the two.
 
 **Next, in order.** (a) Publish `separation` in the dashboard frame
 alongside the other M4 observability fields, so `crowd_weight` can be

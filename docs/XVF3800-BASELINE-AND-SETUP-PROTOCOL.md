@@ -260,6 +260,14 @@ dashboard. Save alongside the three binaries as `rtr-mic-setup.sh`. (Promoting
 this to `scripts/` is a separate call — it is reproduced here so the procedure
 survives independent of any working directory.)
 
+> *Promoted 2026-09-23.* The frozen state is now the XVF3800's operating
+> state (founder decision, FIELD-NOTES 2026-09-23), and
+> `scripts/xvf3800_dashboard.py` applies it at dashboard start: same write
+> order as the script below, exact read-back verification, WDM-KS index
+> resolved by name + host API, and the dashboard refuses to start on an
+> unverified state. The script below remains the standalone/manual path
+> (e.g. to apply without launching, or from a shell without the venv).
+
 ```bash
 #!/usr/bin/env bash
 # Put the reSpeaker XVF3800 into "measurement mode" for Read the Room.

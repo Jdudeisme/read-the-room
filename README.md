@@ -140,6 +140,17 @@ read-the-room-dashboard --source synth   # no mic needed
 read-the-room-dashboard --port 8000      # default binds 127.0.0.1:8000
 ```
 
+On the reSpeaker XVF3800 (Windows), start through the launcher instead — it
+applies the array's operating state (AGC frozen at gain 2.0; runtime-only, so
+every launch re-applies it), verifies it, and picks the WDM-KS endpoint:
+
+```bash
+python scripts/xvf3800_dashboard.py                  # dashboard args go after --
+```
+
+Why, and how to fetch `xvf_host.exe`: `docs/XVF3800-BASELINE-AND-SETUP-PROTOCOL.md`
+and FIELD-NOTES 2026-09-23.
+
 Open http://127.0.0.1:8000. The dashboard process hosts the sensing engine
 plus the M3 **mapping layer**: a rulebook keyed by (headcount bucket,
 valence band, arousal band) — seeded from the 2020 thesis GenrePicker grid —
