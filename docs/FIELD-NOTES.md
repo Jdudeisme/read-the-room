@@ -5,6 +5,312 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-24 (afternoon, 16:29–17:57) — XVF3800 vs built-in array under playback: the built-in stays the default; at listening volume the music is the crowd
+
+**Setup.** Solo founder, one quiet room, one sitting, continuous animated
+speech in the 09-23 style — Block 1 of
+`docs/XVF3800-PLAYBACK-RUN-SHEET.md` (Block 2, echo cancellation with a
+reference, **not run**). JPad (reference machine), branch `main` @
+`6bcd083`; working tree clean apart from the founder's uncommitted
+`data/playlists.json` curation, unused here. Config is this machine's
+`.env` over `config.py` defaults; the values that matter for this
+session: `RTR_MUSIC_AWARE_ENABLED=1`, dominance knots
+`RTR_MUSIC_DOMINANCE_LO/HI=0.022/0.050` (**PROVISIONAL**, fitted on the
+built-in array — FIELD-NOTES 2026-09-06), `RTR_MUSIC_MAX_CORRECTION=0.6`,
+`RTR_VAD_PLAYBACK_THRESHOLD=0.75`, `RTR_NOISE_FLOOR_TAU_S=60.0`,
+`RTR_PLAYBACK_ADVISORY_DB_OVER_FLOOR=10.0`, headcount at defaults
+(`cluster_threshold` 0.70, `min_interval_s` 2.0, `buffer_s` 90.0,
+`smooth_tau_s` 20.0, `hysteresis_k` 3). **Non-gating.**
+
+Session-only environment, per leg (`$L` = leg letter), exactly as run
+sheet §D: `RTR_PLAYBACK_ENABLED=1`,
+`RTR_PLAYBACK_PLAYLISTS_PATH=data/playlists-inert.json` (DJ inert — the
+controller never touched playback),
+`RTR_MUSIC_SIGNATURES_PATH=data/playback-compare/signatures-$L.json`,
+`RTR_PLAYBACK_ADVISORY_ANCHOR_PATH=data/playback-compare/anchor-$L.json`,
+`RTR_DASHBOARD_ANNOTATIONS_DIR` / `_OVERRIDES_DIR` →
+`data/playback-compare/{annotations,overrides}-$L`. Every leg started from
+fresh signature and anchor files, so M6 began at zero refs on both mics.
+`data/track_signatures-lenovo.json` and `data/advisory_anchor.json` were
+checked unchanged (09-06 mtimes) after every leg. No labels tapped.
+
+Track: *Come Fly With Me — Remastered 1998*,
+`spotify:track:4hHbeIIKO5Y5uLyIEbY9Gn`, repeat-one on every leg (one
+track seen per leg, so it held). Founder note: the intro and outro carry
+~15 s of vocal-free instrumental per pass, so each leg's P1 meets them
+at a different offset. Music out of the laptop's own speakers
+(`Speakers (Cirrus Logic XU …)`, the Windows default output), Spotify
+100 %. No SPL readings (Block 2 only). Device indices this boot: built-in
+MME `1`, XVF3800 WDM-KS `21` (same as 09-23). XVF3800 in the operating
+state via `scripts/xvf3800_dashboard.py` — "AGC frozen at gain 2.0",
+verified by `--check` in preflight and by the launcher at each XVF leg.
+
+The founder launched each dashboard and did the talking. Claude ran the
+§B preflight (pytest 289 passed; `--check`; device list; Spotify token
+refresh + `JPAD` visible; isolation dir absent), verified each launch
+(process command line, port 8000, the leg's anchor file appearing under
+`data/playback-compare/`, a live frame), ran `leg_snapshot.py --follow`
+(the phase clock) and relayed its cues. Frames saved to
+`data/playback-compare/leg{A,X,B,X2,B2}.jsonl`, uncommitted by design.
+
+| Leg | Clock | Mic | Windows vol | XVF3800 position | Deviation | Role |
+|---|---|---|---|---|---|---|
+| A | 16:29–16:42 | built-in MME `1`, stock | **16 %** | ~0.6 m from laptop | volume not at the sheet's 75 % | extra evidence |
+| X | 16:46–16:59 | XVF3800 WDM-KS `21`, AGC frozen at gain 2.0 | 76 → 75 % during P0 (no music playing) | ~0.6 m from laptop | music started **P1+85 s**; founder kept talking ~1 min past DONE | extra evidence |
+| B | 17:09–17:22 | built-in MME `1`, stock | 75 % | **beside the laptop** (moved before B's clock) | music ~5 s before P1 (end of P0) | verdict: **A** role |
+| X2 | 17:26–17:39 | XVF3800 WDM-KS `21`, AGC frozen at gain 2.0 | 75 % | beside the laptop | none | verdict: **X** role |
+| B2 | 17:44–17:57 | built-in MME `1`, stock | 75 % | beside the laptop | none | verdict: **A2** role |
+
+Why five legs. Leg A ran at 16 % Windows volume (music at −46 dBFS on the
+mic against 09-06's −31.1 at 75 %), and during X the array was found
+~0.6 m from the laptop instead of beside it (§A.3), so neither A nor X is
+a fair side of the comparison. Rather than amend §G mid-session, the
+founder chose to re-run the triple as B, X2, B2 with the rule applied
+verbatim (B, X2, B2 in the A, X, A2 roles). A and X stay as evidence
+below. For B, X2 and B2 the array sat inches from the laptop, so both
+mics shared the NEAR/FAR marks (~0.6 m / ~3 m) exactly (founder, after
+the session). The marks did not move between legs. On A and X the array was
+~0.6 m off to the side, so the marks were shared only approximately.
+
+**Per-leg, per-phase measurements** (run sheet §F; settled frames = each
+phase minus its first 20 s; P1 80 frames, P2/P3 110). "Beyond ±0.25"
+counts frames at or past a mapping cutoff, which is the "cutoff crossings" of
+the 09-23 entry.
+
+*P0: quiet pre-roll, no music*
+
+| | A | X | B | X2 | B2 |
+|---|---|---|---|---|---|
+| Loudness p50 · floor (dBFS) | −59.3 · −59.7 | −52.3 · −53.4 | −58.6 · −54.8 | −51.8 · −50.2 | −61.4 · −59.2 |
+
+*P1: music only, silent*
+
+| | A | X (all / music-on only) | B | X2 | B2 |
+|---|---|---|---|---|---|
+| Loudness p50 · floor · over floor (dB) | −46.1 · −46.4 · 0.3 | −18.0 · −24.9 · 6.9 / −16.5 | −25.5 · −27.6 · 2.1 | **−8.4** · −12.9 · 4.5 | −25.4 · −27.6 · 2.2 |
+| Fresh inferences, emotion / headcount | 1 / 1 | 5 / 4 / 4 / 3 in 1.2 min | 15 / 17 | **24 / 25** | 12 / 11 |
+| Speech ratio median · p95 | 0.00 · 0.05 | 0.00 · 0.55 | 0.11 · 0.39 | **0.29** · 0.61 | 0.11 · 0.41 |
+| Frames ≤ 0.1 (bankable) | 78 / 80 | 64 / 80 / 27 / 37 | 40 / 80 | **18 / 80** | 40 / 80 |
+| `envelope_advisory` | 53 / 80 | 11 / 80 | 13 / 80 | **0 / 80** | 12 / 80 |
+| Music dominance p5 / p50 / p95 | 0.000 / 0.285 / 1.000 | 0.856 / 1.000 / 1.000 | 0.000 / 0.688 / 1.000 | 0.610 / 1.000 / 1.000 | 0.000 / 0.696 / 1.000 |
+| Correction applied · median \|ΔV\| · \|ΔA\| | 58/80 · 0.015 · 0.115 | 39/80 · 0.129 · **0.600** | 67/80 · 0.117 · 0.196 | 77/80 · 0.061 · **0.600** | 70/80 · 0.127 · 0.345 |
+| Valence stdev · beyond ±0.25 | 0.026 · 0 | 0.128 · 3 | 0.227 · 32 | 0.202 · 37 | 0.243 · 33 |
+| Arousal stdev · beyond ±0.25 | 0.213 · 53 | 0.194 · 30 | 0.131 · 69 | 0.225 · 12 | 0.155 · 36 |
+| Buckets · final | solo 80 · solo | None 32, solo 48 · solo | solo 80 · solo | **4 31**, solo 34, pair 15 · **4** | solo 76, None 4 · solo |
+| `raw_clusters` | 1: 80 | 1: 48 | 1: 73, 2: 7 | 1: 15, 2: 26, 3: 6, **4: 33** | 1: 52, 2: 24 |
+
+*P2: talking at NEAR, music playing*
+
+| | A | X | B | X2 | B2 |
+|---|---|---|---|---|---|
+| Loudness p50 · floor · over floor (dB) | −34.9 · −46.4 · **11.5** | −14.8 · −24.9 · 10.1 | −24.1 · −24.3 · 0.2 | −8.2 · −6.1 · **−2.1** | −24.4 · −23.8 · −0.6 |
+| Fresh inferences, emotion / headcount | 59 / 60 | 60 / 59 | 52 / 52 | 54 / 55 | 40 / 44 |
+| Speech ratio median · p95 | 0.85 · 0.90 | 0.80 · 0.94 | 0.75 · 0.90 | 0.59 · 0.94 | 0.46 · 0.79 |
+| Music dominance p5 / p50 / p95 | 0.178 / 1.000 / 1.000 | 0.633 / 1.000 / 1.000 | 0.109 / 0.780 / 1.000 | 0.487 / 1.000 / 1.000 | 0.000 / 0.663 / 1.000 |
+| Correction applied · \|ΔV\| · \|ΔA\| | 108/110 · 0.124 · 0.264 | 110/110 · 0.164 · **0.600** | 108/110 · 0.492 · 0.101 | 110/110 · 0.181 · **0.600** | 101/110 · 0.041 · 0.088 |
+| Valence p50 · stdev · beyond | +0.133 · 0.202 · 37 | +0.086 · 0.130 · 11 | +0.690 · 0.134 · 110 | +0.486 · 0.149 · 107 | +0.210 · 0.114 · 39 |
+| Arousal p50 · stdev · beyond | −0.046 · 0.075 · 0 | −0.101 · 0.069 · 3 | +0.604 · 0.084 · 110 | +0.150 · 0.058 · 3 | +0.516 · 0.133 · 104 |
+| Buckets · final | **4 77**, pair 32, solo 1 · **4** | pair 62, 4 42, solo 6 · solo | pair 71, solo 31, 4 8 · solo | pair 84, solo 25, 4 1 · pair | pair 57, solo 37, 4 16 · pair |
+| `crowd_weight` p50 · max | **0.35 · 0.77** | 0.00 · 0.16 | 0.00 · 0.01 | 0.00 · 0.11 | 0.00 · 0.04 |
+| `raw_clusters` | 1: 108, 2: 2 | 1: 48, 2: 34, 3: 20, 4–6: 8 | 1: 62, 2: 36, 3: 10, 4: 2 | 1: 47, 2: 48, 3: 15 | 1: 46, 2: 16, 3: 26, 4: 18, 5–6: 4 |
+
+*P3: talking at FAR, music playing*
+
+| | A | X | B | X2 | B2 |
+|---|---|---|---|---|---|
+| Loudness p50 · floor · over floor (dB) | −37.8 · −46.4 · 8.6 | −14.8 · −15.0 · 0.2 | −24.9 · −24.6 · −0.3 | −8.0 · −6.9 · −1.1 | −25.0 · −25.3 · 0.3 |
+| Fresh inferences, emotion / headcount | 59 / 60 | 56 / 56 | 43 / 45 | 47 / 50 | 42 / 45 |
+| Speech ratio median · p95 | 0.82 · 0.89 | 0.81 · 0.93 | 0.51 · 0.84 | 0.50 · 0.76 | 0.50 · 0.78 |
+| Music dominance p5 / p50 / p95 | 0.000 / 0.568 / 1.000 | 0.300 / 1.000 / 1.000 | 0.000 / 0.651 / 1.000 | 0.667 / 1.000 / 1.000 | 0.044 / 0.794 / 1.000 |
+| Correction applied · \|ΔV\| · \|ΔA\| | 101/110 · 0.129 · 0.125 | 108/110 · 0.124 · **0.600** | 101/110 · 0.325 · 0.035 | 110/110 · 0.157 · **0.600** | 106/110 · 0.043 · 0.057 |
+| Valence stdev · beyond | 0.103 · 0 | 0.102 · 4 | 0.228 · 91 | 0.165 · 103 | 0.211 · 41 |
+| Arousal stdev · beyond | 0.103 · 13 | 0.250 · 18 | 0.085 · 110 | 0.069 · 0 | 0.102 · 109 |
+| Buckets · final | pair 78, 4 32 · pair | solo 63, pair 24, 4 23 · solo | pair 52, solo 44, 4 14 · pair | pair 81, 4 21, solo 8 · **4** | solo 71, 4 24, pair 15 · **4** |
+| `crowd_weight` p50 · max | 0.12 · 0.32 | 0.00 · 0.22 | 0.00 · 0.00 | 0.00 · 0.00 | 0.00 · 0.05 |
+| `raw_clusters` | 1: 45, 2: 51, 3: 12, 4: 2 | 1: 94, 2: 16 | 1: 35, 2: 50, 3: 6, 4: 19 | 1: 21, 2: 33, 3: 52, 4: 4 | 1: 65, 2: 15, 3: 10, 4: 14, 5: 6 |
+
+**Signature files** (one track each). "At DONE" is the record; X and B2
+kept banking after their followers stopped (talking past DONE on X;
+music left playing on B2), so their final files differ.
+
+| Leg | At DONE: V / A · refs · pull V / A · pull_refs | Final file |
+|---|---|---|
+| A | −0.080 / +0.168 · 45 · +0.127 / −0.050 · 68 | refs 47, pull_refs 68 |
+| X | +0.057 / +0.557 · 19 · +0.115 / −0.109 · 13 | refs 24, pull_refs 31 |
+| B | +0.033 / +0.467 · 44 · −0.194 / +0.018 · 86 | refs 44, pull_refs 88 |
+| X2 | −0.061 / +0.758 · 29 · 0.000 / 0.000 · **0** | refs 34, pull_refs 0 |
+| B2 | +0.017 / +0.467 · 53 · +0.107 / −0.035 · 70 | refs 66, pull_refs 82 |
+
+Every file is v3 and stamped with its own capture device. The isolation
+kept the stamps honest. Nothing in the store enforced it (finding 8).
+
+**§G verdict, worked through.** Every comparison is X2 vs B. A difference
+counts only if it exceeds |B − B2| on the same measure; otherwise it is a
+tie.
+
+| Question | Measure | B | X2 | B2 | Band \|B−B2\| | \|X2−B\| | Result |
+|---|---|---|---|---|---|---|---|
+| 1. Contamination (P1) | fresh inferences, emotion + headcount (fewer better) | 32 | 49 | 23 | 9 | 17 | **built-in** |
+| | frames ≤ 0.1 (more better) | 40 | 18 | 40 | 0 | 22 | **built-in** |
+| 2. Near talk (P2) | arousal stdev | 0.084 | 0.058 | 0.133 | 0.049 | 0.026 | tie |
+| | total beyond ±0.25, V + A | 220 | 110 | 143 | 77 | 110 | **built-in** |
+| | solo frames, then final bucket | 31, solo | 25, pair | 37, pair | 6 | 6, not > 6 | tie (final bucket differs inside the band too: B2 ended pair) |
+| 3. Far talk (P3) | arousal stdev | 0.085 | 0.069 | 0.102 | 0.017 | 0.016 | tie |
+| | total beyond ±0.25, V + A | 201 | 103 | 150 | 51 | 98 | **built-in** |
+| | solo frames | 44 | 8 | 71 | 27 | 36 | **built-in** |
+
+The built-in wins all three questions, and the XVF3800 wins none. The
+array needed two of three **and** not to lose Q2's solo measure (it
+tied that measure, which is moot). **The built-in array stays the everyday
+default.** The outcome does not depend on the choice of B over B2 as the
+reference: against B2 the array still loses Q1 on both measures (49 vs
+23; 18 vs 40) and Q3's solo measure (8 vs 71).
+
+**Findings.**
+
+1. **At listening volume, music drives the *real-count* path, not the
+   crowd path.** At 75 %, `crowd_weight` never exceeded 0.05 on B or B2
+   and 0.11 on X2, in any phase. Every bucket above `solo` came from
+   `raw_clusters` ≥ 2. On the array, music alone did it: X2's silent P1
+   reached `raw_clusters` 4 on 33 of 80 frames and **ended in bucket
+   `4` with nobody talking**. The built-in's P1 never got past 2 clusters
+   and stayed `solo`. The sung vocals are what the array certifies:
+   P1 speech median 0.29 on X2 against 0.11 on the built-in, and the
+   founder confirmed that X's 0.72 at the end of P1 was the song's
+   vocals, not early talking. The 2026-09-06 (night) entry separated
+   crowd-path inflation from a genuine `raw_clusters` split. This is the
+   split kind, with the music's ECAPA embeddings clustering as voices.
+
+2. **At low volume, one near talker reads as a crowd through the
+   floor-relative ramp.** Leg A (16 %, music −46 dBFS) is the opposite
+   case to finding 1. `raw_clusters` was 1 on 108 of 110 P2 frames, yet
+   `crowd_weight` reached 0.77 (p50 0.35), and the bucket sat at `4` for
+   77 frames. The mechanism: continuous talking gives the floor no
+   quiescent window (`raw_ratio < 0.1`, `engine.py`), so the floor stays
+   frozen at the music's level (−46.4). The talker then sits 11.5 dB
+   over it, at the top of the playback-on `loud_term = ramp(over_floor,
+   3, 12)` (`headcount.py:446-451`), whose comment reads that ramp as "a
+   packed talking crowd sits 10+ dB above it". A single close talker
+   over quiet music sits there too. This is the playback-on analogue of the
+   09-23 finding 2 (level is a calibration input to the crowd path).
+   Filed; the ramp endpoints are not touched here.
+
+3. **The noise floor tracks the music, by design, and at 75 % that keeps
+   the crowd path dormant.** The engine feeds the floor "whatever the room
+   sounds like when nobody is talking", music included. On B/B2 over-floor
+   sat at about 0 dB (−0.6 to +2.2) in every playback phase, which is
+   what zeroed `crowd_weight` in finding 1. That's working as
+   intended. On X2 the floor rose *above* the median loudness (P2 floor
+   −6.1 vs p50 −8.2), since the array's music-only windows between
+   phrases outweigh the talk. Recorded, not a defect claim.
+
+4. **§5 Q4: the PROVISIONAL dominance knots do not transfer to the
+   array.** On X and X2, music dominance was p50 1.000 in every
+   playback phase (p5 0.30–0.86). The median arousal correction was
+   **0.600 in every playback phase of both legs**, which is exactly
+   `RTR_MUSIC_MAX_CORRECTION`, so the array's published arousal under
+   playback is clamp-bound. X2 banked **zero** pull refs (P1 bankable
+   frames 18 of 80). On the built-in, dominance p50 ran 0.29–0.79 and the
+   correction stayed off the clamp (|ΔA| 0.04–0.35), and pull_refs
+   reached 68–86. This is evidence toward knots that differ per capture
+   path; it's recorded here and **not refit**. The 09-06 ladder
+   requirement (≥ 2 tracks, ≥ 3 speech-only controls) stands, and it
+   would now have to be per mic.
+
+5. **Contamination scales with music level at the mic, on both mics.**
+   The P1 music level ran −46.1 dBFS (A, built-in, 16 %), −25.5 / −25.4
+   (B / B2, built-in, 75 %), −16.5 (X, array at ~0.6 m, 75 %) and −8.4
+   (X2, array beside the laptop, 75 %). Across those, fresh P1 inferences
+   went 1+1, then 15+17 and 12+11, then 24+25 (X2). Bankable frames went
+   97 %, 50 %, 23 %. With AGC frozen at 2.0, the array beside the
+   speakers hears the music ~17 dB hotter than the built-in, and −8 dBFS
+   RMS may clip on peaks. Peak level is not published in the frame, so
+   that can't be checked from the socket (**instrumentation gap**).
+
+6. **§5 Q3: the blind-signature banner went silent on the loudest leg.**
+   `envelope_advisory` fired on 53 / 13 / 12 of 80 P1 frames on A / B /
+   B2, and on **0 of 80** on X2, the loudest room of the session. The
+   detector requires `speech_ratio <= RTR_PLAYBACK_ADVISORY_SPEECH_EPS`
+   (0.05). Because the array certifies the vocals, X2's speech never
+   dropped that low, so the "music is out-reading the room" banner is
+   blind exactly when it's most warranted. Recorded; the margin and
+   epsilon are not touched.
+
+7. **Pausing just before stopping the dashboard persists a
+   music-inflated advisory anchor.** When the track is paused,
+   `playback_active` flips false within one 5 s poll. The floor EMA (τ 60
+   s) is still at the music's level at that moment, and the bridge takes
+   it as the quiet anchor and persists it (`bridge.py` `update` →
+   `_persist_anchor`). Final anchor files: A −48.1 (its P0 anchor was
+   −59.5), X −32.8, B −24.4 (P0 −55.8), X2 −24.4. B2 kept its P0 value (−56.3); its dashboard stopped while the music was
+   still playing, or within one poll of the pause. In normal operation
+   the next session within `RTR_PLAYBACK_ADVISORY_ANCHOR_MAX_AGE_S` (12 h)
+   would restore an anchor ~30 dB too high, and the banner could not
+   fire. The real anchor was isolated today and is unaffected. **Filed for
+   ROADMAP, not fixed.**
+
+8. **The signature `source` stamp is recorded but not enforced**
+   (carried from run sheet §I). `TrackSignatureStore._load` logs the
+   stamp and uses the signatures regardless, and `_save` re-stamps with
+   the current capture. Only the per-leg files kept this session's stamps
+   honest. A fix changes which signatures get applied, and so the
+   published valence/arousal: **REQUIRES-REVIEW**, ROADMAP.
+
+9. **The signature store keeps learning after a leg ends.** X gained 5
+   refs and 18 pull refs from about a minute of talking past DONE, and B2
+   gained 13 refs and 12 pull refs from music left playing. That's not a
+   defect. But any protocol that reads a signature file at leg end must
+   snapshot it at DONE, as this entry does.
+
+**Caveats.** One speaker, one room, one track, one sitting. Only the
+built-in has a drift estimate: B→X2→B2 is ABA, with no X2′. The
+drift bands are wide (P2 total-beyond band 77; P3 solo band 27), and
+B2's speech certification ran lower than B's (P2 median 0.46 vs 0.75),
+consistent with fatigue by the fifth leg. The "beyond ±0.25" tally
+rewards affect that is pinned high as much as affect with range: on B
+and B2 arousal sat past +0.25 on nearly every talking frame. The
+range measure (arousal stdev) tied in both P2 and P3, so the verdict
+rests on Q1 and on Q3's solo count, not on that tally. The array's
+position changed between X and B, which is one more reason X is
+evidence only. **The verdict covers the co-located deployment only**,
+the one Block 1 was designed around, with the mic beside the speakers
+that play the music. The built-in can't be moved away from its own
+speakers; the array can, and a remote array placed nearer the people
+than the speakers is a different deployment that wasn't tested. X
+(~0.6 m off) heard the music ~8 dB quieter than X2 and still read
+pair/4 at NEAR. That is weak, single-leg evidence that distance alone
+doesn't rescue it. Echo cancellation was never exercised: the laptop's
+speakers give the array no reference. The run sheet's open item, to
+check against the XMOS user guide that the USB playback path is the
+AEC reference, is still unchecked.
+
+**Decision (pre-registered rule, §G): the built-in array stays the
+everyday default.** Status quo: `RTR_INPUT_DEVICE` empty, and the
+Windows default input is the built-in. `scripts/xvf3800_dashboard.py`
+stays the XVF3800-only path, and README does not change its documented
+start. `.env` is not edited. Block 2 was not run, so the recorded
+decision carries one open item: the array's case might improve with the
+speaker on its jack (AEC with a reference).
+
+**Next, in order.** (a) Finding 7 into ROADMAP: seed the anchor only from
+playback-inactive frames whose floor has had time to decay, or stop
+persisting within one floor τ of a playback→inactive edge. It changes
+advisory behaviour, not published sensor values, but it needs its own
+test. (b) Finding 8 into ROADMAP as REQUIRES-REVIEW. (c) Publish a
+per-hop peak/clip indicator alongside `loudness_dbfs` (instrumentation
+for finding 5). (d) If the array's case is to be reopened: the XMOS
+AEC-reference check, then Block 2 as written. Block 2 comes first
+because AEC is the array's designed answer to this contamination and it
+keeps the placement co-located, so it stays a like-for-like comparison. A
+remote-array placement comparison, if still wanted afterwards, needs its
+own pre-registered run sheet: talking marks measured from each mic, and
+the question framed as deployment against deployment rather than mic
+against mic. (e) Findings 1, 2 and 6 as
+inputs to a playback-on calibration protocol (music clustering as
+voices; the 3–12 dB floor ramp; the advisory's speech-epsilon
+precondition). Each is a calibration event with its own measurement
+plan, not a patch.
+
 ## 2026-09-23 (evening, 19:44–20:12) — XVF3800 four-leg control session: the AGC flattens affect; the bucket climbs on mic level, not on embedding drift
 
 **Setup.** Solo founder, one quiet room, one sitting, continuous speech
