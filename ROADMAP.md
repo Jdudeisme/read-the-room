@@ -819,6 +819,251 @@ deliberately breaks a test (proving it gates).
 
 ---
 
+## M11 — Venue-ready: external microphones and external speakers
+
+**Charter.** Every constant RTR measures was fitted on one capture path at a
+time, first the Mac and now JPad's built-in array, with music from the same
+laptop's speakers. The intended venue deployment is different (founder
+direction, 2026-09-24): **a microphone in the centre of the space, the
+dashboard on a background computer, and music from the venue's own
+speakers.** The 2026-09-23 and 2026-09-24 XVF3800 sessions (FIELD-NOTES)
+showed what happens when the capture path changes and nothing is
+re-measured:
+- mic gain became a calibration input to the crowd path;
+- the PROVISIONAL dominance knots saturated (p50 1.000);
+- the arousal correction pinned at its 0.600 clamp, and the pull estimator
+  banked nothing;
+- sung vocals passed certification and clustered as voices.
+
+M11 proves RTR can be installed in a space it was not calibrated in: the
+capture path is known and enforced, the per-install calibration is a written
+procedure, and the configurations are compared by pre-registered protocol
+rather than by assumption.
+
+**Not started yet, by founder direction.** Development and testing stay on
+JPad's built-in mic and speakers until the founder opens this milestone. M11
+branches from `main` after M8 (M11-03 touches the engine path), and should
+follow M9: the live-performance evidence (M9-03) covers the same vocals and
+noise-floor hazards from the live-music side.
+
+**Gate:** a venue-shaped session, on the reference machine, in a space other
+than the development room. Conditions:
+- a microphone at the centre of the space, music from an external speaker at
+  a distance, and at least three people talking;
+- the M11-05 per-install calibration pass completed from its runbook by a
+  person who did not write it;
+- the M11-06 decision rule applied as pre-registered, with the result
+  recorded in FIELD-NOTES and the README gate table.
+
+No target numbers: the gate is the protocol run end to end and the decision
+recorded with its measurements.
+
+### M11-01 — Enforce the signature `source` stamp — REQUIRES-REVIEW
+
+- **Problem:** v3 signature files carry a capture-path stamp
+  (src/sensing/music.py:66), but it is recorded, not enforced. `_load` logs the
+  stamp and applies the signatures whatever mic stamped them, and `_save`
+  re-stamps the file with the current capture. Any mic change silently blends
+  two capture paths' signatures under one label. This was found writing the
+  2026-09-24 run sheet (§I), which had to work around it with per-leg files.
+- **Why it matters:** With more than one capture path in play, the
+  correction applied to published valence/arousal must come from the same
+  path that is listening. The 2026-09-24 signatures differed sharply by mic:
+  the arousal ref was ~+0.47 on the built-in and ~+0.76 on the array, for the
+  same track.
+- **Scope:** `TrackSignatureStore` load/save (src/sensing/music.py). On a
+  stamp mismatch, do not apply or adapt the loaded signatures, and do not
+  overwrite or re-stamp the file. Either keep a per-source file alongside it
+  or start empty in memory, and state which in the design note. Unstamped
+  v1/v2 files keep today's behaviour unless the reviewer decides otherwise,
+  stated explicitly. **Out of scope:** migrating existing files; a signature
+  merge across sources; the engine.
+- **Acceptance criteria:**
+  - Tests: a mismatched stamp means no correction is applied from the file
+    and the file's bytes are unchanged after a save cycle; a matching stamp
+    loads and applies as today; unstamped files follow the documented rule.
+  - Schema changes are additive only; any rename or removal bumps
+    `schema_version`, with a `scripts/tuning_report.py` audit (CLAUDE.md
+    invariant 9).
+- **Risk notes:** This changes which corrections reach published
+  valence/arousal: REQUIRES-REVIEW, plan and diff. It must never delete or
+  rewrite a signature file, since it is measured evidence. What counts as
+  "the same source" (device name, host, capture rate) is part of the review.
+- **Effort:** S
+
+### M11-02 — Advisory anchor: never persist a music-inflated floor
+
+- **Problem:** When a track is paused, `playback_active` flips false within
+  one 5 s poll. The rolling floor (τ 60 s) still sits at the music's level at
+  that moment. `AdvisoryDetector.update` (src/dashboard/bridge.py:74–81) takes
+  that floor as the quiet anchor and `_persist_anchor` writes it. Measured
+  2026-09-24:
+  - leg A: persisted −48.1 dBFS against its quiet anchor of −59.5;
+  - leg B: persisted −24.4 against −55.8.
+
+  A dashboard stopped soon after pausing hands the next session (within
+  `RTR_PLAYBACK_ADVISORY_ANCHOR_MAX_AGE_S`, 12 h) an anchor ~30 dB too high,
+  and the "turn it down" banner cannot fire.
+- **Why it matters:** This happens on JPad today, not only in venues. In a
+  venue, where parties start with music already on (the reason the anchor
+  persists at all, M6), a bad anchor blinds the only playback-loudness
+  guardrail for the whole next session. Not venue-specific; it can be pulled
+  forward on its own.
+- **Scope:** `AdvisoryDetector` anchor seeding and persistence only. For
+  example, suppress anchor updates for a settle window after a
+  playback→inactive edge, sized from `noise_floor_tau_s` with the provenance
+  written at the site. **Out of scope:** the advisory margin, the speech
+  epsilon, the engine's floor.
+- **Acceptance criteria:**
+  - Test: a synthetic frame sequence of quiet (floor −60), then 3 min of
+    loud playback (floor chasing up to −25), then a pause, then stop within
+    10 s. The persisted anchor stays within 0.5 dB of −60.
+  - Test: a genuine quiet change (the floor drops, then holds past the settle
+    window with no playback) still updates and persists the anchor.
+- **Risk notes:** `envelope_advisory` is a frame-only field set by the bridge
+  (bridge.py:170) and is not written to corpus records, so this is not a
+  published-semantics change. Re-check that before implementing. Any new
+  settle constant follows the tunable pattern: measured default, provenance,
+  `RTR_*`, `.env.example`.
+- **Effort:** S
+
+### M11-03 — Publish a peak / clip indicator per hop
+
+- **Problem:** Frames publish `loudness_dbfs` (RMS) but no peak level. On
+  2026-09-24 the XVF3800 beside the speakers read music at −8.4 dBFS RMS
+  with the gain frozen at 2.0, which is plausibly clipping on peaks, and
+  nothing on the socket can confirm it. External mics in venues, with unknown
+  gain staging next to PA systems, make this the first question of every
+  install.
+- **Why it matters:** Clipping corrupts every downstream model silently, and
+  echo cancellation needs the capture chain in its linear region (XMOS
+  tuning guide). The per-install calibration (M11-05) needs this readout to
+  set gain.
+- **Scope:** `src/sensing/dsp.py` (a peak dBFS and a clipped-sample fraction
+  per hop, alongside `rms_dbfs`), one additive `RoomState` field or pair, and
+  a dashboard readout. **Out of scope:** any gain control or automatic
+  adjustment.
+- **Acceptance criteria:**
+  - Tests: a synthetic full-scale square wave reports a peak of 0 dBFS and a
+    non-zero clip fraction; a −20 dBFS sine reports a peak of about −20 and
+    a clip fraction of 0.
+  - The benchmark regression row on the reference machine
+    (`bench_headcount.py --fallback`) lands within run-to-run variance.
+- **Risk notes:** This touches the engine path, so it is blocked behind
+  M8-01/M8-02, and the new field lands through M10-04's frame schema if that
+  is merged first. It's additive, with no change to existing fields.
+- **Effort:** S
+
+### M11-04 — Echo-cancellation routing for a remote array
+
+- **Problem:** The XVF3800's echo canceller only cancels what the host plays
+  *through it*. Its reference is the left channel of the USB playback stream
+  (XMOS XVF3800 v3.2.1 datasheet; verified 2026-09-24,
+  docs/XVF3800-PLAYBACK-RUN-SHEET.md addendum). Venue music on the venue's
+  own system gives it no reference. Other limits: a 192 ms tail; a
+  reference delay of 0–500 ms, fixed via `AUDIO_MGR_SYS_DELAY`; convergence
+  in under 30 s, readable as `AEC_AECCONVERGED`; and a linear-region
+  requirement on the speaker chain.
+- **Why it matters:** Echo cancellation is the only capability an array has
+  that the laptop mic structurally lacks. 2026-09-24 measured the array
+  without a reference and it lost every question. Whether it wins *with* a
+  reference in a venue-shaped setup is unmeasured.
+- **Scope:** A setup procedure plus read-only tooling:
+  - the audio routing (Spotify output device = the array; its line out →
+    mixer or external speaker);
+  - the delay measurement (XMOS `mic_ref_correlate`) and where the result is
+    recorded;
+  - `scripts/xvf3800_dashboard.py --check` extended to *read*
+    `AEC_AECCONVERGED` and report it.
+
+  **Out of scope:** writing any AEC parameter persistently
+  (`SAVE_CONFIGURATION` stays forbidden); non-XMOS arrays; changes to
+  `audio.py`. RTR already captures the left, AEC-processed channel
+  (src/sensing/audio.py:166).
+- **Acceptance criteria:** A written procedure that a human follows once on
+  the reference machine, with an external speaker at ≥ 2 m. The FIELD-NOTES
+  entry records the measured reference delay, the time to
+  `AEC_AECCONVERGED` = 1, and the peak level at the mic (M11-03).
+- **Risk notes:** Routing the venue's music through a USB accessory makes it
+  a single point of failure for the venue's audio. The procedure must say
+  what happens if the array is unplugged mid-set. Large rooms' reverb tails
+  exceed 192 ms: record residual echo, don't assume it away.
+- **Effort:** M
+
+### M11-05 — Per-install calibration pass: inventory, procedure, record
+
+- **Problem:** No list exists of which constants depend on the capture path.
+  The evidence so far points to at least these:
+  - the dominance knots (`RTR_MUSIC_DOMINANCE_LO/HI`, PROVISIONAL even on
+    JPad);
+  - the absolute and floor-relative loudness ramps in the crowd path
+    (headcount.py:446–453; FIELD-NOTES 2026-09-23 finding 2 and 2026-09-24
+    finding 2);
+  - mic gain;
+  - the advisory margin and speech epsilon (2026-09-24 finding 6: the banner
+    went silent on the array because its vocals certified as speech).
+
+  Today these live in one machine's `.env` with provenance in FIELD-NOTES.
+- **Why it matters:** Every venue is a new capture path. Without an
+  inventory and a procedure, each install is either uncalibrated or a
+  bespoke research session.
+- **Scope:** A new doc listing every capture-path-dependent constant, its
+  current provenance, and the measurement protocol that fits it. A
+  per-install record template stating which values were measured where and
+  when. A decision, with sign-off, on the mechanism: a plain per-install
+  `.env` block within today's precedence (default → `.env` → env var), or a
+  new profile layer. The recommendation is `.env` unless the inventory shows
+  it can't hold. **Out of scope:** refitting any constant (each refit is its
+  own calibration event); automatic self-calibration.
+- **Acceptance criteria:**
+  - The inventory cites a code site and a FIELD-NOTES provenance line for
+    every entry.
+  - The procedure is run once on JPad's built-in path and once on a second
+    capture path, with both records filed.
+  - A reviewer confirms that the two records can be compared field by
+    field.
+- **Risk notes:** This is where "per-machine calibration is not doctrine
+  until measured twice" (CLAUDE.md) becomes per-install. The procedure must
+  carry that rule rather than bless one-shot fits. Promoting any value to a
+  `config.py` default is out of scope here.
+- **Effort:** M
+
+### M11-06 — Venue-configuration comparison protocol — REQUIRES-REVIEW
+
+- **Problem:** The 2026-09-24 verdict covers only the co-located case (mic
+  beside the speakers). The venue configurations are unmeasured.
+- **Why it matters:** The venue default must come from a pre-registered
+  comparison, like the 09-24 §G rule, not from the co-located result or from
+  the array's spec sheet.
+- **Scope:** A run sheet in the house pattern
+  (docs/XVF3800-PLAYBACK-RUN-SHEET.md is the template). Configurations,
+  each with its own per-leg isolation directory:
+  - **(i)** the JPad built-in, co-located: the baseline, a repeat of 09-24
+    leg B;
+  - **(ii)** a remote mic at the centre, music from an external speaker at a
+    distance, with no AEC reference;
+  - **(iii)** the same as (ii), with the music routed through the array's
+    line out (M11-04).
+
+  Legs: talking marks measured from each mic, drift legs as in 09-24 (ABA at
+  minimum, ABBA preferred), at ≥ 2 music levels (09-24 finding 5), and both
+  solo and ≥ 3-person talking legs (09-24 caveat: neither mic has seen a
+  group under playback). Measures: run sheet §F, plus the peak level (M11-03)
+  and `AEC_AECCONVERGED`. **Out of scope:** any in-session tuning.
+- **Acceptance criteria:**
+  - The decision rule is written and signed off **before** the session.
+  - The FIELD-NOTES entry reports per-leg, per-phase tables with the drift
+    shown, and the rule worked measure by measure.
+  - A written venue-default decision, with the configurations it does and
+    doesn't cover.
+- **Risk notes:** This is a live session with people in the room, so it is
+  human-run on the reference machine (REQUIRES-REVIEW): Claude writes the
+  protocol and a human executes it. Record consent from everyone present.
+  Default any new capture to off.
+- **Effort:** M (mostly human time)
+
+---
+
 ## Deferred / rejected — the no-silent-drops ledger
 
 Every AUDIT item not in the backlog above, with its disposition:
