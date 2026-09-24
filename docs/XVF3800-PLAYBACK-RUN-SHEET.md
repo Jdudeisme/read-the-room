@@ -304,3 +304,61 @@ mic change, including this new array, silently blends two capture paths'
 signatures under one label. A fix would change which signatures get
 applied, and so the published valence/arousal (REQUIRES-REVIEW). It
 belongs in ROADMAP, not in this session.
+
+---
+
+## Addendum, 2026-09-24: session run; AEC reference verified
+
+**Run status.** Block 1 ran on 2026-09-24 as legs A, X, B, X2, B2. The
+verdict legs were B/X2/B2, after A (16 % volume) and X (late P1, array
+~0.6 m off) were set aside. See the FIELD-NOTES 2026-09-24 entry. The §G
+outcome: the built-in array stays the everyday default. Block 2 was not
+run.
+
+**The open item in "The question" (echo cancellation) is now checked
+against the XMOS documentation** (XVF3800 v3.2.1, read 2026-09-24):
+
+- **The reference is the audio the host plays to the array.** "A far-end
+  AEC reference signal must be provided on the left (0) channel of the
+  I2S or USB input signal. Data on the right channel is ignored."
+  (Datasheet, *Voice Processing Pipeline*.) In the USB configuration
+  this is the stream sent to the array's USB sound card, which also plays
+  out of its line out / 3.5 mm jack. That confirms this sheet's working
+  assumption. Block 1 (laptop speakers) gave the AEC no reference, and
+  Block 2's XR leg (speaker on the array's jack, Windows default output =
+  the array) is the correct way to give it one.
+- **RTR already reads the AEC-processed channel.** On the reSpeaker's
+  default mux (`AUDIO_MGR_OP_L`/`_R`), the left output channel is "the
+  processed output from the XVF3800's AEC, beamforming and post process
+  stage", and the right is the ASR beam (reSpeaker `host_control`
+  README). `MicSource` opens one channel and takes `indata[:, 0]`
+  (`src/sensing/audio.py`), so no capture change is needed for Block 2.
+- **Limits that bear on any XR-style leg:**
+  - AEC tail length is 192 ms.
+  - Reference delay is 0–500 ms, fixed, set by `AUDIO_MGR_SYS_DELAY`
+    (reSpeaker default 12). Alignment is measured with XMOS's
+    `mic_ref_correlate` procedure.
+  - Convergence takes a few seconds (< 30 s) of reference audio and is
+    readable as `AEC_AECCONVERGED`. Moving the speaker forces
+    reconvergence.
+  - The speaker and amplifier must stay in their linear region, and the
+    mic should peak ~6 dB below the reference (*Tuning the Application*).
+- **Procedural consequence for XR.** Before the leg starts, confirm
+  `AEC_AECCONVERGED` = 1 with the track playing. Read it only; like the
+  AGC writes, no `SAVE_CONFIGURATION`. The P1 settle window (20 s) may
+  be shorter than convergence.
+
+**Scope note (founder direction, 2026-09-24).** Development continues
+on JPad's built-in mic and speakers. The intended venue deployment is a
+microphone in the centre of the space with the dashboard on a
+background computer. That's a remote-mic case this sheet doesn't test,
+and for AEC to help there, the music would have to be routed through the
+array's line out to the venue's system. Block 2 is therefore deferred.
+A venue-shaped protocol (array at the centre, music through its line out
+to a separate speaker at a distance, talking marks measured from the
+array) belongs in its own run sheet when venue work starts.
+
+Sources: XMOS XVF3800 v3.2.1 documentation, *Voice Processing
+Pipeline*, *Setting Up the Hardware* and *Tuning the Application*
+(xmos.com/documentation/XM-014888-PC); reSpeaker
+`reSpeaker_XVF3800_USB_4MIC_ARRAY/host_control/README.md` (GitHub).
