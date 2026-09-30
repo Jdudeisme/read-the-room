@@ -157,6 +157,21 @@ class TestSeam:
         q = urllib.parse.parse_qs(fake.requests[-1].url.query.decode())
         assert q["uri"] == ["spotify:track:t2"]
 
+    def test_play_starts_the_track_inside_its_playlist(self, config, fake):
+        """2026-09-30: the Windows desktop client dropped bare-uris plays
+        (204, nothing loaded) but played context+offset. Any configured
+        playlist form normalizes to a playlist uri."""
+        p = _provider(config, fake)
+        track = Track(
+            id="spotify:track:t1", title="Song", artist="A", duration_s=180.0,
+            playlist_id="https://open.spotify.com/playlist/PL9?si=abc",
+        )
+        p.play(track)
+        assert json.loads(fake.requests[-1].content) == {
+            "context_uri": "spotify:playlist:PL9",
+            "offset": {"uri": "spotify:track:t1"},
+        }
+
 
 class TestDeviceTargeting:
     def test_configured_name_substring_resolves_to_device_id(self, tmp_path, fake):

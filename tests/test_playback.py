@@ -570,6 +570,147 @@ class TestBoundaryWindow:
         assert events[0][0]["track"]["id"] == "track-1"
 
 
+class DroppingProvider(FakeProvider):
+    """Accepts play() and loads nothing — what the Windows desktop client
+    did on 2026-09-30: a 204, then the device unloaded (item None) whether
+    it had been playing, paused or idle (FIELD-NOTES that date)."""
+
+    def play(self, track: Track) -> None:
+        self._check()
+        self._now = None
+
+
+class SubstitutingProvider(FakeProvider):
+    """Plays the request but reports a different track id for it, as the
+    desktop client did for 'RUSH' on 2026-09-30."""
+
+    def play(self, track: Track) -> None:
+        super().play(
+            Track(
+                id=track.id + "-substituted",
+                title=track.title,
+                artist=track.artist,
+                duration_s=track.duration_s,
+                playlist_id=track.playlist_id,
+            )
+        )
+
+
+class TestStartVerification:
+    """A 204 is not a start: each play is judged by the first poll at least
+    start_verify_s after it."""
+
+    LIBRARY = {
+        ("Pop", "high"): [_track(1)],
+        ("Jazz", "mid"): [_track(2, "pl-jazz-mid")],
+    }
+
+    def _controller(self, provider, verify_s=0.1):
+        c = PlaybackController(
+            provider,
+            TrackSelector(provider, seed=0),
+            PlaybackConfig(poll_interval_s=0.05, start_verify_s=verify_s),
+        )
+        c.start()
+        assert _wait_until(lambda: c.status == "active")
+        return c
+
+    def test_dropped_bootstrap_play_degrades(self):
+        provider = DroppingProvider(library=self.LIBRARY)
+        c = self._controller(provider)
+        try:
+            c.on_recommendation(_rec())
+            assert _wait_until(lambda: c.status == "degraded")
+            assert "nothing started" in c.error
+            assert "Song 1" in c.error
+        finally:
+            c.stop()
+
+    def test_dropped_skip_play_degrades(self):
+        """The 15:09 case: a track was playing, the skip's play unloaded it
+        and loaded nothing."""
+        provider = DroppingProvider(library=self.LIBRARY)
+        FakeProvider.play(provider, _track(99, playlist=None))
+        c = self._controller(provider)
+        try:
+            c.on_recommendation(_rec(genre_pool=("Jazz",), target_arousal=0.0))
+            assert _wait_until(lambda: c.snapshot()["queued_track"] is not None)
+            assert c.skip().id == "track-2"
+            assert _wait_until(lambda: c.status == "degraded")
+            assert "nothing started" in c.error
+        finally:
+            c.stop()
+
+    def test_ignored_skip_play_degrades(self):
+        """A play that leaves the interrupted track playing did not take,
+        even though something is audible."""
+
+        class IgnoringProvider(FakeProvider):
+            def play(self, track: Track) -> None:
+                self._check()  # accepted; the old track plays on
+
+        provider = IgnoringProvider(library=self.LIBRARY)
+        FakeProvider.play(provider, _track(99, playlist=None))
+        c = self._controller(provider)
+        try:
+            c.on_recommendation(_rec(genre_pool=("Jazz",), target_arousal=0.0))
+            assert _wait_until(lambda: c.snapshot()["queued_track"] is not None)
+            c.skip()
+            assert _wait_until(lambda: c.status == "degraded")
+        finally:
+            c.stop()
+
+    def test_verified_play_stays_active(self):
+        provider = FakeProvider(library=self.LIBRARY)
+        c = self._controller(provider)
+        try:
+            c.on_recommendation(_rec())
+            assert _wait_until(lambda: c.playback_state()[0])
+            assert _wait_until(lambda: c._pending_start is None)  # judged
+            assert c.status == "active" and c.error is None
+        finally:
+            c.stop()
+
+    def test_substituted_id_is_not_a_failure(self, caplog):
+        provider = SubstitutingProvider(library=self.LIBRARY)
+        c = self._controller(provider)
+        try:
+            with caplog.at_level("INFO", logger="playback.controller"):
+                c.on_recommendation(_rec())
+                # the verdict clears the slot just before it logs
+                assert _wait_until(lambda: "track-1-substituted" in caplog.text)
+            assert c.status == "active"
+        finally:
+            c.stop()
+
+    def test_no_verdict_before_the_grace_period(self):
+        """0.25 s after a real play the old state can still read as playing
+        or empty; a poll inside the grace period proves nothing either way."""
+        provider = DroppingProvider(library=self.LIBRARY)
+        c = self._controller(provider, verify_s=60.0)
+        try:
+            c.on_recommendation(_rec())
+            time.sleep(0.3)  # several polls, all inside the grace period
+            assert c.status == "active"
+            assert c._pending_start is not None
+        finally:
+            c.stop()
+
+    def test_failed_start_recovers_on_the_next_good_poll(self):
+        """No retry and no sticky failure: the failed start degrades, and
+        the next successful poll restores active (the next emission tries
+        afresh)."""
+        provider = DroppingProvider(library=self.LIBRARY)
+        c = self._controller(provider)
+        try:
+            c.on_recommendation(_rec())
+            assert _wait_until(lambda: c.status == "degraded")
+            assert _wait_until(lambda: c.status == "active")
+            assert provider.now_playing() is None  # nothing was retried
+        finally:
+            c.stop()
+
+
 class TestPlaylistMapping:
     def test_missing_file_means_nothing_mapped_yet(self, tmp_path):
         assert load_playlists(tmp_path / "playlists.json") == {}
