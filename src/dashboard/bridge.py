@@ -200,6 +200,8 @@ class DashboardBridge:
             "headcount_fragmentation": None,
             "headcount_smoothed_log2": None,
             "headcount_recent_raw_log2": None,
+            "headcount_separation": None,
+            "headcount_rescued_clusters": None,
             "emotion_status": None,
             "headcount_status": None,
         }
@@ -219,6 +221,15 @@ class DashboardBridge:
                 extras["headcount_recent_raw_log2"] = [
                     round(x, 3) for x in reading.recent_raw_log2
                 ]
+                # M7 observability: the silhouette the collapse logic saw
+                # (None = undefined, single cluster) and how many clusters
+                # came through the distinct-voice rescue.
+                extras["headcount_separation"] = (
+                    round(reading.separation, 3)
+                    if reading.separation is not None
+                    else None
+                )
+                extras["headcount_rescued_clusters"] = reading.rescued_clusters
         return extras
 
     def _playback_extras(self) -> dict:

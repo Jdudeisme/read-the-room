@@ -263,8 +263,12 @@ function onState(f) {
     $("hcbucket").textContent = f.headcount_bucket;
     const conf = f.headcount_confidence;
     const rungs = conf >= 0.7 ? "±0 rungs" : conf >= 0.4 ? "±1 rung" : "±2+ rungs";
+    // M7: flag counts that include distinct-voice rescues (quiet speakers
+    // recovered from under the proportional evidence floor).
+    const resc = f.headcount_rescued_clusters;
+    const rescNote = resc ? ` · +${resc} quiet voice${resc > 1 ? "s" : ""}` : "";
     $("hcsub").textContent =
-      `${rungs} · conf ${fmt(conf)} · ${fmt(f.headcount_staleness_s, 0)}s old`;
+      `${rungs} · conf ${fmt(conf)} · ${fmt(f.headcount_staleness_s, 0)}s old${rescNote}`;
   } else {
     $("hcbucket").textContent = "—";
     $("hcsub").textContent = f.headcount_status === "loading"
@@ -279,6 +283,7 @@ function onState(f) {
     $("regimesub").textContent =
       `crowd_weight ${fmt(cw)} · clusters ${f.headcount_raw_clusters ?? "—"}` +
       ` · disp ${fmt(f.headcount_dispersion)} · frag ${fmt(f.headcount_fragmentation)}` +
+      ` · sep ${f.headcount_separation === null ? "—" : fmt(f.headcount_separation)}` +
       ` · log2 ${fmt(f.headcount_smoothed_log2)}`;
   } else {
     $("regime").textContent = "—";

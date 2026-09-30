@@ -112,6 +112,8 @@ class Engine:
                     buffer_cap=config.headcount_buffer_cap,
                     cluster_threshold=config.headcount_cluster_threshold,
                     min_cluster_evidence_frac=config.headcount_min_cluster_frac,
+                    rescue_enabled=config.headcount_rescue_enabled,
+                    rescue_margin=config.headcount_rescue_margin,
                 ),
                 BucketSmoother(
                     tau_s=config.headcount_smooth_tau_s,

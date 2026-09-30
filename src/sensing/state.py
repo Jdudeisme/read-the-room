@@ -16,7 +16,13 @@ Trend = Literal["rising", "stable", "falling"]
 
 
 class HeadcountBucket(str, Enum):
-    """Powers-of-2 occupancy buckets, published by the M2 headcount layer.
+    """Occupancy buckets published by the headcount layer.
+
+    M7 ladder: exact rungs 1/2/3/4 through the range where diarization-derived
+    counting is validated, a 6 to keep log spacing near-uniform through the
+    count->crowd blend zone, then powers of 2. No rungs at 5/7/9/10 — the
+    sensor cannot resolve them (exact counting is validated to ~4), and
+    unresolvable rungs would be labels wrong-call taps can never validate.
 
     Semantics by regime: up through ~8-16 the bucket is a diarization-derived
     count; above that it is an ordinal crowd-density estimate (denser room ->
@@ -24,9 +30,11 @@ class HeadcountBucket(str, Enum):
     which regime produced the value.
     """
 
-    SOLO = "solo"  # 2^0
-    PAIR = "pair"  # 2^1
+    SOLO = "solo"  # 1
+    PAIR = "pair"  # 2
+    THREE = "3"  # M7: a true trio previously sat on the pair/4 boundary
     FOUR = "4"
+    SIX = "6"  # M7: ~geometric mean of 4 and 8; keeps rung spacing uniform
     EIGHT = "8"
     SIXTEEN = "16"
     THIRTY_TWO = "32"
@@ -38,13 +46,16 @@ class HeadcountBucket(str, Enum):
     CROWD = "crowd"  # anything beyond 1024
 
 
-# Ordered ladder, index == log2 of the nominal occupancy. CROWD sits past the
-# end. Kept as a computed lookup (not per-bucket branching) so nothing in the
-# codebase hard-codes a maximum countable size.
+# Ordered ladder with nominal occupancies. CROWD sits past the end. Kept as a
+# computed lookup (not per-bucket branching) so nothing in the codebase
+# hard-codes a maximum countable size.
+_LADDER_NOMINAL: tuple[int, ...] = (1, 2, 3, 4, 6, 8, 16, 32, 64, 128, 256, 512, 1024)
 BUCKET_LADDER: tuple[HeadcountBucket, ...] = (
     HeadcountBucket.SOLO,
     HeadcountBucket.PAIR,
+    HeadcountBucket.THREE,
     HeadcountBucket.FOUR,
+    HeadcountBucket.SIX,
     HeadcountBucket.EIGHT,
     HeadcountBucket.SIXTEEN,
     HeadcountBucket.THIRTY_TWO,
@@ -55,18 +66,28 @@ BUCKET_LADDER: tuple[HeadcountBucket, ...] = (
     HeadcountBucket.TEN_TWENTY_FOUR,
 )
 
+# Upper boundary of each rung in log2 space: the midpoint to the next rung's
+# log2 (i.e. the geometric midpoint in people — pair/3 splits at ~2.45 people,
+# 4 vs 6 at ~4.9). The final boundary (log2(1024) + 0.5) preserves the
+# pre-M7 CROWD cutover exactly.
+_LADDER_UPPER_LOG2: tuple[float, ...] = tuple(
+    (math.log2(a) + math.log2(b)) / 2.0
+    for a, b in zip(_LADDER_NOMINAL, _LADDER_NOMINAL[1:])
+) + (math.log2(_LADDER_NOMINAL[-1]) + 0.5,)
+
 
 def bucket_from_log2(log2_estimate: float) -> HeadcountBucket:
-    """Nearest power-of-2 bucket for a continuous log2 occupancy estimate.
+    """Nearest ladder rung for a continuous log2 occupancy estimate.
 
     Rounding in log space means the boundary between buckets is the geometric
-    midpoint (e.g. 4 vs 8 splits at ~5.66 people). Estimates beyond the ladder
-    collapse into CROWD.
+    midpoint (e.g. 4 vs 6 splits at ~4.9 people, 6 vs 8 at ~6.9). Estimates
+    beyond the ladder collapse into CROWD.
     """
-    idx = round(max(0.0, log2_estimate))
-    if idx >= len(BUCKET_LADDER):
-        return HeadcountBucket.CROWD
-    return BUCKET_LADDER[idx]
+    x = max(0.0, log2_estimate)
+    for bucket, upper in zip(BUCKET_LADDER, _LADDER_UPPER_LOG2):
+        if x < upper:
+            return bucket
+    return HeadcountBucket.CROWD
 
 
 @dataclass(frozen=True)

@@ -327,6 +327,64 @@ loudness relative to a rolling noise floor rather than absolute dBFS — see
 [docs/M4-PROPOSAL.md](docs/M4-PROPOSAL.md) and the pool-session analysis in
 [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 
+## The stable middle (M7)
+
+Headcount had validated ends and a broken middle: the 2026-07-10 trio
+evening read three real people as solo/pair essentially all night, while
+an animated pair in a quiet room hit bucket 8
+([docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)). Root-caused offline on a
+rebuilt controlled-N TTS harness (`scripts/tts_harness.py`) — the
+clusters were speaker-pure; the accounting was wrong
+([docs/M7-PROPOSAL.md](docs/M7-PROPOSAL.md)).
+
+**What M7 delivers, after the 2026-07-15 two-person gate:** the
+*overcount* half — a solo or pair never blowing up into a crowd — is
+fixed and validated live. The *exact-count* half (resolving a quiet
+third person) proved unachievable on a consumer mic and is shelved. The
+honest claim is now the coarser one: **2–4 people read as pair-to-small-
+group and never inflate to a crowd**, with the crowd/babble path — not
+exact clustering — carrying the middle.
+
+Shipped and validated:
+
+- **sep_collapse fix:** a single cluster's undefined silhouette no longer
+  reads as maximal collapse (it deferred every mic-scatter solo into the
+  crowd path's arms). Live 2026-07-15: `crowd_weight` stayed ~0 through
+  loud, quiet, and animated speech — the bucket-8 driver is dead.
+- **Dispersion ramp recalibrated to measured reality:** within-cluster
+  dispersion only signals babble past the clustering threshold itself
+  (mic-measured same-voice scatter ~0.6 lived inside the old ramp).
+- **Bucket ladder gains rungs 3 and 6** (1, 2, 3, 4, 6, 8, 16, …): a
+  true trio previously sat exactly on the pair/4 geometric boundary. No
+  rungs at 5/7/9/10 — exact counting is validated to ~4 and unresolvable
+  labels would poison the tap corpus.
+
+Shelved (`RTR_HEADCOUNT_RESCUE_ENABLED=0`, default off):
+
+- **Distinct-voice rescue.** The idea — count a low-airtime cluster that
+  sits ≥ `RTR_HEADCOUNT_RESCUE_MARGIN` from every counted centroid as a
+  quiet extra person — assumed same-speaker and cross-speaker centroid
+  distances don't overlap. The 2026-07-15 gate disproved that on the
+  validated mic: one person's quiet/animated scatter produces sub-cluster
+  centroids spanning **0.80–1.00**, the same range distinct voices
+  occupy, so the rescue counted a single speaker's fragments as a crowd
+  and a mere pair read bucket 6. No `rescue_margin` separates the two
+  distributions. The code is kept behind the flag for a future
+  lower-scatter mic; on this hardware the crowd path carries the middle.
+
+Live gate 2026-07-15 (two people; trio phases need a third): the
+overcount fix passed (solo stays solo, loud pair holds pair/3, silence
+holds), the rescue failed and is now shelved. A faithful engine replay
+of the session audio (real Silero VAD, engine-matched loop) measures the
+before/after: rescue ON sustains buckets 4/6/8 on 137 of 281 hops — the
+live failure, reproduced; rescue OFF reads solo 126 / pair 110 / a
+one-over bucket 3 on 45, and **never exceeds 3** (crowd_weight ≈ 0
+throughout). The residual one-over 3 is the mic's same-voice scatter
+occasionally splitting two voices into three raw clusters — inside the
+revised charter's bar. Full write-up in
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md); remaining phases in
+[docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md).
+
 ## Performance budget (run this on the reference machine first)
 
 **Reference machine, from 2026-09-06: the Windows laptop (`JPad`).** It is
@@ -394,7 +452,7 @@ Mac's every-other-hop fallback. Full context in the 2026-09-06 entries of
 ### Results — historical (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
 
 Kept for provenance; judged against the Mac's 1.37 s budget, not the
-reference machine's 1.66 s. Every milestone gate table below (M2–M6) is
+reference machine's 1.66 s. Every milestone gate table below (M2–M7) is
 likewise historical and Mac-anchored.
 
 | Benchmark | Scenario | mean | p95 | Budget | Verdict |
@@ -528,6 +586,22 @@ evening entry of [docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 Reference taps ride the existing emotion worker at its existing rate
 limit and only fire in speech-idle windows, so the contended profile is
 unchanged — within run-to-run variance of every prior row.
+
+### Milestone 7 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
+
+Gate in progress — see [docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md) for
+the full checklist. 2026-07-12: part 0 (setup: 287 tests green, corpus
+synced and identical both ways, `.env` at defaults for the M7 knobs)
+and parts (a)/(b) pass. Parts (c)–(f) pending the ladder night.
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback` | headcount, contended hops | 0.99 s | 1.04 s | < 1.37 s | PASS |
+| `bench_headcount.py --fallback` | emotion, overall | 0.87 s | 1.09 s | < 1.2 s absolute | PASS |
+
+M7's engine-path addition is centroid arithmetic (O(k²) on a handful of
+clusters) inside the existing clustering pass — within run-to-run
+variance of every prior row, as required.
 
 ## Tests
 
