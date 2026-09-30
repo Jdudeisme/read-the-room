@@ -60,8 +60,9 @@ clock):
 | ~15:10:15 | Founder restarts playback by hand in Spotify: the **Hip-Hop / mid playlist** (not a controller pick) | 3 |
 | 15:26 | Guest leaves | 2 |
 | 15:27 | Guest leaves; founder alone | 1 |
-| 15:30:43 | Controller **bootstraps playback** (`RUSH` → play) | 1 |
-| ≤15:31:00 | Founder pauses; dashboard stopped (anchor written 15:31:00.5, log ends 15:30:58) | 1 |
+| ≤15:30:43 | Founder pauses Spotify | 1 |
+| 15:30:43 | Controller sees nothing playing and sends a bootstrap `play` (`RUSH`): Spotify returns 204, but **no music plays** (founder) | 1 |
+| ~15:31:00 | Founder says a few sentences ~30 s after pausing, then Ctrl-C (anchor written 15:31:00.5, log ends 15:30:58) | 1 |
 
 Five were invited and three attended. Peak occupancy was 3, for about
 25.5 min (15:00:32–15:26).
@@ -146,19 +147,24 @@ Caveat: rung `3`/`4`/`6` rows were already present from earlier sessions, so
    `played_through` was written for it (the next is 15:16:37, a controller
    push), which matches the rule that an external track is not a
    positive.
-7. **After the founder paused, the controller restarted playback.** At
-   15:30:43, with the founder alone, it issued a bootstrap `play` (`RUSH`,
-   cell `('pair','mid','mid')`). The anchor was then written at 15:31:00.5
-   at **−50.7 dBFS**. The quiet anchors measured on 09-24 were −59.5 and
-   −55.8. If the pause-to-stop gap was short, or if playback had resumed,
-   this is the M11-02 condition. The timing can be bounded from the
-   evidence: the anchor persists only while `playback_active` is not True
-   (`src/dashboard/bridge.py:76–79`). `RUSH` was playing from 15:30:43, so
-   the final pause landed between 15:30:43 and the 15:31:00.5 write. That
-   is **≤ 17 s** before shutdown, well short of the minute M11-02 asks
-   for. With a τ = 60 s floor, the saved −50.7 dBFS is very likely
-   music-inflated, and it is handed to any session that starts before
-   ~03:31 on 2026-10-01 (12 h max age). The file was left untouched.
+7. **The same 204-but-silent after the end-of-session pause.** The
+   founder paused Spotify. At 15:30:43 the controller, seeing nothing
+   playing, issued a bootstrap `play` (`RUSH`, cell `('pair','mid','mid')`).
+   Bootstrap fires only when `now is None or not now.is_playing`
+   (`src/playback/controller.py:269`), so the pause came first. Spotify
+   returned **204**, and no music played (founder). The anchor write at
+   15:31:00.5 agrees: it persists only while `playback_active` is not True
+   (`src/dashboard/bridge.py:76–79`). This is finding 6's behaviour a
+   second time: Spotify accepted a `play` and stayed silent, both times
+   right after playback had stopped. Separately, **by design a Spotify
+   pause does not stop the controller**: an emission during the pause
+   tries to bootstrap the music back. Here the attempt failed silently.
+   The anchor was saved at **−50.7 dBFS**, against the 09-24 quiet anchors
+   of −59.5 and −55.8. The pause-to-stop gap was ~30 s plus a few
+   sentences (founder), short of the minute M11-02 asks for, so with a
+   τ = 60 s floor the saved value is probably partly music-inflated. It is
+   handed to any session that starts before ~03:31 on 2026-10-01 (12 h max
+   age). The file was left untouched.
 8. **Playlist mapping gaps** showed up as `no mapped playlist` for Pop/low,
    Hip-Hop/low and Jazz/high. These are coverage gaps in the founder's
    mapping, not faults. Zero errors in the dashboard log for the whole
@@ -177,10 +183,12 @@ Caveat: rung `3`/`4`/`6` rows were already present from earlier sessions, so
 - The corpus needs a way to retract an accidental human override without
   deleting it (additive schema: an append-only retraction record, excluded
   by `tuning_report.py`). This is a design item, not an ad-hoc fix.
-- Diagnose the Skip → silence behaviour (finding 6), given the 204.
-- Pausing in Spotify is not a stop: the controller bootstraps back into
-  play. The M11-02 "wait a minute after pausing" protocol needs a pause the
-  controller respects, or a different stop procedure.
+- Diagnose why Spotify returned 204 to `PUT /me/player/play` and stayed
+  silent, twice (findings 6 and 7), both times right after playback stopped.
+- Pausing in Spotify is not a stop: by design the controller tries to
+  bootstrap back into play (it failed silently here). The M11-02 "wait a
+  minute after pausing" protocol needs a pause the controller respects, or
+  a different stop procedure.
 
 ## 2026-09-24 (afternoon, 16:29–17:57) — XVF3800 vs built-in array under playback: the built-in stays the default; at listening volume the music is the crowd
 
