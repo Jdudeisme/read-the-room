@@ -5,6 +5,96 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-30 (evening, 18:09–18:50) — the Spotify 204-but-silent probe: the desktop client drops bare-uris plays; playlist context plays
+
+**Setup.** Follow-up to finding 6 and 7 of the afternoon's part (f) entry
+(below). JPad (reference machine), `main` @ `5a689ec`, investigation
+branch `playback-context-play`. The dashboard was **not** running. The
+probe was a scratch script (uncommitted) driving the real
+`SpotifyProvider` transport against device `JPAD`
+(`14457cb3376e2331de66eddffb17cc42ebc9401d`). It sent one control call per
+case, then polled `GET /me/player` every 0.5 s for 10 s. The founder was
+present with the Spotify desktop app open, music through the laptop
+speakers, and reported what was audible. Tracks:
+*RUSH* (`29jN3FY0OcxtKOQCjZD8rQ`, Jazz / mid) and *Can You Feel It - 7"
+Version* (`4qv7YSyt5UV8LvrXyE8sGn`, Pop / high), the two tracks whose plays
+went silent in the afternoon session.
+
+| Time | Starting state | Request | Trace | Heard |
+|---|---|---|---|---|
+| 18:09:32 | idle: no active session, JPAD `is_active=False` | `PUT /me/player/play` `{"uris":[RUSH]}` | 204, then no session for 10 s | nothing |
+| 18:09:51 | idle | `PUT /me/player` `{"device_ids":[JPAD],"play":true}`, then the same play | 204 + 204, then no session for 13 s | nothing |
+| 18:32:32 | playing (*Welcome To New York*, started by hand) | bare `uris` (*Can You Feel It*) | 204. Current track still read as playing at +0.25 s; by +0.84 s `item=None`, `progress=0`, `is_playing=False`, to +10 s | silence; app controls grayed out |
+| 18:32:58 | stuck (`item=None`) | `{"context_uri": <Jazz/mid playlist>, "offset": {"uri": RUSH}}` | `is_playing=True` at +1.2 s, progress advancing | *Rush* |
+| 18:41:27 | paused by hand (*April in Paris*, playlist context) | bare `uris` (*Can You Feel It*) | 204, `item=None` by +0.95 s | silence |
+| 18:41:46 | stuck (`item=None`) | context + offset (RUSH) | `is_playing=True` at +0.6 s | *Rush* |
+| ~18:48 | paused (*Rush*) | real `SpotifyProvider.play` after the fix (*Song For My Father*, configured as an `open.spotify.com` URL) | `is_playing=True` at +0.5 s, same id reported | *Song For My Father* |
+
+**Findings.**
+
+1. **The Windows desktop client drops bare-`uris` plays.** It answers
+   204, unloads whatever was loaded, and loads nothing. That is 4 of 4:
+   the two in-session plays (15:09 from a playing track, 15:30 from a
+   hand-paused one) and the two probes (18:32 playing, 18:41 paused). The
+   grayed-out app controls the founder saw during the session are this
+   `item=None` state. There was nothing loaded for Play to resume, which
+   is why the 15:09 recovery needed a playlist picked by hand.
+2. **Context + offset plays**, 2 of 2 from the stuck state (0.6 s and
+   1.2 s), plus 1 of 1 through the fixed provider (0.5 s). The seven
+   `POST /me/player/queue` pushes in the session all played, so the
+   client's queue path is unaffected.
+3. **An idle device with no active session drops every command**,
+   including transfer (`PUT /me/player` with `play: true`), 2 of 2. No
+   request format recovers it; only a human pressing Play in the app did.
+   The controller can only notice it and degrade honestly.
+4. **It is not the tracks.** Both are `is_playable=True` in the account's
+   market, with no Web-API relinking (`linked_from` absent). The same
+   holds for all seven queued tracks that played. But the client did
+   report a **different id** for RUSH when it played it (`2PXnV9PBUGW4v5u6WJpCjG`,
+   titled "Rush"), and not for *Song For My Father*. The substitution is
+   the client's own, invisible to the Web API.
+5. **It is a client-side change between 09-06 and 09-30.** On 09-06 the
+   same code, device and call made nine direct plays (5 skips, 4 manual
+   picks) with no silence reported. For example, the 22:49:12 skip started
+   *Thunderstruck*, whose own skip 2 s later started *Hot Blooded*. An
+   unrelated project filed the same Windows-desktop symptom the same day
+   (Parachord issue #985, opened 2026-09-30: `play` 204 to a Windows
+   desktop device that has not become active).
+6. **Playlist continuation is the right mode (founder).** After the
+   context play, *Rush* ran out and Spotify carried on to *April in Paris*
+   with nothing queued. The founder judged continuing through the cell's
+   playlist, rather than silence, to be correct. Continuation tracks are
+   not controller picks and cannot earn a `played_through`: emission
+   requires an attributed id.
+
+**Change** (branch `playback-context-play`, founder-approved):
+`SpotifyProvider.play` sends `context_uri` (the track's configured
+playlist, normalized) plus `offset.uri`, and falls back to bare `uris`
+only for a track with no playlist. The controller now verifies every play
+at the first state poll at least `RTR_PLAYBACK_START_VERIFY_S` = 3.0 s
+after it. A start fails if nothing is playing, or if the track the play
+was meant to interrupt is still playing. A failed start raises
+`ProviderError`, which degrades to shadow for a poll, logs a warning, and
+waits for the next emission with no retry. The 3.0 s default is ~2.5× the
+slowest measured start (1.2 s); a poll 0.25 s after the call still showed
+the old track, so an early verdict proves nothing. The verdict does not
+demand the requested id (finding 4); a substituted id is logged at INFO.
+308 tests pass.
+
+**Open items.**
+
+- **Attribution misses substituted ids.** `played_through` and queue
+  take-over match the requested id, so a track the client plays under
+  another id can never earn a weak positive. It is visible now as an INFO
+  line; it needs a design (e.g. match on playlist position or on
+  title/artist/duration).
+- **Idle no-session state.** Verification will surface it as repeated
+  degraded blips, one per emission. The dashboard could say "press Play
+  in Spotify once" instead.
+- **Live re-check in the next session:** one Skip, one "Wrong vibe" and
+  one bootstrap after a hand pause, with no silence expected and no
+  `nothing started` warnings.
+
 ## 2026-09-30 (afternoon, 14:58–15:31) — M7 part (f) live DJ sweep: three people, not five; rung `3` drives cells, but only after a 13-minute solo collapse at arm's length
 
 **Setup.** Run under `docs/M7-PART-F-RUN-SHEET.md`, on JPad (reference
@@ -155,8 +245,9 @@ Caveat: rung `3`/`4`/`6` rows were already present from earlier sessions, so
    returned **204**, and no music played (founder). The anchor write at
    15:31:00.5 agrees: it persists only while `playback_active` is not True
    (`src/dashboard/bridge.py:76–79`). This is finding 6's behaviour a
-   second time: Spotify accepted a `play` and stayed silent, both times
-   right after playback had stopped. Separately, **by design a Spotify
+   second time: Spotify accepted a `play` and stayed silent, once from a
+   playing track (15:09) and once from a hand-paused one (15:30). See the
+   evening probe entry above. Separately, **by design a Spotify
    pause does not stop the controller**: an emission during the pause
    tries to bootstrap the music back. Here the attempt failed silently.
    The anchor was saved at **−50.7 dBFS**, against the 09-24 quiet anchors
@@ -184,7 +275,7 @@ Caveat: rung `3`/`4`/`6` rows were already present from earlier sessions, so
   deleting it (additive schema: an append-only retraction record, excluded
   by `tuning_report.py`). This is a design item, not an ad-hoc fix.
 - Diagnose why Spotify returned 204 to `PUT /me/player/play` and stayed
-  silent, twice (findings 6 and 7), both times right after playback stopped.
+  silent, twice (findings 6 and 7). Diagnosed the same evening (entry above).
 - Pausing in Spotify is not a stop: by design the controller tries to
   bootstrap back into play (it failed silently here). The M11-02 "wait a
   minute after pausing" protocol needs a pause the controller respects, or
