@@ -589,10 +589,22 @@ unchanged — within run-to-run variance of every prior row.
 
 ### Milestone 7 gate (2019 Intel MacBook Pro, `RTR_TORCH_THREADS=2`)
 
-Gate in progress — see [docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md) for
-the full checklist. 2026-07-12: part 0 (setup: 287 tests green, corpus
+**Gate closed 2026-09-30** — see [docs/M7-TEST-PLAN.md](docs/M7-TEST-PLAN.md)
+for the full checklist. 2026-07-12: part 0 (setup: 287 tests green, corpus
 synced and identical both ways, `.env` at defaults for the M7 knobs)
-and parts (a)/(b) pass. Parts (c)–(f) pending the ladder night.
+and parts (a)/(b)/(d)/(e-diff) pass. 2026-08-09: part (c) closes as a
+defensible pass under the revised charter
+([docs/M7-CHARTER-REVISION.md](docs/M7-CHARTER-REVISION.md)); part
+(e-live) passes. 2026-09-30, on the reference machine (JPad, built-in
+array, 291 tests green on the branch): part (f), the live DJ sweep, passes
+all four checkpoints with 3 occupants. Rung `3` drove the selected cell 4
+times with 3 people present, `crowd_weight` ≈ 0 throughout, and every
+completion was correctly presence-gated. Rung `6` was not exercised
+(occupancy peaked at 3). There was a 13-minute solo collapse at close
+range before the middle resolved. See
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md) 2026-09-30. The benchmark rows
+below are the Mac's 2026-07-12 run; part (f) is behavioural, not a
+performance gate.
 
 | Benchmark | Scenario | mean | p95 | Budget | Verdict |
 |---|---|---|---|---|---|

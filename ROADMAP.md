@@ -7,9 +7,9 @@ readiness** — a codebase a small team can onboard onto and ship.
 
 Ground rules for the executing agent:
 
-- **M7 is in flight and must not be blocked.** The trio night, parts (e-live)/(f),
-  and the merge of `milestone-7-stable-middle` happen first. Every item below
-  branches from `main` **after** that merge. Do not push anything to the M7 branch.
+- **M7 is merged (2026-09-30) and work proceeds.** Its gate closed with part (f)
+  on 2026-09-30 (docs/FIELD-NOTES.md, README M7 gate). Every item below
+  branches from `main`. Do not push anything to the M7 branch; it is historical.
 - **Milestones are evidence-gated** (repo convention): a milestone closes only when
   its stated gate is observed and recorded (docs/FIELD-NOTES.md entry + README gate
   table row), never when its items are merely merged.

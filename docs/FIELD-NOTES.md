@@ -5,6 +5,183 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-30 (afternoon, 14:58–15:31) — M7 part (f) live DJ sweep: three people, not five; rung `3` drives cells, but only after a 13-minute solo collapse at arm's length
+
+**Setup.** Run under `docs/M7-PART-F-RUN-SHEET.md`, on JPad (reference
+machine), branch `milestone-7-stable-middle` @ `a1e2d6b` (local, 7 commits
+ahead of `origin`; nothing pushed or committed in-session). The working tree
+was clean apart from the founder's `data/playlists.json`, which is
+byte-identical to the committed blob on both `main` and the branch (only the
+stat info was stale), so the checkout carried it across untouched. Config is
+this machine's `.env` over the branch's `config.py` defaults. Headcount is at
+defaults, verified value-by-value against the branch's `src/sensing/config.py`
+(`cluster_threshold` 0.70, `min_interval_s` 2.0, `min_speech_ratio` 0.2,
+`buffer_s` 90.0, `min_cluster_frac` 0.10, `smooth_tau_s` 20.0,
+`hysteresis_k` 3). Rescue is unset in `.env`, so the shipped default applies
+(`enabled=False`, margin 0.80). Other values that matter:
+`RTR_MUSIC_AWARE_ENABLED=1`, dominance knots
+`RTR_MUSIC_DOMINANCE_LO/HI=0.022/0.050` (**PROVISIONAL**, FIELD-NOTES
+2026-09-06), `RTR_MUSIC_MAX_CORRECTION=0.6`,
+`RTR_VAD_PLAYBACK_THRESHOLD=0.75`, `RTR_NOISE_FLOOR_TAU_S=60.0`,
+`RTR_PLAYBACK_ADVISORY_DB_OVER_FLOOR=10.0`. Real playlist mapping
+(`data/playlists.json`, not the inert file part (c) used).
+
+Preflight (§B, Claude): pytest **291 passed** on the branch. A read-only
+Spotify check refreshed the token and found `JPAD` visible and active, and
+all 11 mapped cells resolved (19–100 tracks each). `tuning_report.py` exited
+0 on the pre-session corpus.
+
+Room: mic input 34 %. **Windows output 32 %** (the 09-24 carry-over was
+75 %; the founder kept 32 % deliberately for the whole session). Spotify
+100 %. Capture from `Microphone Array on SoundWire D` (built-in). Output
+through the laptop's own speakers (founder). The laptop sat **within arm's length
+of everyone** (founder). The dashboard ran with its log teed to
+`data/m7-partf-2026-09-30.log` (uncommitted). At launch the saved advisory
+anchor was stale (2 055 351 s) and was ignored, and 54 JPad-measured track
+signatures loaded.
+
+Consent-gated external audio recording from ~15:00:32 (both guests
+agreed): `data/captures/ReadTheRoom M7 Just Dani and Brandon.m4a`
+(uncommitted, gitignored). It is AAC, 48 kHz, 2 ch, 1664.1 s (27.7 min),
+so its nominal end is ~15:28:16. It needs converting to 16 kHz mono WAV
+before `m7_replay_session.py` can read it, and JPad has no ffmpeg.
+Alignment has a built-in mark: the Skip at 15:09:29.9 and the ~45 s of
+silence after it. `capture_room_wav.py` was not used on the branch.
+
+**Ground truth** (called out live by the founder, logged against the wall
+clock):
+
+| Time (EDT) | Event | Occupancy |
+|---|---|---|
+| ~14:55 | Guest 1 in the room with the founder | 2 |
+| 14:58:20 | Dashboard up; provider active | 2 |
+| ~15:00:32 | Guest 2 arrives | 3 |
+| 15:09:29 | Founder hits **Skip by accident** on the dashboard; music stops | 3 |
+| ~15:10:15 | Founder restarts playback by hand in Spotify: the **Hip-Hop / mid playlist** (not a controller pick) | 3 |
+| 15:26 | Guest leaves | 2 |
+| 15:27 | Guest leaves; founder alone | 1 |
+| 15:30:43 | Controller **bootstraps playback** (`RUSH` → play) | 1 |
+| ≤15:31:00 | Founder pauses; dashboard stopped (anchor written 15:31:00.5, log ends 15:30:58) | 1 |
+
+Five were invited and three attended. Peak occupancy was 3, for about
+25.5 min (15:00:32–15:26).
+
+### Checkpoints (§E)
+
+**1. New buckets drive cells — PASS as written; rung `6` unobservable.**
+There were 40 selections from the log (`for cell (…)`). Split by ground truth:
+
+| Truth | solo | pair | 3 | 4 |
+|---|---|---|---|---|
+| 1 (after 15:27) | – | 1 | 2 | – |
+| 2 | 1 | 3 | 1 | – |
+| 3 | **13** | **14** | **4** | 1 |
+
+With 3 present, `('3', …)` drove the cell 4 times (15:15:44, 15:19:58,
+15:22:37, 15:24:36). The criterion reads "at least one `('3', …)`, and if
+occupancy reached 5–6, `('6', …)`". Occupancy never passed 3, so rung 6 had
+no chance. Excluded as evidence: the 14:59:28 `('3', …)` with 2 present (one
+rung over) and the two post-departure `('3', …)` picks (15:27:14, 15:29:09),
+where silence holding the last reading is by design (invariant 5). One
+`('4', …)` at 15:24:06 with 3 present. `4` is an existing ladder rung seeded
+from `_SMALL_2020`, so the label is valid but the count is one over.
+
+**2. Presence, gating and advisory — PASS on what was exercised.** 4 of 4
+`played_through` records were `occupied=True`, `basis=fresh`
+(staleness 1.6–2.0 s), and every one had at least one person present. No
+completion happened in an empty room, so the `absent` path **was not
+exercised** (09-06 baseline: 38 fresh / 1 handoff / 4 absent).
+`envelope_advisory` was False on all 12 corpus records.
+
+**3. No crowd-regime excursions — PASS.** `headcount_crowd_weight` was 0 on
+11 of 12 records and **0.004** on one (15:18:19 annotation, 3 present,
+raw_clusters 3). That is ≈ 0 per the criterion, but it is the first non-zero
+value against the 09-06 baseline of exactly 0 on all 59 records.
+`rescued_clusters` was 0 throughout.
+
+**4. Tuning report reads the session back — PASS.** Exit 0, no errors, and
+the day's 7 annotations and 5 overrides were read (annotation records
+374 → 381; overrides 150 → 155). Rung-3 rows appear in the per-cell
+breakdown, and `3 / mid / mid` rose 15 → 17 good from this session.
+Caveat: rung `3`/`4`/`6` rows were already present from earlier sessions, so
+"appears" was true before today. The session's own contribution is the
++2 on `3 / mid / mid`.
+
+### Findings
+
+1. **A 13-minute solo collapse at close range.** From guest 2's arrival to
+   15:13:09 there were 15 picks with 3 present: **12 `solo`, 3 `pair`**.
+   Every corpus record in that window has `raw_clusters=1` and smoothed
+   log2 0.00–0.24 (e.g. the 15:09:29 skip: `solo` at 0.77 confidence,
+   recent raw log2 `[1,0,0,0,0]`, fragmentation 0.906). The laptop was at
+   arm's length, so the 2026-08-09 far-field explanation does not cover
+   this.
+2. **Then the middle resolves.** From 15:13:40 to 15:26 there were 17 picks:
+   **11 `pair`, 4 `3`, 1 `4`, 1 `solo`**. Records show `raw_clusters` 2–4
+   and smoothed log2 1.16–2.04.
+3. **What changed at ~15:13 is unmeasured.** The music changed at about
+   the same time. Until ~15:14 it was hip-hop: controller-picked MF DOOM
+   (vocal and instrumental), then from ~15:10:15 the founder's manual
+   Hip-Hop / mid playlist. From ~15:14:13 the controller's pushed jazz
+   played (*Sophisticated Lady*, pushed 15:13:56; its `played_through`
+   landed at 15:16:37 with a 144 s duration). `emotion_music_dominance` on the early records ranged
+   0–1.0 and on the later ones 0–0.125. So did the conversation, which
+   warmed up. The two are confounded. The recording, if it is 16 kHz mono,
+   can separate them offline with `m7_replay_session.py`. No knob moved.
+4. **One phantom voice at 15:23:50.** With 3 present: `raw_clusters=4`,
+   smoothed log2 2.04, bucket `4` at confidence 0.83, music dominance 0.
+   This is the "over" direction the project guards against. It happened once
+   and did not persist.
+5. **The accidental Skip is in the rates.** The override (line 3 of
+   `data/overrides/2026-09-30.jsonl`, ts 1790795369.906, vetoing *Swanee
+   River* at 103 s) was written before the action (invariant 8 held). The
+   tuning report counts it: skips 12 → 13, `solo / high / mid` gains a skip,
+   and §7 goes from `arousal_high` 3 → 4 vetoes within 0.10. The corpus has
+   no way to retract an accidental label, and the corpus is never edited.
+6. **Skip stopped the music, and the log does not show why.** The controller
+   sent `PUT /me/player/play` for the held next-up at 15:09:30.035, and
+   Spotify returned **204**. No pause was sent. The founder heard silence
+   and ~45 s later restarted playback by hand from the Hip-Hop / mid
+   playlist in Spotify. That track was not a controller pick, and no
+   `played_through` was written for it (the next is 15:16:37, a controller
+   push), which matches the rule that an external track is not a
+   positive.
+7. **After the founder paused, the controller restarted playback.** At
+   15:30:43, with the founder alone, it issued a bootstrap `play` (`RUSH`,
+   cell `('pair','mid','mid')`). The anchor was then written at 15:31:00.5
+   at **−50.7 dBFS**. The quiet anchors measured on 09-24 were −59.5 and
+   −55.8. If the pause-to-stop gap was short, or if playback had resumed,
+   this is the M11-02 condition. The timing can be bounded from the
+   evidence: the anchor persists only while `playback_active` is not True
+   (`src/dashboard/bridge.py:76–79`). `RUSH` was playing from 15:30:43, so
+   the final pause landed between 15:30:43 and the 15:31:00.5 write. That
+   is **≤ 17 s** before shutdown, well short of the minute M11-02 asks
+   for. With a τ = 60 s floor, the saved −50.7 dBFS is very likely
+   music-inflated, and it is handed to any session that starts before
+   ~03:31 on 2026-10-01 (12 h max age). The file was left untouched.
+8. **Playlist mapping gaps** showed up as `no mapped playlist` for Pop/low,
+   Hip-Hop/low and Jazz/high. These are coverage gaps in the founder's
+   mapping, not faults. Zero errors in the dashboard log for the whole
+   session.
+
+### Open items
+
+- **Gate decision (founder, 2026-09-30): part (f) closes on this
+  evidence.** Checkpoint 1 passes as written with 3 occupants. Rung 6 was
+  not exercised and is carried as an open observation, not a gate
+  condition. This closes the last open part of M7. Merged into `main` the
+  same day (`4e321b1`, local, not pushed) after founder sign-off on the
+  docs-conflict resolution.
+- Convert the recording to 16 kHz mono and replay it through `m7_replay_session.py` to
+  test whether the 15:00–15:13 collapse follows the music or the talk.
+- The corpus needs a way to retract an accidental human override without
+  deleting it (additive schema: an append-only retraction record, excluded
+  by `tuning_report.py`). This is a design item, not an ad-hoc fix.
+- Diagnose the Skip → silence behaviour (finding 6), given the 204.
+- Pausing in Spotify is not a stop: the controller bootstraps back into
+  play. The M11-02 "wait a minute after pausing" protocol needs a pause the
+  controller respects, or a different stop procedure.
+
 ## 2026-09-24 (afternoon, 16:29–17:57) — XVF3800 vs built-in array under playback: the built-in stays the default; at listening volume the music is the crowd
 
 **Setup.** Solo founder, one quiet room, one sitting, continuous animated
