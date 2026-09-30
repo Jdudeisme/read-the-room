@@ -13,7 +13,7 @@ HTTP code when there was one) so the controller can degrade to shadow mode.
 
 Endpoints:
   GET  /v1/me/player/devices          devices()
-  PUT  /v1/me/player/play             play()      (interrupts; overrides only)
+  PUT  /v1/me/player/play             play()      (interrupts; playlist context)
   POST /v1/me/player/queue            queue()
   PUT  /v1/me/player/pause            pause()
   GET  /v1/me/player                  now_playing()
@@ -211,12 +211,28 @@ class SpotifyProvider:
         ]
 
     def play(self, track: Track) -> None:
+        # Start the track INSIDE its playlist (context + offset), not as a
+        # bare {"uris": [...]} list. Measured 2026-09-30 on JPad (Windows
+        # desktop client, FIELD-NOTES that date): bare-uris play answered 204
+        # and then unloaded the device (item None, controls grayed) from both
+        # a playing and a paused start — 4 of 4 silent, including both
+        # in-session plays — while context+offset from the same stuck state
+        # played within 0.6–1.2 s, 2 of 2. Bare uris worked on 09-06, so this
+        # is a client-side change, not ours. Side effect, accepted by the
+        # founder as the right mode: when the track ends with no next-up
+        # pushed, Spotify continues through that playlist instead of going
+        # silent. Tracks without a playlist keep the bare-uris form.
+        if track.playlist_id:
+            context = "spotify:playlist:" + bare_playlist_id(track.playlist_id)
+            body = {"context_uri": context, "offset": {"uri": track.id}}
+        else:
+            body = {"uris": [track.id]}
         try:
             self._request(
                 "PUT",
                 "/me/player/play",
                 params=self._player_params(),
-                json={"uris": [track.id]},
+                json=body,
             )
         except ProviderError:
             self._device = None  # device may be gone; re-resolve on recovery

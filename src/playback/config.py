@@ -53,6 +53,16 @@ class PlaybackConfig:
     # comfortably above poll_interval_s or boundaries get missed.
     queue_lead_s: float = 15.0
 
+    # Start verification: a play() is judged by the first state poll at
+    # least this long after it — nothing playing then means the provider
+    # accepted the command and dropped it (degrade, wait for the next
+    # emission). Measured 2026-09-30 on JPad: successful plays showed
+    # is_playing within 0.6–1.2 s (4 probes), while 0.25 s after the call
+    # the OLD track still read as playing, so an early poll proves nothing.
+    # 3.0 s is ~2.5x the slowest measured start; with the 5 s poll the
+    # verdict lands on the first or second poll after the play.
+    start_verify_s: float = 3.0
+
     # Presence gate for played_through weak positives (M5 deliverable 1).
     # Occupied iff staleness <= fresh_s at completion, or the track was a
     # warm handoff (duration <= staleness <= duration + handoff_s), or a
@@ -97,6 +107,9 @@ class PlaybackConfig:
                 "RTR_PLAYBACK_POLL_INTERVAL_S", cls.poll_interval_s
             ),
             queue_lead_s=_env_float("RTR_PLAYBACK_QUEUE_LEAD_S", cls.queue_lead_s),
+            start_verify_s=_env_float(
+                "RTR_PLAYBACK_START_VERIFY_S", cls.start_verify_s
+            ),
             presence_fresh_s=_env_float(
                 "RTR_PLAYBACK_PRESENCE_FRESH_S", cls.presence_fresh_s
             ),

@@ -28,6 +28,15 @@ of its own end — with no override. A track that merely vanishes mid-flight
 (provider quit, external skip from the Spotify app) is not a positive. The
 caller (dashboard) owns writing the record.
 
+Start verification: a 204 from play() is not evidence that music started —
+on 2026-09-30 the Windows desktop client accepted plays and loaded nothing
+(FIELD-NOTES that date). So every play is judged by the first state poll at
+least `start_verify_s` after it: nothing playing then is a failed start and
+degrades like any provider error (no retry — the next emission tries
+afresh). The verdict does not demand the exact requested id — the client
+can report a substituted track id — only that something plays and it is
+not the track the play was meant to interrupt.
+
 Failure isolation: any ProviderError logs, flips status to "degraded" (the
 dashboard surfaces it and presents shadow mode), and the next event retries.
 The cached now-playing state is RETAINED through provider errors: if we
@@ -41,6 +50,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import TYPE_CHECKING, Callable
 
 from mapping.mapper import GUARD_CELL
@@ -108,6 +118,10 @@ class PlaybackController:
         self._last_rec: Recommendation | None = None  # for override resamples
         self._attribution: dict[str, dict] = {}  # track id -> rec/choice dict
         self._overridden: dict[str, None] = {}  # ordered set of track ids
+        # (track, monotonic time of play, id that was playing when the play
+        # was sent) until a poll past start_verify_s judges whether the play
+        # took. Latest play wins.
+        self._pending_start: tuple[Track, float, str | None] | None = None
         self.status = "starting"  # starting | active | degraded | stopped
         self.error: str | None = None
         self._thread = threading.Thread(
@@ -273,6 +287,7 @@ class PlaybackController:
         with self._lock:
             self._last_rec = rec
             if bootstrap:
+                self._pending_start = (track, time.monotonic(), None)
                 self._intent = None
                 self._queued = None
             else:
@@ -294,13 +309,31 @@ class PlaybackController:
         boundary window (append-only queue — exactly one track outstanding),
         emit the played_through weak positive when a selected, non-overridden
         track observably completes, and start the held selection when a
-        track runs out into silence before any near-end poll could push."""
+        track runs out into silence before any near-end poll could push.
+        Also judges a pending play once start_verify_s has passed: nothing
+        playing raises ProviderError after the boundary work is done."""
         push: Track | None = None
         start: Track | None = None
         emit: tuple[dict, dict] | None = None
+        failed_start: Track | None = None
+        substituted: tuple[Track, str] | None = None
         with self._lock:
             prev = self._now
             self._now = new
+            if self._pending_start is not None:
+                pending, sent_at, was = self._pending_start
+                if time.monotonic() - sent_at >= self._config.start_verify_s:
+                    self._pending_start = None
+                    if (
+                        new is None
+                        or not new.is_playing
+                        or (was is not None and new.track.id == was != pending.id)
+                    ):
+                        # Nothing playing, or the interrupted track never
+                        # stopped: the play was dropped.
+                        failed_start = pending
+                    elif new.track.id != pending.id:
+                        substituted = (pending, new.track.id)
             took_over = (
                 new is not None
                 and self._queued is not None
@@ -353,6 +386,21 @@ class PlaybackController:
                 self.on_played_through(*emit)
             except Exception:
                 log.exception("played_through sink failed; label lost")
+        if substituted is not None:
+            # Not a failure, but attribution is keyed by the requested id,
+            # so this track cannot earn a played_through (FIELD-NOTES
+            # 2026-09-30 open item).
+            log.info(
+                "started %r, but the provider reports id %s for requested %s",
+                substituted[0].title,
+                substituted[1],
+                substituted[0].id,
+            )
+        if failed_start is not None:
+            raise ProviderError(
+                f"play accepted but nothing started within "
+                f"{self._config.start_verify_s:.1f} s: {failed_start.title!r}"
+            )
 
     def _near_end(self, np: NowPlaying) -> bool:
         """Inside the boundary window of the track's end, as last observed.
@@ -368,6 +416,8 @@ class PlaybackController:
     def _play_now(self, track: Track) -> None:
         self._provider.play(track)
         with self._lock:
+            was = self._now.track.id if self._now and self._now.is_playing else None
+            self._pending_start = (track, time.monotonic(), was)
             device = self._now.device_id if self._now is not None else None
             self._now = NowPlaying(
                 track=track, progress_s=0.0, is_playing=True, device_id=device
