@@ -7,14 +7,18 @@ name = "read-the-room"
 version = "0.1.0"
 description = "Ambient room-sensing engine: loudness, speech, and emotion from live audio."
 readme = "README.md"
-# Pinned to 3.12: the demo target (2019 Intel MacBook Pro) is capped at
-# torch 2.2.2, whose last Intel-macOS wheels are cp312. Do not bump without
-# re-checking wheel availability for macOS x86_64.
+# Pinned to 3.12: the original demo target (2019 Intel MacBook Pro) was capped
+# at torch 2.2.2, whose last Intel-macOS wheels are cp312. That Mac was retired
+# 2026-09-30 and JPad (Windows) is the only target, so the macOS reason no
+# longer binds. The pins below stay until lifting them is its own
+# evidence-gated change on JPad (benchmark regression row + the 2026-07-15
+# gate-WAV replay), because every gate row and replay so far ran on them.
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 dependencies = [
-    # torch 2.2.x is the last release with Intel-macOS wheels; keep both
-    # platforms on the same version so MacBook benchmarks stay representative.
+    # torch 2.2.x is the last release with Intel-macOS wheels. It was held
+    # the same on both platforms so MacBook benchmarks stayed representative.
+    # Historical since the Mac's retirement; see the requires-python note.
     "torch>=2.2.2,<2.3",
     "torchaudio>=2.2.2,<2.3",
     # torch 2.2 predates numpy 2.0 and crashes against it.
@@ -23,7 +27,7 @@ dependencies = [
     "silero-vad>=5.1",
     # ECAPA-TDNN speaker embeddings for the M2 headcount layer. 1.1.0 moved
     # to torch's unified amp API (torch.amp.custom_fwd with device_type=),
-    # which doesn't exist in the 2.2.x line this Mac is pinned to; 1.0.x
+    # which doesn't exist in the 2.2.x line torch is pinned to; 1.0.x
     # still uses torch.cuda.amp.custom_fwd, which does. Stay <1.1.
     "speechbrain>=1.0,<1.1",
     "sounddevice>=0.4.6",

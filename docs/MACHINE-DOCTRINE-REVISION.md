@@ -87,3 +87,37 @@ been shown to differ in ways that matter beyond speed (below).
 - Existing test plans (`docs/M*-TEST-PLAN.md`) are written "for Claude Code
   on the Mac". They are evidentiary record and are **not** rewritten; new
   milestone test plans target the reference machine.
+
+## Addendum, 2026-09-30 — the Mac is retired
+
+**Founder direction, 2026-09-30.** The 2019 Intel MacBook Pro is dead and
+will not be used again. This settles the open question in consequence 5
+("with the Mac's continued role settled"): it has no role. JPad is the
+**only** machine — development, gates, calibration, and demo. Nothing above
+is rewritten; this addendum supersedes "secondary compatibility target"
+wherever it appears.
+
+- **Surviving Mac files** are on the founder's "Yale Laptop" network share
+  (served from another machine on the LAN, mapped on JPad as `Z:`). The
+  Mac-era repo copy is `Documents\readtheroom\read-the-room` on that
+  share. Anything not there is lost. `AUDIT.md` was not there, nor on
+  JPad, nor on the founder's PC. Its findings survive as "AUDIT finding N"
+  citations and the deferred ledger in `ROADMAP.md`.
+- **The 2026-07-15 gate WAV survived and reproduces on JPad.** It was
+  copied from the share into `data/captures/` and replayed. It gives the
+  same histogram as on the Mac (FIELD-NOTES 2026-09-30, night). So the
+  headcount replay check in `CLAUDE.md` can be run on JPad.
+- **Pins (consequence 5).** Their original reason, the Intel-macOS wheels,
+  is gone. They still stay. Lifting them is its own evidence-gated decision
+  on JPad, with a benchmark regression row and the 07-15 replay before and
+  after. It is not done here.
+- **Mac-measured defaults in `config.py`** are now unverified carry-overs,
+  not reference values. Only the dominance knots have been re-measured on
+  JPad, and they are still PROVISIONAL. Each refit is still a calibration
+  event.
+- **Re-targeted the same day:** ROADMAP's M8 gate (b)/(c), M8-04, the M9
+  gate, M9-04, M9-05, M9-06, M10-01, M10-05, M10-07, M12-01, and the pin
+  ledger. Also README setup and the performance budget, CLAUDE.md's
+  reference-machine, pin and replay paragraphs, and the `pyproject.toml`
+  pin comments. Gate rows, test plans and FIELD-NOTES that record Mac runs
+  stay as historical record.
