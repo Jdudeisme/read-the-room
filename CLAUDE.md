@@ -2,9 +2,14 @@
 
 Ambient room-sensing engine (mic → RoomState → music recommendation → Spotify
 playback), built through evidence-gated milestones. Read `README.md` for the
-system, `AUDIT.md` for known issues, `ROADMAP.md` for planned work,
+system, `ROADMAP.md` for known issues and planned work,
 `docs/FIELD-NOTES.md` for why things are the way they are. This file is the
 discipline: the mistakes to not make.
+
+The original audit document no longer exists; its findings survive only as
+citations in `ROADMAP.md`. "AUDIT finding N" items are backlog entries, and
+the closing "Deferred / rejected — the no-silent-drops ledger" records the
+decision on every finding not in the backlog. Grep `ROADMAP.md` for `AUDIT`.
 
 ## The prime directive: evidence over cleverness
 
@@ -79,7 +84,8 @@ presence windows 60/30 s. The provenance is written at the constant's site.
 ## Deliberate behaviors — do not "fix" these
 
 A context-free reviewer flags all of these; each is intentional. If you think
-one is wrong, check AUDIT.md/ROADMAP.md first — several are already tracked.
+one is wrong, check ROADMAP.md first (backlog and deferred ledger) — several
+are already tracked.
 
 - **The rescue flag is OFF** (`RTR_HEADCOUNT_RESCUE_ENABLED=0`). The
   distinct-voice rescue was disproven on the validated mic (FIELD-NOTES
