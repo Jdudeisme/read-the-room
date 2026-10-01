@@ -5,6 +5,114 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-30 (night, ~19:00–20:25) — the part (f) solo collapse replayed: vocal hip-hop passes the playback gate and reads as one voice
+
+**Setup.** This is an offline replay of the afternoon's consent-gated
+recording, to answer that entry's open item: did the 15:00–15:13 solo
+collapse follow the music or the talk? JPad, `main` @ `84468ff`. The
+recording is `data/captures/ReadTheRoom M7 Just Dani and Brandon.m4a`
+(uncommitted), made with Windows Sound Recorder on JPad itself while the
+dashboard ran. Its input device is inferred to be the default, the
+built-in array the dashboard used (`Microphone Array on SoundWire D`);
+that is not verified. It is AAC, 48 kHz stereo, 1664.1 s. It was
+converted to 16 kHz mono PCM with the built-in `Windows.Media.Transcoding`
+API (JPad has no ffmpeg) to `data/captures/m7-partf-2026-09-30-16k.wav`.
+**Alignment:** the level drops at offset ~540 s and returns at ~585 s.
+That is the 45 s of silence after the 15:09:29.9 accidental Skip, so the
+recording starts at **≈15:00:30** (founder's estimate: 15:00:32).
+
+The replay script (`data/partf-replay/replay_partf.py`, local, not
+committed; `scripts/m7_replay_session.py` is left as the 07-15 evidence)
+drives the real Silero `VadGate` → `speech_segments` → ECAPA →
+`HeadcountEstimator` → `BucketSmoother`. It **mirrors this session's JPad
+config**, not the Mac's: headcount interval **2.0 s** (not the committed
+script's 4.0, ROADMAP M10-05), min speech ratio 0.2, certification
+threshold **0.75 while playback is active** (`RTR_VAD_PLAYBACK_THRESHOLD`)
+and 0.5 otherwise. `playback_active` comes from the session timeline (off
+only in the 45 s Skip gap), and the engine's rolling noise floor
+(`Ema` τ 60 s over windows with raw ratio < 0.1) is passed to the
+estimator. Rescue off. Two variants: **faithful** (the above) and
+**thr05** (0.5 always, i.e. the playback gate removed). Per-hop dumps are in
+`data/partf-replay/{faithful,thr05}.jsonl` (830 hops each).
+
+**Correction made during the analysis.** The first run wrote both
+variants to one file, and the first read took the tail, which was the
+thr05 report, as the faithful one. For a short while that gave a wrong
+provisional read ("the replay collapses under jazz too; the music is not
+the cause"). Both variants were rerun into separate files. The numbers
+below are from those, and the thr05 rerun reproduced the first run
+exactly.
+
+| Music playing (wall clock) | Faithful (0.75 gate) | thr05 (no gate) | p ∈ [0.5, 0.75) |
+|---|---|---|---|
+| *Tick, Tock* — MF DOOM, vocal hip-hop (15:00:30–15:05:34) | solo 117, pair 23, 3: 3 (ratio 0.79, frag 0.80) | solo 118, pair 11, 3: 11, 4: 8 | **8.6 %** |
+| *Rhymes Like Dimes* — instrumental hip-hop (–15:07:46) | solo 43, pair 10 (ratio 0.45, frag 0.89) | solo 65 (frag 1.00) | **34 %** |
+| *Swanee River* — big band (–15:09:30) | **pair 40**, solo 2 (ratio 0.46) | solo 51 (frag 1.00) | 22 % |
+| no music, Skip gap (–15:10:15) | solo 22 | solo 22 | 5 % |
+| founder's manual Hip-Hop / mid playlist (–15:14:13) | solo 66, pair 50 (ratio 0.80) | solo 88, pair 30 | 10 % |
+| jazz, *Sophisticated Lady* onward (–15:28:14) | pair 152, **3: 108**, 4: 23, solo 59 (ratio 0.55, frag 0.62) | solo 194, pair 182, **no 3** | 16 % |
+
+Occupancy was 3 throughout until 15:26. `crowd_weight` peaked at 0.011.
+"frag" is the estimator's `fragmentation`: the fraction of segments in
+mass-failing stray clusters.
+
+**Findings.**
+
+1. **The replay reproduces the live collapse from the audio alone.** It is
+   mostly `solo` under hip-hop and `pair`/`3` under jazz, and the switch
+   is sharp: `solo` at 15:13:30, `pair` at 15:14:00, `3` by 15:14:30.
+   That is within 30 s of the hip-hop → jazz change (*Sophisticated Lady*
+   started ~15:14:13). The conversation did not have to change for the
+   reading to change.
+2. **Vocal hip-hop passes the playback gate.** The VAD scores the rap as
+   confident speech. Only 8.6 % of its chunks fall in the
+   [0.5, 0.75) band that the 0.75 gate removes, against 34 % for the
+   instrumental hip-hop track. The certified ratio is 0.79–0.80 under vocal
+   hip-hop and 0.55 under jazz, with the same three people talking. So
+   the vocals enter the embedding buffer as a voice. Under them,
+   fragmentation sits at 0.80: the guests' speech scatters into clusters
+   too small to pass `min_cluster_frac`, and one cluster is left counted.
+   **Founder confirmation:** the vocals on those tracks were "powerful".
+3. **The playback gate is load-bearing.** Without it (thr05), every music
+   segment collapses, jazz included: 0 hops at `3`, fragmentation 1.00 on
+   the instrumental and big-band tracks. With it, jazz reaches `3` and big
+   band holds `pair`. The gate works for music the VAD half-believes and
+   fails for music it fully believes.
+4. **This contradicts the basis of the M5 deferral on this hardware and
+   content.** M5-PROPOSAL Deliverable 3 deferred the ML music-detection
+   gate because "the strict `vad_playback_threshold` already rejects sung
+   vocals outright": Mac, Pop, silent room, speech_ratio ≤ 0.003. On JPad's
+   built-in array at 32 % Windows volume, rap vocals certify. That is the
+   proposal's own build trigger (ii), "phantom certification the threshold
+   gate can't hold", observed. (09-24 found the related high-volume regime:
+   "at listening volume the music is the crowd".)
+5. **Energy is exposed too, through the same certification.**
+   `energy_score` weights loudness 0.30, onset activity 0.20, certified
+   `speech_ratio` 0.25 and arousal 0.25. During playback, the first three
+   are computed on room-plus-music audio with no correction (the M6
+   correction covers arousal and valence only), and `speech_ratio` carries
+   the certified rap. The energy trend feeds the mapper's `energy_action`
+   when the arousal trend is flat, so the DJ can partly read its own output.
+
+**Caveats.** This is one session, with one occupancy (3). The recorder's
+input device is inferred. Who was talking was not measured. The
+music-free stretches (the Skip gap, and a ~40 s gap before the jazz) are
+shorter than the 90 s buffer, so they are not clean controls. Both read
+`solo` while still holding hip-hop-era embeddings.
+
+**Open items.**
+
+- **No milestone owns the music-detection gate.** It was deferred at M4,
+  deferred again at M5 with reopen triggers, and kept deferred at M6, which
+  built emotion-only signature correction. ROADMAP M8–M11 has no item for
+  it. This evidence meets an M5 reopen trigger; it needs a charter.
+  Sequencing: it changes the engine's certification point, so it waits
+  for M8-01/M8-02 (engine soft freeze), and it is REQUIRES-REVIEW
+  (published sensor semantics).
+- The replay data in `data/partf-replay/` is the before-picture for any
+  such gate: rerun the same recording through it and compare the table
+  above.
+
 ## 2026-09-30 (evening, 18:09–18:50) — the Spotify 204-but-silent probe: the desktop client drops bare-uris plays; playlist context plays
 
 **Setup.** Follow-up to finding 6 and 7 of the afternoon's part (f) entry
