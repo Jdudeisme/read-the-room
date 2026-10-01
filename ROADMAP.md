@@ -1,9 +1,14 @@
 # ROADMAP — Read the Room, post-M7
 
-Two goals, in priority order: **(1) live-demo readiness** — a 60+ minute live event
-where a musician performs while RTR visibly responds, ending with export of a
-shareable "energy curve" artifact of the session; **(2) commercialization
-readiness** — a codebase a small team can onboard onto and ship.
+Goals, in priority order (founder direction, 2026-09-30):
+**(1) the laptop reads the room and plays the right music.** The laptop's own
+microphone reads the room it is in, for parties of different sizes, and the
+right music plays from the laptop's own speakers, without that music corrupting
+the reading (M8, then M12). **(2) Commercialization readiness:** a codebase a
+small team can onboard onto and ship (M10). **(3) Later: live-demo readiness**,
+a 60+ minute live event where a musician performs while RTR visibly responds,
+ending with export of a shareable "energy curve" artifact of the session (M9).
+External microphones and venue speakers follow when the founder opens M11.
 
 Ground rules for the executing agent:
 
@@ -15,6 +20,9 @@ Ground rules for the executing agent:
   table row), never when its items are merely merged.
 - **Sequencing is load-bearing:** M8 makes the engine safe to change; nothing that
   modifies `src/sensing/engine.py` may land before M8-01/M8-02 are complete.
+- **M12 comes before M9** (founder direction, 2026-09-30). Handle RTR's own
+  playback from the laptop first; live-musician work (M9) follows. M12 is placed
+  between M8 and M9 below so the reading order is the priority order.
 - Items tagged **REQUIRES-REVIEW** must not be executed autonomously: get explicit
   human sign-off on the plan *and* the diff. They touch the audio path, published
   sensor semantics, or session/corpus capture.
@@ -343,6 +351,203 @@ during a playback test, no exceptions in the log).
 
 ---
 
+## M12 — Hear the room, not the playlist: RTR's own playback out of the analysis
+
+**Charter.** RTR plays music into the room it is measuring, and today that music
+reaches headcount, emotion and energy as if it were the room. The 2026-09-30
+part (f) session measured it on JPad's built-in array at 32 % Windows volume
+(FIELD-NOTES 2026-09-30, night):
+- vocal hip-hop **passed** the 0.75 playback certification threshold: only 8.6 %
+  of its VAD chunks fell in the band the threshold removes, against 34 % for an
+  instrumental track;
+- the certified rap entered the speaker-embedding buffer as a voice and read
+  three people as `solo` (117 of 143 hops); the same three people read
+  `pair`/`3` within 30 s of the music changing to jazz.
+
+09-24 found the louder regime ("at listening volume the music is the crowd"),
+and M11's charter lists "sung vocals passed certification and clustered as
+voices" for the XVF3800. M5-PROPOSAL Deliverable 3 deferred the music-detection
+gate because the threshold "already rejects sung vocals outright" (Mac, Pop).
+On this hardware and content it does not. That is M5's own build trigger (ii),
+"phantom certification the threshold gate can't hold". Energy is exposed
+through the same path: `energy_score` takes loudness, onset activity and
+certified `speech_ratio` from room-plus-music audio with no correction, and the
+M6 correction covers valence and arousal only.
+
+M12 removes **RTR's own playback**, which it knows exactly, from every layer:
+- cancel it against a captured reference before analysis;
+- refuse to certify what cancellation leaves behind;
+- compute energy on what remains.
+
+**Out of scope:** live music that is not RTR's playback (M9: there the music
+*is* the room's energy), and venue speakers or external arrays (M11, whose
+M11-04 is the hardware analogue of M12-02).
+
+**Sequencing.** M12 comes after M8-01/M8-02 (M12-03 and M12-04 change the
+engine's certification point and energy) and before M9 (founder direction,
+2026-09-30). Every item touches the audio path or published sensor semantics,
+so each is REQUIRES-REVIEW.
+
+**Gate:**
+- (a) **Offline:** the 2026-09-30 recording replayed through the M12-03 gate,
+  with the per-segment table compared against the "before" table in
+  FIELD-NOTES 2026-09-30 (night), from `data/partf-replay/` or a regenerated
+  equivalent. The recording has no reference channel, so this exercises only
+  the reference-free part of M12-03.
+- (b) **Live:** the M12-05 protocol run once on JPad by a human, with ≥ 3
+  people, the pre-registered decision rule applied, and the result recorded in
+  FIELD-NOTES and the README gate table.
+- (c) **Budget:** a `bench_headcount.py --fallback` row on the reference
+  machine with the M12 path enabled, inside the ~1.66 s headcount budget, with
+  the DSP heartbeat still never blocking.
+
+No target numbers: the gate is the protocols run and the decisions recorded
+with their measurements.
+
+### M12-01 — Playback reference capture (loopback) — REQUIRES-REVIEW
+
+- **Problem:** Nothing in RTR hears what the laptop is sending to its
+  speakers. Without that reference, music can only be *guessed* out of the mic
+  signal.
+- **Why it matters:** RTR's playback is the one interference source known
+  sample-for-sample. A reference turns removing it from a classification
+  problem into a cancellation problem, and every later item builds on it.
+- **Scope:** A second capture stream of the default output device's mix
+  (Windows WASAPI loopback), time-aligned to the mic ring:
+  - a read-only probe script first: measure the mic-vs-reference delay and its
+    drift over 30 minutes on JPad, with Spotify at the 09-30 settings (32 %
+    Windows, 100 % Spotify) and at 75 %;
+  - then a `ReferenceSource` beside `MicSource`, off by default
+    (`RTR_PLAYBACK_REFERENCE_ENABLED=0`, house pattern: config field with
+    provenance, `from_env`, `.env.example`).
+
+  The reference is **never written to disk** by default: it is the music plus
+  any other system sound (notifications, calls), so persisting it is a new
+  capture of room-adjacent data.
+
+  **Out of scope:** macOS (loopback needs a virtual device there; the Mac is a
+  secondary target), and any new dependency without its own evidence event,
+  given `pyproject.toml`'s load-bearing pins. Whether the current audio stack
+  can open a WASAPI loopback is the probe's first question.
+- **Acceptance criteria:** FIELD-NOTES records the measured delay, its drift,
+  and the reference level at both volumes. The probe shows the reference
+  tracks Spotify's play, pause and skip within one hop.
+- **Risk notes:** System sounds share the loopback, so the reference is
+  "everything the laptop plays", not only Spotify. Clock drift between
+  devices can defeat a fixed delay; measure before choosing an alignment
+  method.
+- **Effort:** M
+
+### M12-02 — Reference-based playback cancellation on the built-in array — REQUIRES-REVIEW
+
+- **Problem:** With a reference (M12-01), the playback component of the mic
+  signal can be estimated and subtracted before the VAD, the DSP heartbeat and
+  the workers see it. Nothing does this today.
+- **Why it matters:** Cancellation helps every layer at once: headcount
+  embeddings, emotion windows, loudness, activity and spectral balance. It is
+  the only approach that removes music *under* speech, not just music
+  *instead of* speech.
+- **Scope:** An adaptive echo canceller on the capture side, fed by mic and
+  reference. The algorithm is a measured choice (e.g. frequency-domain NLMS in
+  numpy versus a pinned library); a dependency is its own evidence event. It
+  produces a **clean** stream alongside the raw one. The raw stream stays
+  available, so every frame can be reconstructed and compared offline (house
+  "raw is always reconstructable" rule, as for M6). The canceller runs in
+  capture/DSP time with no model inference, so the heartbeat never blocks.
+  **Out of scope:** the XVF3800 (M11-04), and replacing the M6 correction:
+  M6 stays and measures what is left.
+- **Acceptance criteria:**
+  - echo return loss enhancement (ERLE) measured on music-only windows at both
+    M12-01 volumes, and convergence time after play, skip and track change;
+  - speech distortion checked on a speech-only control: certified
+    `speech_ratio` and ECAPA embedding similarity, clean versus raw.
+
+  All recorded in FIELD-NOTES, with no target numbers.
+- **Risk notes:**
+  - Laptop speakers driven hard are non-linear; residual echo is expected and
+    is M12-03's job.
+  - Double-talk (people talking over music) is where cancellers diverge.
+    Measure it, don't assume it.
+- **Effort:** L
+
+### M12-03 — Playback-aware certification gate — REQUIRES-REVIEW
+
+- **Problem:** Certification is a single VAD threshold (0.5, or 0.75 during
+  playback). Vocal music the VAD fully believes passes it (FIELD-NOTES
+  2026-09-30, night).
+- **Why it matters:** Certification is the engine's single gate (invariant 2).
+  A chunk refused here is refused for headcount and emotion at once, and for
+  the energy `speech_ratio` term once M12-04 lands. The README has reserved
+  this seam for a music-detection gate since M2.
+- **Scope:** A per-chunk "dominated by our playback" decision, applied at
+  the certification point in `engine.py`. A chunk certifies only if the VAD
+  passes it **and** it is not playback-dominated. Cheapest evidence first:
+  1. post-cancellation residual level against the reference level;
+  2. mic–reference coherence per chunk (no model);
+  3. only if (1) and (2) are measured insufficient, a speech/music classifier.
+     It would run on a worker thread with a latest-wins result applied at
+     certification, never in the tick (invariant 3).
+
+  A reference-free fallback for when M12-01 is off is a separate decision,
+  recorded with its measurements.
+  **Out of scope:** live music (M9), and changing the 0.5/0.75 thresholds.
+- **Acceptance criteria:** The gate (a) replay, with the before/after table in
+  FIELD-NOTES; and in the M12-05 session, certified `speech_ratio` during
+  music-only phases and the headcount distribution against ground truth during
+  talk-over-music phases, with no target numbers. Frames carry the gate's
+  per-window decision as an additive field, so its effect is reconstructable
+  offline.
+- **Risk notes:** Over-gating is the opposite failure, as M5 measured at 93 %
+  volume: "the system's problem was blindness, not phantoms". If the gate
+  refuses real speech under loud music, the room goes stale. Staleness
+  semantics (invariant 5) hold either way: silence holds, it never reads as
+  empty.
+- **Effort:** M
+
+### M12-04 — Playback-clean energy — REQUIRES-REVIEW
+
+- **Problem:** `energy_score` blends loudness (0.30), onset activity (0.20),
+  certified `speech_ratio` (0.25) and arousal (0.25). During playback the first
+  three are measured on room-plus-music audio, and the energy trend steers the
+  mapper's `energy_action` whenever the arousal trend is flat. The DJ can read
+  its own output as the room's energy.
+- **Why it matters:** Energy is the axis the DJ moves. A feedback loop through
+  its own music is the failure the founder named on 2026-09-30.
+- **Scope:** During playback, compute loudness, activity and spectral balance
+  on the M12-02 clean stream, and the `speech_ratio` term from M12-03's
+  certification. RoomState carries the clean values as **new fields** beside
+  the existing ones (additive schema; corpus records bump `schema_version` per
+  invariant 9). The mapper's trend input switches to the clean energy only
+  after the M12-05 measurement supports it. **Out of scope:** reweighting
+  `energy_score`, which is a calibration event of its own.
+- **Acceptance criteria:** In the M12-05 session, the raw-versus-clean energy
+  difference between matched music-on and music-off phases with the same
+  talk, recorded in FIELD-NOTES. The `tuning_report.py` audit passes on the
+  new schema.
+- **Effort:** M
+
+### M12-05 — Evaluation protocol: paired live session on JPad — REQUIRES-REVIEW
+
+- **Problem:** Every M12 claim is about a live room. The only evidence today
+  is one session recorded without a reference channel.
+- **Scope:** A pre-registered run sheet (written by an agent, run by a human,
+  never started by an agent):
+  - **Phases:** speech-only control; music-only (nobody talking); talk over
+    vocal hip-hop; talk over instrumental; talk over jazz. Each at 32 % and
+    75 % Windows volume, ≥ 3 minutes per phase.
+  - **Occupancy:** 1 and ≥ 3, called out live and logged against the wall
+    clock as on 2026-09-30.
+  - **Captures:** consent-gated mic + reference recording, so every phase
+    replays offline with M12-02/03 on and off.
+  - **Decision rule:** pre-registered, for whether the mapper's trend moves to
+    clean energy (M12-04) and whether M12-03 needs the classifier step.
+- **Acceptance criteria:** The run sheet is approved before the session; the
+  session is run once; FIELD-NOTES records each phase's measurements and the
+  decision rule's outcome.
+- **Effort:** M
+
+---
+
 ## M9 — Stage-ready: the live-performance demo
 
 **Charter.** M9 proves RTR can run a 60+ minute live-music event and hand the
@@ -358,6 +563,11 @@ rehearsal — 60+ continuous minutes of live/loud music on the Mac, dashboard
 visibly tracking throughout, zero unhandled exceptions, memory/CPU flat per the
 soak protocol, ending with a one-command export of the session's energy-curve
 artifact; runbook followed end-to-end by a human who did not write it.
+
+**Sequenced after M12** (founder direction, 2026-09-30): RTR's own playback
+is handled before live musicians. M12's playback cancellation and gate apply
+only to RTR's own playback; live music still arrives with
+`playback_active=false`, as this charter says.
 
 ### M9-01 — Session recorder: full-session RoomState log from the dashboard — REQUIRES-REVIEW
 
