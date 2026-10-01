@@ -80,11 +80,13 @@ deliberately thin; M2's dashboard swaps in without touching the engine.
 
 ## Setup
 
-Requires **Python 3.12** — not newer. The demo target (2019 Intel MacBook Pro)
-is capped at torch 2.2.2, the last PyTorch release with Intel-macOS wheels,
-and its wheels stop at Python 3.12. Both platforms pin the same torch version
-so the runtime is identical. Note that *performance* and *calibration* do not
-transfer between machines — see
+Requires **Python 3.12** — not newer. The pins (torch 2.2.x, numpy<2, and the
+rest in `pyproject.toml`) were set for the original demo target, a 2019 Intel
+MacBook Pro capped at torch 2.2.2, whose Intel-macOS wheels stop at Python
+3.12. That Mac was retired on 2026-09-30. The pins stay until lifting them is
+decided as its own evidence-gated change. The Windows laptop `JPad` is the
+only development, gate and demo machine. *Performance* and *calibration* did
+not transfer from the Mac — see
 [docs/MACHINE-DOCTRINE-REVISION.md](docs/MACHINE-DOCTRINE-REVISION.md).
 
 ### Windows
@@ -95,20 +97,22 @@ py -3.12 -m venv .venv
 pip install -e .[dev]
 ```
 
-### macOS (Intel)
+**Microphone:** an empty `RTR_INPUT_DEVICE` follows the Windows default input,
+which changes when a USB or Bluetooth mic is plugged in. That silently changes
+the capture path, and calibration is per capture path. Pin the device by name
+(`read-the-room --list-devices`; JPad's built-in array is
+`Microphone Array on SoundWire D`). A dead mic is not reported: on 2026-09-06
+the stream opened cleanly and then delivered near-silence for seven minutes,
+so a deaf engine looked exactly like a quiet room (FIELD-NOTES). After every
+start, check that the loudness readout moves when you talk. A restart fixed
+it then.
 
-```bash
-python3.12 -m venv .venv          # e.g. brew install python@3.12
-source .venv/bin/activate
-pip install -e '.[dev]'
-```
+### macOS — retired
 
-**Microphone permission:** macOS prompts for mic access the first time the
-process opens an input stream, and the permission attaches to the *launching
-app* (Terminal / iTerm2 / VS Code). If you ever denied it, the engine will see
-pure silence rather than fail loudly — fix it under
-**System Settings → Privacy & Security → Microphone** and enable your
-terminal. After changing the setting, restart the terminal app.
+The 2019 Intel MacBook Pro that ran M1–M7 was retired on 2026-09-30, and
+macOS is no longer a supported target. Its setup steps and the macOS
+microphone-permission notes are in this file's git history. Its gate rows
+below are kept as historical record.
 
 ### First run
 
@@ -390,9 +394,10 @@ revised charter's bar. Full write-up in
 **Reference machine, from 2026-09-06: the Windows laptop (`JPad`).** It is
 now the primary development *and* gate machine; performance claims and live
 calibrations count from it ([docs/MACHINE-DOCTRINE-REVISION.md](docs/MACHINE-DOCTRINE-REVISION.md)).
-The 2019 Intel MacBook Pro is retained as a secondary compatibility target —
-its gate rows below are kept as **historical record** and are *not*
-comparable to new rows, because the budget arithmetic differs.
+The 2019 Intel MacBook Pro was a secondary compatibility target until its
+retirement on 2026-09-30 and is no longer used. Its gate rows below are kept
+as **historical record** and are *not* comparable to new rows, because the
+budget arithmetic differs.
 
 Budget arithmetic: the 2 s hop, minus emotion's measured floor on the
 reference machine (**0.34 s**, 2026-09-06), leaves **~1.66 s (p95) for
@@ -407,9 +412,10 @@ python scripts/bench_headcount.py --concurrent  # strict every-hop gate
 python scripts/bench_headcount.py --fallback    # every-other-hop gate — THE M2 GATE
 ```
 
-`--concurrent` fails on this machine on a relative-drift technicality even
-though no hop misses its deadline; the milestone gate is `--fallback`, which
-validates the pre-approved fallback config directly:
+On the retired Mac, `--concurrent` failed on a relative-drift technicality
+even though no hop missed its deadline. JPad passes it (results below). The
+regression row for refactors is still `--fallback`, which validates the
+pre-approved fallback config directly:
 `RTR_HEADCOUNT_MIN_INTERVAL_S=4.0` (headcount every other hop) plus
 `RTR_TORCH_THREADS=2` (limit core oversubscription). Full rationale and
 pass criteria for each mode are in
@@ -443,7 +449,7 @@ budget, the fallbacks — in order — are:
 | `bench_headcount.py --concurrent` | headcount, every hop | 0.25 s | 0.30 s | < 1.66 s | **PASS** |
 | `bench_headcount.py --concurrent` | emotion, every hop | 0.40 s | 0.42 s | < 1.2 s absolute | PASS |
 
-This machine passes `--concurrent` — the strict every-hop gate the Mac has
+This machine passes `--concurrent` — the strict every-hop gate the Mac
 never passed — so its `.env` runs headcount every hop
 (`RTR_HEADCOUNT_MIN_INTERVAL_S=2.0`, `RTR_TORCH_THREADS=0`) rather than the
 Mac's every-other-hop fallback. Full context in the 2026-09-06 entries of

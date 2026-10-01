@@ -5,6 +5,61 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-30 (late night) — the Mac is retired; the 07-15 gate WAV replays identically on JPad
+
+**Context.** Founder direction: the 2019 Intel MacBook Pro is dead and will
+not be used again. JPad is the only machine (addendum to
+`docs/MACHINE-DOCTRINE-REVISION.md`). The Mac's surviving files are on the
+founder's "Yale Laptop" network share, mapped on JPad as `Z:`. The
+2026-07-15 M7 gate recording was copied from it and hash-checked against
+the share copy: `data/captures/m7-gate-2026-07-15.wav`, 16 kHz mono,
+24.42 min, 46,890,966 bytes, SHA-256 `8E5E1D6B…C044A9C482`. `AUDIT.md`
+was not on the share, nor on JPad or the founder's PC. Its findings
+survive only as citations in `ROADMAP.md`.
+
+**Run.** An offline replay; no mic, nobody in the room. JPad, `main` @
+`14c205b`:
+`.venv\Scripts\python.exe scripts\m7_replay_session.py data\captures\m7-gate-2026-07-15.wav`.
+The script is unmodified and mirrors the **Mac's 07-15 session config**,
+not JPad's `.env`:
+- headcount interval 4.0 s (JPad live runs 2.0);
+- certification threshold 0.5;
+- min speech ratio 0.2;
+- `HeadcountEstimator` / `BucketSmoother` defaults;
+- ECAPA on 2 torch threads.
+
+Wall time was 7 m 58 s for both passes. There were two warnings, neither
+affecting the result: scipy skipped a non-data WAV chunk (likely the Mac's
+`afconvert` metadata), and SpeechBrain reported no torchaudio backend
+(audio is read with scipy, not torchaudio).
+
+| | JPad, 2026-09-30 | recorded (Mac, 2026-07-15) |
+|---|---|---|
+| rescue OFF (shipped default) | solo 126 / pair 110 / `3` 45; 45 / 281 hops above pair | solo 126 / pair 110 / `3` 45 |
+| rescue ON | solo 25 / pair 76 / `3` 43 / `4` 50 / `6` 46 / `8` 41; buckets 4/6/8 on **137 / 281** hops | buckets 4/6/8 on 137 / 281 hops |
+
+**Findings.**
+
+1. **The headcount path's output is identical across the machine change, at
+   bucket level** (embeddings and distances were not compared). That covers Silero VAD, ECAPA embeddings, average-linkage
+   clustering, the min-mass floor and the smoother. A different CPU, OS, BLAS
+   and torch wheel build (same pinned versions) produced the identical
+   histogram on both settings. The `CLAUDE.md` rule that headcount changes
+   must reproduce this histogram can now be checked on JPad, with the Mac
+   gone.
+2. **It says nothing about capture.** The WAV fixes the input, so this
+   result covers inference on JPad. It doesn't cover JPad's mic path, where
+   calibration has already been shown not to transfer (2026-09-06 entries).
+   It also doesn't cover JPad's live cadence: at 2.0 s the count-based
+   hysteresis (`hold_k` 3) flips the bucket in ~6 s, against ~12 s at 4.0 s.
+3. **The pins are why this held.** Every version in `pyproject.toml` matched
+   the Mac's. With the Mac retired, the pins' original reason is gone, but
+   this replay is the before/after check any future pin lift must pass. It
+   now has a JPad baseline to compare against.
+
+**Open.** None from this run. Recorded so the next headcount change knows
+the 07-15 arbiter runs here and what it costs: about 8 minutes, with models.
+
 ## 2026-09-30 (night, ~19:00–20:25) — the part (f) solo collapse replayed: vocal hip-hop passes the playback gate and reads as one voice
 
 **Setup.** This is an offline replay of the afternoon's consent-gated

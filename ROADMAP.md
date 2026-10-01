@@ -40,9 +40,10 @@ regression in the M6 estimator wiring can only be caught at a live gate; every
 correctness fix in this milestone is blocked behind making that code testable.
 **Gate:** (a) `pytest` green with a new `tests/test_engine.py` (or equivalent)
 suite covering the enumerated scenarios below, all runnable offline in seconds
-with no models; (b) `bench_headcount.py --fallback` re-run on the Mac lands within
-run-to-run variance of the M7 row (README convention — refactors add no compute);
-(c) a 10-minute live dashboard smoke on the Mac shows corrections, banking, and
+with no models; (b) `bench_headcount.py --fallback` re-run on the reference
+machine (JPad) lands within run-to-run variance of the last reference-machine
+README row, not the historical Mac rows (README convention — refactors add no
+compute); (c) a 10-minute live dashboard smoke on JPad shows corrections, banking, and
 headcount behaving as before (statuses ready, "hearing through music" chip fires
 during a playback test, no exceptions in the log).
 
@@ -179,9 +180,12 @@ during a playback test, no exceptions in the log).
 - **Problem:** AUDIT finding 8c. `Resampler` (src/sensing/audio.py:80–115) is the
   only untested class in `sensing`; `_frac` can go slightly negative across
   blocks (audio.py:114), silently clamped by `np.interp`.
-- **Why it matters:** Demo: the Mac's mic path may open at 48 kHz and resample
-  live on stage; this code must not be a black box. (The 2026-07-15 gate ran on
-  this hardware — treat the resampler as demo-critical.)
+- **Why it matters:** Demo: any mic that opens at 48 kHz resamples live on
+  stage, so this code must not be a black box. The retired Mac's mic path could
+  open at 48 kHz (the 2026-07-15 gate ran on that hardware). JPad's built-in
+  array opens natively at 16 kHz and skips the resampler, but the XVF3800 on
+  WASAPI opens at 48 kHz (FIELD-NOTES 2026-09-23), and M11's venue mics may
+  too. Treat the resampler as demo-critical.
 - **Scope:** New tests in `tests/test_state.py` or a new `tests/test_audio.py`;
   a minimal fix in `audio.py` for the fractional edge **only if** the tests
   demonstrate output-rate drift. **Out of scope:** replacing the resampler with
@@ -425,8 +429,8 @@ with their measurements.
   any other system sound (notifications, calls), so persisting it is a new
   capture of room-adjacent data.
 
-  **Out of scope:** macOS (loopback needs a virtual device there; the Mac is a
-  secondary target), and any new dependency without its own evidence event,
+  **Out of scope:** macOS (loopback needs a virtual device there, and the Mac
+  was retired on 2026-09-30, so there is no macOS target), and any new dependency without its own evidence event,
   given `pyproject.toml`'s load-bearing pins. Whether the current audio stack
   can open a WASAPI loopback is the probe's first question.
 - **Acceptance criteria:** FIELD-NOTES records the measured delay, its drift,
@@ -559,7 +563,7 @@ heartbeat (loudness, activity, spectral balance, energy, trend) — and live mus
 arrives at the mic with `playback_active=false`, so none of the M6 contamination
 machinery applies. M9 therefore measures how the engine actually reads a live
 performer before building the presentation on top. **Gate:** a full dress
-rehearsal — 60+ continuous minutes of live/loud music on the Mac, dashboard
+rehearsal — 60+ continuous minutes of live/loud music on JPad, dashboard
 visibly tracking throughout, zero unhandled exceptions, memory/CPU flat per the
 soak protocol, ending with a one-command export of the session's energy-curve
 artifact; runbook followed end-to-end by a human who did not write it.
@@ -696,7 +700,7 @@ only to RTR's own playback; live music still arrives with
   - Sequenced after M9-03; the view renders only signals M9-03 found
     responsive during performance, and the item's PR links the FIELD-NOTES
     justification.
-  - Readable from 5 m on the demo machine's screen (subjective — human checks
+  - Readable from 5 m on the demo machine's (JPad's) screen (subjective — human checks
     at rehearsal; the automated proxy: primary elements sized in viewport
     units, verified present in the HTML).
   - Reconnect behavior identical to the operator page (the existing
@@ -740,8 +744,10 @@ only to RTR's own playback; live music still arrives with
     injected 10 s gap (must report exactly one).
   - One full execution recorded in FIELD-NOTES (this doubles as the M9 gate
     rehearsal's instrumentation).
-- **Risk notes:** Run on the demo Mac, not the dev box (the two-machine trap is
-  documented project history). Browser-tab memory is part of the system under
+- **Risk notes:** Run on JPad, the only machine since the Mac was retired
+  (2026-09-30), using the exact `.env` the demo will run. The old two-machine
+  trap is gone, but its config half isn't: a session-only override can make a
+  soak measure a different system from the one on stage. Browser-tab memory is part of the system under
   test — keep the performance view open the whole hour. REQUIRES-REVIEW: the
   run itself is human-supervised and involves recording a live room.
 - **Effort:** M
@@ -757,14 +763,16 @@ only to RTR's own playback; live music still arrives with
   vars incl. session log on, mic permission + input-level check with the M4
   hot-mic caution, disk space, `--ticks 10` smoke); start-of-show procedure;
   in-show playbook for each failure the code can surface (`degraded` status →
-  what it means/what to do, mic gone silent → the macOS permission trap,
+  what it means/what to do, mic gone silent → the Windows stalled-stream case
+  (FIELD-NOTES 2026-09-06: the stream opened cleanly, then the engine heard
+  nothing for seven minutes until a restart; check the loudness readout moves),
   websocket disconnect → the auto-reconnect expectation, advisory banner →
   meaning); end-of-show export procedure (M9-02 command); rollback decisions
   (disable a layer via `--no-emotion`/`--no-headcount` rather than fight it
   live). **Out of scope:** code changes — if writing the runbook reveals a
   needed knob, file an item, don't patch inline.
 - **Acceptance criteria:**
-  - A human who did not write it executes it cold on the demo machine, from
+  - A human who did not write it executes it cold on the demo machine (JPad), from
     laptop-closed to dashboard-up, timed; every step either works as written
     or gets a correction commit. This execution is part of the M9 gate.
   - Every dashboard status string a user can see (`shadow`, `degraded`,
@@ -802,7 +810,8 @@ deliberately breaks a test (proving it gates).
   plus `ruff check` with a minimal committed `ruff.toml` (start from zero
   autofixes: rule set chosen so the current tree passes **unmodified** —
   codify, don't churn). Cache pip. **Out of scope:** reformatting the codebase;
-  macOS runners (the Mac gate is a human protocol, not CI); coverage gates.
+  macOS runners (no macOS target since the Mac's retirement, 2026-09-30; the
+  JPad gates are human protocols, not CI); coverage gates.
 - **Acceptance criteria:**
   - CI passes on an unmodified main; a PR with a deliberately broken assertion
     fails; both runs linked in the item's closing note.
@@ -957,9 +966,11 @@ deliberately breaks a test (proving it gates).
     committed histogram exactly (solo 126 / pair 110 / bucket-3 45) — the
     no-regression proof that the constants resolved identically.
 - **Risk notes:** `Config()` (no env) vs `Config.from_env()` matters: replays
-  must use pinned defaults, NOT the local `.env` (the Mac's `.env` sets
-  `RTR_HEADCOUNT_MIN_INTERVAL_S=4.0` — which is what the replay wants for
-  HC_INTERVAL_S=4.0 but NOT what `Config()` defaults to (2.0)!). Resolve
+  must use pinned defaults, NOT the local `.env`. The retired Mac's `.env`,
+  which ran the 2026-07-15 session, set `RTR_HEADCOUNT_MIN_INTERVAL_S=4.0`.
+  That is what the replay wants for HC_INTERVAL_S=4.0, but NOT what
+  `Config()` defaults to (2.0)! JPad's `.env` sets 2.0, so on JPad neither
+  the `.env` nor the defaults reproduce the 07-15 cadence. Resolve
   explicitly: the replay documents *which* config it mirrors and takes an
   override flag; the acceptance replay must reproduce the histogram, which is
   the arbiter. This subtlety is exactly why the item exists.
@@ -1000,7 +1011,8 @@ deliberately breaks a test (proving it gates).
 - **Problem:** The README is excellent but is a *milestone chronicle* — a new
   engineer must reverse-engineer the current-state architecture from seven
   milestones of history. There is no contributor guide (branch/gate
-  conventions, evidence-first rules, the two-machine workflow, REQUIRES-REVIEW
+  conventions, evidence-first rules, the single-reference-machine (JPad)
+  workflow and how to read the historical Mac evidence, REQUIRES-REVIEW
   areas).
 - **Why it matters:** Commercialization: this is the onboarding path; also
   where the M10 gate's cold-start run gets its instructions.
@@ -1303,7 +1315,9 @@ Every AUDIT item not in the backlog above, with its disposition:
   human present, worst case is "run it again"; hardening it buys nothing for
   either goal.
 - **AUDIT note — torch/numpy/speechbrain version pins**: **ACCEPTED AS-IS,
-  explicitly out of scope everywhere above.** The pins are load-bearing for
-  the demo Mac (Intel wheels) and documented at the pin site
-  (pyproject.toml:10–28). Any change is its own evidence-gated event on the
-  demo hardware, not roadmap hygiene.
+  explicitly out of scope everywhere above.** The pins were set for the Intel
+  Mac's wheels and are documented at the pin site (pyproject.toml:10–28). The
+  Mac was retired on 2026-09-30, so their original reason is gone, but they
+  stay until lifting them is decided deliberately. Any change is its own
+  evidence-gated event on JPad (a benchmark regression row plus the
+  2026-07-15 gate-WAV replay), not roadmap hygiene.

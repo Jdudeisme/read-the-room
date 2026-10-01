@@ -2,9 +2,14 @@
 
 Ambient room-sensing engine (mic → RoomState → music recommendation → Spotify
 playback), built through evidence-gated milestones. Read `README.md` for the
-system, `AUDIT.md` for known issues, `ROADMAP.md` for planned work,
+system, `ROADMAP.md` for known issues and planned work,
 `docs/FIELD-NOTES.md` for why things are the way they are. This file is the
 discipline: the mistakes to not make.
+
+The original audit document no longer exists; its findings survive only as
+citations in `ROADMAP.md`. "AUDIT finding N" items are backlog entries, and
+the closing "Deferred / rejected — the no-silent-drops ledger" records the
+decision on every finding not in the backlog. Grep `ROADMAP.md` for `AUDIT`.
 
 ## The prime directive: evidence over cleverness
 
@@ -79,7 +84,8 @@ presence windows 60/30 s. The provenance is written at the constant's site.
 ## Deliberate behaviors — do not "fix" these
 
 A context-free reviewer flags all of these; each is intentional. If you think
-one is wrong, check AUDIT.md/ROADMAP.md first — several are already tracked.
+one is wrong, check ROADMAP.md first (backlog and deferred ledger) — several
+are already tracked.
 
 - **The rescue flag is OFF** (`RTR_HEADCOUNT_RESCUE_ENABLED=0`). The
   distinct-voice rescue was disproven on the validated mic (FIELD-NOTES
@@ -142,18 +148,29 @@ one is wrong, check AUDIT.md/ROADMAP.md first — several are already tracked.
 - **Never edit corpus files** (`data/annotations/`, `data/overrides/`)
   — append-only day files written by the running system. Analysis reads them;
   nothing rewrites them.
-- **The dependency pins are load-bearing**: Python `>=3.12,<3.13`,
-  `torch 2.2.x`, `numpy<2`, `speechbrain<1.1`, `transformers<4.50`. The demo
-  target is a 2019 Intel MacBook Pro on the last Intel-macOS torch wheels.
-  Do not bump pins; the reasons are commented in `pyproject.toml`.
-- **Reference machine (founder direction, 2026-09-06)**: the Windows laptop
-  (`JPad`) is the primary development **and** gate machine. Performance claims,
-  benchmarks, and live calibrations count from it. The 2019 Intel MacBook Pro
-  is a secondary compatibility target: its README gate rows (M2–M7) stay as
-  historical record and are **not** comparable to new rows — the budget
-  arithmetic differs (Mac 1.37 s from a 0.63 s emotion floor; reference machine
-  ~1.66 s from 0.34 s). See `docs/MACHINE-DOCTRINE-REVISION.md`. When driving a
-  browser at a localhost dashboard, confirm which machine is serving first.
+- **The dependency pins stay until deliberately lifted**: Python
+  `>=3.12,<3.13`, `torch 2.2.x`, `numpy<2`, `speechbrain<1.1`,
+  `transformers<4.50`. They were set for the 2019 Intel MacBook Pro's
+  last Intel-macOS torch wheels. That Mac was retired on 2026-09-30, so the
+  original reason is gone, but every gate row and replay since was measured on
+  these versions. Do not bump pins in passing. Lifting them is its own
+  evidence-gated decision on JPad (benchmark regression row plus the
+  2026-07-15 gate-WAV replay). The history is commented in `pyproject.toml`.
+- **Reference machine — the only machine (founder direction, 2026-09-06;
+  Mac retired 2026-09-30)**: the Windows laptop (`JPad`) is the development,
+  gate **and** demo machine. Performance claims, benchmarks, and live
+  calibrations count from it. The 2019 Intel MacBook Pro is dead and will
+  not be used again. Never write a step that needs it. Its surviving files
+  are on the founder's "Yale Laptop" network share, and anything not there is
+  gone. Its README gate rows (M2–M7) stay as historical record and are **not**
+  comparable to new rows: the budget arithmetic differs (Mac 1.37 s from a
+  0.63 s emotion floor; JPad ~1.66 s from 0.34 s). See
+  `docs/MACHINE-DOCTRINE-REVISION.md`. The Mac-measured defaults in
+  `config.py` are unverified carry-overs on JPad. Still change one only as a
+  calibration event. When driving a browser at a localhost dashboard, first
+  confirm that the serving process is the one you just started
+  (FIELD-NOTES 2026-09-06: a stale process held the port, and the startup
+  banner prints before uvicorn binds).
 - **Per-machine calibration is not doctrine until measured twice.** This
   machine's `.env` carries recalibrated dominance knots
   (`RTR_MUSIC_DOMINANCE_LO=0.022`, `_HI=0.050`) that make the M6 pull estimator
@@ -163,9 +180,10 @@ one is wrong, check AUDIT.md/ROADMAP.md first — several are already tracked.
   ≥2 tracks and ≥3 speech-only controls. The Mac-measured defaults in
   `config.py` stay untouched meanwhile.
 - Scripts that replay engine behavior must source constants consistently with
-  the session being replayed — note that the Mac's `.env` sets
-  `RTR_HEADCOUNT_MIN_INTERVAL_S=4.0` while the `Config()` default is 2.0
-  (ROADMAP M10-05). State explicitly which config a replay mirrors.
+  the session being replayed. The retired Mac's `.env` (which ran the
+  2026-07-15 gate) set `RTR_HEADCOUNT_MIN_INTERVAL_S=4.0`, while the
+  `Config()` default and JPad's `.env` are 2.0 (ROADMAP M10-05). State
+  explicitly which config a replay mirrors.
 
 ## Things an agent must not do autonomously (REQUIRES-REVIEW)
 
