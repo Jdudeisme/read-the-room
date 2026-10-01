@@ -53,24 +53,29 @@ def test_ineligible_windows_are_excluded():
     assert t.eligible_high().tolist() == [0.01]
 
 
-def test_rule_inputs_worst_control_and_listening_mix():
+def test_rule_inputs_worst_control_and_hi_mix():
     takes = [
         make_take("speech", "C1", np.linspace(0.010, 0.020, 21)),
         make_take("speech", "C2", np.linspace(0.010, 0.030, 21)),  # worst tail
-        make_take("mix", "T1-76", [0.05] * 10),
-        make_take("mix", "T2-76", [0.07] * 10),
-        make_take("mix", "T1-56", [0.001] * 10),  # not listening volume
+        make_take("mix", "T1-MX76", [0.05] * 10),
+        make_take("mix", "T2-MX76", [0.07] * 10),
+        make_take("mix", "T1-MX32", [0.001] * 10),  # not an HI take
     ]
-    rule = adw.rule_inputs(takes, "76")
+    rule = adw.rule_inputs(takes, "MX76")
     assert rule["lo_candidate"] == adw.dist(np.linspace(0.010, 0.030, 21))["p95"]
     assert rule["hi_candidate"] == 0.06  # pooled p50 of the two 76 takes
-    assert rule["listening_mix_takes"] == 2
+    assert rule["hi_mix_takes"] == 2
     assert rule["separable"] is True
 
 
 def test_rule_inputs_flags_overlap_as_not_separable():
     takes = [
         make_take("speech", "C1", [0.06] * 10),
-        make_take("mix", "T1-76", [0.04] * 10),
+        make_take("mix", "T1-MX76", [0.04] * 10),
     ]
-    assert adw.rule_inputs(takes, "76")["separable"] is False
+    assert adw.rule_inputs(takes, "MX76")["separable"] is False
+
+
+def test_rule_inputs_without_hi_takes_does_not_judge():
+    takes = [make_take("speech", "C1", [0.02] * 10)]
+    assert adw.rule_inputs(takes, "MX76")["separable"] is None

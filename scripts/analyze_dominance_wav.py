@@ -40,7 +40,7 @@ TAKE KINDS. Each WAV is given as `KIND[:LABEL]=PATH`:
     python scripts/analyze_dominance_wav.py \\
         speech:C1=data/captures/ladder-C1.wav \\
         mix:T1-76=data/captures/ladder-T1-76-mix.wav \\
-        --listening 76 --knots 0.025,0.055
+        --hi-from MX76 --knots 0.025,0.055
 
 The decision rule lives in the run sheet, not here. This script prints
 the rule's inputs and scores every candidate pair of knots against the
@@ -129,15 +129,16 @@ def knot_metrics(
     }
 
 
-def rule_inputs(takes: list[Take], listening: str | None) -> dict:
+def rule_inputs(takes: list[Take], hi_tag: str | None) -> dict:
     """The two numbers the run sheet's draft rule is built from: the
     worst control's p95 (LO candidate) and the pooled p50 of mix windows
-    at listening volume (HI candidate). Reported, never applied."""
+    whose label contains `hi_tag` (HI candidate: the loud takes where music
+    unambiguously dominates). Reported, never applied."""
     controls = [t for t in takes if t.kind == "speech" and t.eligible_high().size]
     lo = max((dist(t.eligible_high())["p95"] for t in controls), default=None)
     mixes = [
         t for t in takes
-        if t.kind == "mix" and (listening is None or listening in t.label)
+        if t.kind == "mix" and (hi_tag is None or hi_tag in t.label)
     ]
     pooled = (
         np.concatenate([t.eligible_high() for t in mixes]) if mixes else np.array([])
@@ -147,8 +148,9 @@ def rule_inputs(takes: list[Take], listening: str | None) -> dict:
         "lo_candidate": lo,
         "hi_candidate": hi,
         "controls": len(controls),
-        "listening_mix_takes": len(mixes),
-        "separable": lo is not None and hi is not None and hi > lo,
+        "hi_mix_takes": len(mixes),
+        # None = not enough takes to say (no controls or no HI mix takes).
+        "separable": None if lo is None or hi is None else hi > lo,
     }
 
 
@@ -185,8 +187,8 @@ def main(argv: list[str] | None = None) -> int:
         help="extra LO,HI pair to score (repeatable)",
     )
     parser.add_argument(
-        "--listening", default=None,
-        help="label substring marking listening-volume mix takes (the HI input)",
+        "--hi-from", default=None,
+        help="label substring selecting the mix takes that set the HI candidate, e.g. MX76",
     )
     parser.add_argument("--json", type=Path, help="also write the full result here")
     args = parser.parse_args(argv)
@@ -212,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         vad.load()
         analyse(take, config, vad)
 
-    rule = rule_inputs(takes, args.listening)
+    rule = rule_inputs(takes, args.hi_from)
     if rule["lo_candidate"] is not None and rule["hi_candidate"] is not None:
         candidates.setdefault(
             "draft rule", (rule["lo_candidate"], rule["hi_candidate"])
@@ -248,9 +250,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"\nrule inputs: LO candidate (worst control p95) = {rule['lo_candidate']}  "
-        f"HI candidate (listening mix p50) = {rule['hi_candidate']}  "
-        f"from {rule['controls']} controls, {rule['listening_mix_takes']} listening mix takes"
-        f"{'' if rule['separable'] else '  ** NOT SEPARABLE: HI <= LO **'}"
+        f"HI candidate (--hi-from mix p50) = {rule['hi_candidate']}  "
+        f"from {rule['controls']} controls, {rule['hi_mix_takes']} HI mix takes"
+        + {
+            True: "",
+            False: "  ** NOT SEPARABLE: HI <= LO **",
+            None: "  (need speech controls and --hi-from mix takes to judge)",
+        }[rule["separable"]]
     )
 
     print("\nknots scored per take (clean = m<=m_max, bankable = m>=pull_m_floor):")

@@ -56,7 +56,10 @@ Fill this table in; it goes into the FIELD-NOTES entry verbatim.
 |---|---|---|
 | Mic "Audio enhancements" | Settings → System → Sound → Microphone Array → Properties | |
 | Voice Clarity / Studio Effects (if listed) | same page, and Quick Settings | |
-| Speaker enhancements / Dolby | Settings → Sound → Speakers → Properties; Lenovo Vantage / Dolby app if installed | |
+| Mic input volume | Settings → System → Sound → Microphone Array → Input volume | 34 % (as in M7 part (f), 2026-09-30) |
+| Spatial sound on output | Settings → System → Sound → Speakers → Spatial sound | **Dolby Atmos for Speakers: ON** (see below) |
+| Dolby mode / EQ (if the Dolby Access app shows one) | Dolby Access app | |
+| Other speaker enhancements | Settings → Sound → Speakers → Properties | |
 | Lenovo Smart Audio / Vantage audio mode | Lenovo Vantage | |
 | Spotify "Normalize volume" + level | Spotify → Settings → Audio quality | |
 | Spotify Equalizer | Spotify → Settings → Playback | |
@@ -65,6 +68,19 @@ Fill this table in; it goes into the FIELD-NOTES entry verbatim.
 | Power | plugged in? Windows power mode | |
 | Laptop position | | centre of the room, lid at the usual angle |
 | Talk position | tape marks on the floor | **N** = 0.6 m in front, **F** = 1.5 m |
+
+**Why Dolby Atmos stays on.** The founder reports it has been applied to
+the output in every test and whenever music plays from this laptop. It
+was never recorded before 2026-09-30, so it's an uncontrolled part of all
+JPad evidence: the 09-06 ladder, the 54 banked track signatures, and M7
+part (f). Atmos processes the speaker signal (virtualisation, EQ, and
+probably the compression 09-06 finding 2 observed). It therefore changes
+the spectrum the mic hears, and with it the high-band share. Calibrate in
+the condition RTR actually runs in. Turning it off would make this
+ladder's knots, and every signature banked so far, belong to different
+capture paths. Its effect is measured as one isolated variable in Block X.
+If you later decide RTR should run with Atmos off, that is a new capture
+path, and the knots and signature file get re-measured for it.
 
 Also:
 - **The dashboard must not be running.** On 2026-09-06, two streams on
@@ -90,6 +106,25 @@ Also:
 At least two tracks are required; T1 + T2 is the minimum. T3 is strongly
 recommended.
 
+## Volume steps
+
+Windows output volume is the lever; Spotify stays at 100 %. The steps
+follow how RTR is meant to be used, not the 09-06 ladder's 56/76:
+
+- **32 %: the small-room operating level** (1–5 people within arm's
+  length; the level M7 part (f) ran at, kept deliberately). This is the
+  level that matters most, and the one never measured for dominance.
+- **76 %: the large-room level** (10–15+ people). Here music unambiguously
+  dominates the mic, so it anchors `HI`. It's also the level the
+  provisional knots came from.
+- **56 %** is optional, in between.
+
+What the mic hears at 32 % is unmeasured. For scale: on 2026-09-24 the
+built-in array heard music at −46.1 dBFS at 16 % and −25.5 dBFS at 75 %.
+The music-only takes below measure it. Expect speech to dominate the high
+band at 32 %. Speech-over-music at that level may be hard to tell from
+speech alone, which is what the decision rule's outcome B is for.
+
 ## Takes
 
 Use the venv interpreter for every command. Each take is one capture
@@ -104,37 +139,44 @@ unique, because the capture script overwrites files of the same name.
   article at a natural level, unless the take says otherwise.
 - **Mix and music:** start the track from 0:00 with repeat-one on, then
   start the capture. `<S>` = the track's length plus 10 s, at least 180.
-- **Notes:** say track, Windows volume, Spotify volume, position and
-  style, e.g. `"T1 WTNY, Win 76%, Spotify 100%, mix, reading at N"`.
+- **Notes:** say track, Windows volume, Spotify volume, Atmos state,
+  position and style, e.g.
+  `"T1 WTNY, Win 32%, Spotify 100%, Atmos on, mix, reading at N"`.
 
 | # | ID | kind | track | Windows vol | talk | seconds | note |
 |---|---|---|---|---|---|---|---|
 | 1 | C1 | speech | — | — | N, reading | 180 | control: the reference |
-| 2 | T1-MO76 | music | T1 | 76 % | silent | full track | |
-| 3 | T1-MX56 | mix | T1 | 56 % | N, reading | full track | |
-| 4 | T1-MX76 | mix | T1 | 76 % | N, reading | full track | |
+| 2 | T1-MO32 | music | T1 | 32 % | silent | full track | mic-side music level at the operating volume |
+| 3 | T1-MX32 | mix | T1 | 32 % | N, reading | full track | **the operating condition** |
+| 4 | T1-MX76 | mix | T1 | 76 % | N, reading | full track | large-room; anchors HI |
 | 5 | C2 | speech | — | — | **F**, reading | 180 | control: distance |
-| 6 | T2-MO76 | music | T2 | 76 % | silent | full track | |
-| 7 | T2-MX56 | mix | T2 | 56 % | N, reading | full track | |
+| 6 | T2-MO32 | music | T2 | 32 % | silent | full track | |
+| 7 | T2-MX32 | mix | T2 | 32 % | N, reading | full track | |
 | 8 | T2-MX76 | mix | T2 | 76 % | N, reading | full track | |
 | 9 | C3 | speech | — | — | N, **animated conversation** (not reading; laugh, vary pitch) | 180 | control: style |
-| 10 | T3-MO76 | music | T3 | 76 % | silent | full track | |
-| 11 | T3-MX56 | mix | T3 | 56 % | N, reading | full track | |
+| 10 | T3-MO32 | music | T3 | 32 % | silent | full track | |
+| 11 | T3-MX32 | mix | T3 | 32 % | N, reading | full track | |
 | 12 | T3-MX76 | mix | T3 | 76 % | N, reading | full track | |
 | 13 | C4 | speech | — | — | N, reading | 180 | control: repeat of C1 (drift) |
 
-That's about 45–55 minutes of capture. C1 and C4 bracket the session, so
-drift shows up as a C1/C4 difference rather than as a knot. Optional 40 %
-mix takes (`Tn-MX40`) can go after each track's 76 % take if time allows.
-That is the absorption regime, the low-volume tail that 2026-09-06 found
-still landing under `m_max`.
+That's about 45–55 minutes of capture. 76 % is loud for a small room, so
+keep those takes together per track and short breaks between them are
+fine. C1 and C4 bracket the session, so drift shows up as a C1/C4
+difference rather than as a knot. Optional 56 % mix takes (`Tn-MX56`) fill
+in the middle if time allows.
 
-**Optional Block X (only after take 13): the morning/evening discrepancy.**
-Run 90 s of T1 music-only at 76 %, **with mic Audio enhancements toggled
-to the other state** (ID `X-T1-MO76-enh<on|off>`). Then restore the
-setting and record that you did. This tests the leading candidate for
-2026-09-06 finding 5 directly. A big shift means the enhancement state is
-part of the capture path and belongs in every calibration record.
+**Optional Block X (only after take 13): one variable at a time.**
+Each is 90 s of T1 music-only at 32 %, then put the setting back and
+record that you did.
+- `X-T1-MO32-atmosoff`: **Dolby Atmos off**. Measures how much Atmos
+  moves the high-band share at the mic, i.e. whether it's a calibration
+  variable.
+- `X-T1-MO32-enh<on|off>`: **mic Audio enhancements** toggled to the
+  other state. This tests the leading candidate for 2026-09-06 finding 5
+  (the unexplained morning/evening discrepancy).
+
+A big shift from either means that setting is part of the capture path
+and belongs in every calibration record.
 
 ## Analysis (offline, any time after)
 
@@ -142,10 +184,10 @@ part of the capture path and belongs in every calibration record.
 $D = "data/captures/ladder-DATE"
 .venv\Scripts\python.exe scripts\analyze_dominance_wav.py `
   speech:C1="$D-C1.wav" speech:C2="$D-C2.wav" speech:C3="$D-C3.wav" speech:C4="$D-C4.wav" `
-  music:T1-MO76="$D-T1-MO76.wav" mix:T1-MX56="$D-T1-MX56.wav" mix:T1-MX76="$D-T1-MX76.wav" `
-  music:T2-MO76="$D-T2-MO76.wav" mix:T2-MX56="$D-T2-MX56.wav" mix:T2-MX76="$D-T2-MX76.wav" `
-  music:T3-MO76="$D-T3-MO76.wav" mix:T3-MX56="$D-T3-MX56.wav" mix:T3-MX76="$D-T3-MX76.wav" `
-  --listening 76 --json "$D-result.json"
+  music:T1-MO32="$D-T1-MO32.wav" mix:T1-MX32="$D-T1-MX32.wav" mix:T1-MX76="$D-T1-MX76.wav" `
+  music:T2-MO32="$D-T2-MO32.wav" mix:T2-MX32="$D-T2-MX32.wav" mix:T2-MX76="$D-T2-MX76.wav" `
+  music:T3-MO32="$D-T3-MO32.wav" mix:T3-MX32="$D-T3-MX32.wav" mix:T3-MX76="$D-T3-MX76.wav" `
+  --hi-from MX76 --json "$D-result.json"
 ```
 
 It mirrors the engine: 5 s windows every 2 s, streaming Silero at the
@@ -168,21 +210,35 @@ change after the data is in.
 Inputs, from the analyzer:
 - **LO\*** = the worst control's p95. The `rule inputs` line prints it,
   taken over C1–C4.
-- **HI\*** = the pooled p50 of the 76 % mix windows across all tracks.
+- **HI\*** = the pooled p50 of the large-room (`MX76`) mix windows across
+  all tracks, where music unambiguously dominates (`--hi-from MX76`).
 
-Score the pair (LO\*, HI\*) with `--knots LO*,HI*`. Then:
+Score the pair (LO\*, HI\*) with `--knots LO*,HI*`.
 
-- **A — separable.** HI\* > LO\*, **every** control has bankable ≤ 0.05,
-  and **every** `MX76` take has clean ≤ 0.10. → Propose (LO\*, HI\*) as
-  the new knots. This is the second ladder on this machine, so it meets
-  CLAUDE.md's "measured twice" bar. Promoting them to `config.py`
-  defaults (replacing the Mac's) is a REQUIRES-REVIEW diff with this
-  entry as its evidence. `.env` then drops its override.
-- **B — separable at listening volume only.** As A, but some `MX56` take
-  has clean > 0.10. → Same proposal, plus a written operating envelope
-  ("music-aware correction valid at ≥ 76 %; quieter music is partly
-  absorbed as clean"). Whether that's acceptable is a founder decision
-  recorded with it.
+**What each test protects.** "Controls bankable ≤ 0.05" is the hard
+requirement. It means speech alone almost never banks a pull sample, so
+the correction is never invented where no music is contaminating the
+speech. "Clean ≤ 0.10" on a mix take means music-contaminated speech is
+rarely mistaken for clean speech and folded into the baseline. That
+matters most where the music actually pulls the reading. At 32 % the pull
+is small (on 09-24, contamination scaled with level), so absorbing
+there costs less than banking speech as pull.
+
+- **A — separable at the operating level.** HI\* > LO\*, **every**
+  control has bankable ≤ 0.05, and **every** `MX32` and `MX76` take has
+  clean ≤ 0.10. → Propose (LO\*, HI\*) as the new knots. This is the
+  second ladder on this machine, so it meets CLAUDE.md's "measured twice"
+  bar. Promoting them to `config.py` defaults (replacing the Mac's) is a
+  REQUIRES-REVIEW diff with this entry as its evidence. `.env` then drops
+  its override.
+- **B — separable at large-room volume only.** As A, but some `MX32` take
+  has clean > 0.10, while every `MX76` take has clean ≤ 0.10. →
+  Same proposal, plus a written operating envelope: "the music-aware
+  correction engages in large rooms. At small-room volume (32 %),
+  speech over music mostly reads as clean speech, so it is left
+  uncorrected." Whether that's acceptable is a founder decision recorded
+  with it. It's likely to be, if the 32 % pull is small. Measuring that
+  pull is a separate question this session does not answer.
 - **C — not separable.** HI\* ≤ LO\*, **or** no pair scored meets the
   control condition (bankable ≤ 0.05) while keeping `MX76` clean
   ≤ 0.10. → **Change no knots.** On this mic, high-band *share* cannot
