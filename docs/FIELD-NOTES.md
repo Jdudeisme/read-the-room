@@ -5,6 +5,56 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-09-30 (late night, offline) — before the dominance ladder: speech alone already reaches the provisional knots
+
+**Setup.** No mic and no session: analysis only, written while preparing
+`docs/DOMINANCE-LADDER-RUN-SHEET.md`. New tool:
+`scripts/analyze_dominance_wav.py`. It replays the engine's dominance input
+on a WAV: 5 s windows every 2 s, streaming Silero at the playback
+certification threshold (0.75), the same `dsp.analyze` high-band share and
+the same `music.dominance()` ramp. Only windows with speech ratio ≥ 0.2,
+the ones the correction acts on, are scored. Config is
+`Config.from_env()` on JPad, with knots in force at 0.022 / 0.050
+(PROVISIONAL). Input: the five solo speech captures from 2026-09-06
+(night). They are speech only, with no music, from the built-in array,
+with mic enhancements "as-is" per their sidecars.
+
+| capture | n | p50 | p95 | max | m ≥ 0.25 under 0.022/0.050 |
+|---|---|---|---|---|---|
+| A centre | 43 | 0.0281 | 0.0392 | 0.0407 | 46.5 % |
+| B wall + corner | 43 | 0.0166 | 0.0318 | 0.0386 | 9.3 % |
+| E centre, still | 43 | 0.0320 | 0.0419 | 0.0484 | 65.1 % |
+| F centre, natural + movement | 43 | 0.0300 | 0.0508 | 0.0615 | 58.1 % |
+| G centre, natural, 4 min | 118 | 0.0304 | 0.0492 | 0.0613 | 54.2 % |
+
+**Findings.**
+
+1. **Speech alone reaches the provisional `HI`.** Pooled over 290
+   windows: p50 0.0285, p95 0.0457, max 0.0615. The same afternoon's
+   ladder controls, read live off the dashboard, maxed at 0.0198 /
+   0.0298 / 0.0346. Those were what `LO` 0.022 was fitted against. The
+   speech-over-music takes the knots were fitted on read 0.032 (56 %) to
+   0.048 (76 %), inside this speech-only range.
+2. **Consequence, if it holds.** With music playing, a speech window's own
+   high band would put it at m ≥ `pull_m_floor` about half the time.
+   Such windows bank pull samples that measure speech, not music, and
+   apply corrections where there is no contamination. The 09-06 evening
+   session's bimodal m (17 / 51 records at or above `HI`) is consistent
+   with this, but doesn't prove it.
+3. **Not yet attributable.** The captures and the ladder controls differ
+   in level (−31 to −35 dBFS here vs −38.7 live), talking distance and
+   style. They also differ by whatever caused the still-open
+   morning/evening discrepancy (2026-09-06, finding 5). Corpus records
+   can't settle it either: every speech record from September was taken
+   with music playing (p50 0.017–0.042, overlapping both).
+
+**What follows.** No knot changed. The run sheet's controls now span
+distance (C2) and speaking style (C3), with an ABA repeat (C1 / C4) for
+drift. Its pre-registered rule has an explicit outcome **C (not
+separable)**. That outcome changes no knots and files the proxy
+replacement that 2026-09-06 finding 1 anticipated. Optional Block X tests
+the mic-enhancement toggle directly.
+
 ## 2026-09-30 (late night) — the Mac is retired; the 07-15 gate WAV replays identically on JPad
 
 **Context.** Founder direction: the 2019 Intel MacBook Pro is dead and will
