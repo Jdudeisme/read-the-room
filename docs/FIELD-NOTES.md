@@ -5,6 +5,154 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-08 (evening, 17:26–17:58) — eight people at two feet, music at 66 %: the bucket reads `solo`, and the one `3` came under an instrumental (non-gating)
+
+**Setup.** Informal party playback, not a gate and not run from a run
+sheet: the founder had RTR DJ for the room and kept the board running so
+the session's data would be kept. JPad (reference machine), `main` @
+`14d20f7`; working tree clean apart from the founder's
+`data/playlists.json`, which has no content diff against the committed
+blob. Config is this machine's `.env` over `config.py` defaults. Headcount
+at defaults (`cluster_threshold` 0.70, `min_interval_s` 2.0,
+`min_speech_ratio` 0.2, `buffer_s` 90.0, `min_cluster_frac` 0.10,
+`smooth_tau_s` 20.0, `hysteresis_k` 3); rescue unset, so the shipped
+default (off) applies. `RTR_MUSIC_AWARE_ENABLED=1`, dominance knots
+`RTR_MUSIC_DOMINANCE_LO/HI=0.022/0.050` (**PROVISIONAL**, FIELD-NOTES
+2026-09-06), `RTR_VAD_PLAYBACK_THRESHOLD=0.75`. Real playlist mapping, DJ
+live (provider status `active` at 17:26:28). At launch the advisory anchor
+was stale (698 127 s) and ignored; 70 JPad-measured track signatures
+loaded. Capture from `Microphone Array on SoundWire D` (pinned in `.env`,
+confirmed in the log).
+
+Room: **8 people**, a small room, on average **~2 ft from the laptop**
+(founder). **Windows output 66 %, Spotify 100 %** (founder). That is about
+double the 32 % small-room operating level and near the 76 % large-room
+level (`docs/DOMINANCE-LADDER-RUN-SHEET.md`); neither covers this room.
+Output presumed through the laptop's own speakers. **Not recorded:**
+Dolby Atmos state, Windows mic input level.
+
+Launch: the founder started the dashboard from Claude Code with the `!`
+prefix, so Claude Code captured the log and **killed the process at its
+30-minute background limit at 17:58**. The session's end is the harness,
+not RTR. Log: `data/sessions/2026-10-08-run2-8people.log`, with
+`data/sessions/2026-10-08-conditions.md` beside it (both gitignored,
+uncommitted). **No audio was recorded**, so unlike 2026-09-30 this session
+cannot be replayed.
+
+**What was captured.** The log records every DJ selection with the cell
+(bucket, valence band, arousal band) it was made for: 41 in 32 minutes
+(30–45 s apart while the cell held), and 7 pushed into Spotify's queue inside the
+boundary window. The corpus took 9 records in the window (6 overrides: 5
+`played_through`, 1 `manual`; 3 `good` annotations), each with full
+state.
+
+| Cell the selection was made for | Selections |
+|---|---|
+| `solo` / mid / high | 19 |
+| `solo` / high / high | 14 |
+| `solo` / mid / mid | 1 |
+| `pair` / high / high | 4 |
+| `pair` / mid / high | 1 |
+| `3` / mid / high | 2 |
+
+Corpus snapshots (headcount internals as stamped):
+
+| Time | Record | Bucket (conf) | Raw clusters | Fragmentation | Dominance | Playing |
+|---|---|---|---|---|---|---|
+| 17:26:49 | manual | `solo` (0.80) | 3 | 0.20 | 1.0 | *Fight 4 U* — Ookay |
+| 17:27:15 | good | `pair` (0.72) | 2 | 0.48 | 0.975 | *Passionfruit* — Drake |
+| 17:31:50 | played_through | `solo` (0.65) | 1 | 1.00 | 1.0 | *Passionfruit* — Drake |
+| 17:32:18 | good | `solo` (0.64) | 1 | 1.00 | 0.907 | *Billie Jean* — Michael Jackson |
+| 17:40:06 | played_through | `solo` (0.06) | 1 | 1.00 | 0.471 | *One Last Time* — Ariana Grande |
+| 17:43:06 | played_through | **`3` (0.87)** | 4 | 0.53 | 0.786 | ***The Mic — 12" Instrumental*** — MF DOOM |
+| 17:47:22 | good | `solo` (0.63) | 1 | 1.00 | 1.0 | *I Hear Voices Pt. 1* — MF DOOM |
+| 17:50:00 | played_through | `solo` (0.66) | 1 | 0.88 | 1.0 | *I Hear Voices Pt. 1* — MF DOOM |
+| 17:55:43 | played_through | `solo` (0.57) | 1 | 0.82 | 1.0 | *Heaven Can Wait* — Michael Jackson |
+
+Certified `speech_ratio` across the 9 snapshots: 0.26–0.98, 7 of 9 above
+0.67.
+
+**Findings.**
+
+1. **Eight people read as one or two.** 34 of 41 selections were made for
+   `solo`, 5 for `pair`, 2 for `3`; nothing above `3` all session. This
+   is far beyond the accepted trade ("undercounting beats phantom crowds"
+   covers similar voices merging, not eight people collapsing to one).
+   The `solo` readings were not flagged as uncertain: confidence
+   0.57–0.66 in five of the seven `solo` snapshots (0.80 in one, 0.06
+   in the other).
+2. **The collapse has the 2026-09-30 signature.** In 6 of the 7 `solo`
+   snapshots `raw_clusters` is 1 and fragmentation is 0.82–1.00: certified
+   speech scatters into clusters too small to pass `min_cluster_frac`
+   and one cluster is left counted. That is the mechanism the 09-30 replay
+   found under vocal hip-hop (fragmentation 0.80). The playlist here was
+   mostly vocal (Michael Jackson, Drake, vocal MF DOOM). This session
+   cannot separate the guests' talk from certified vocals in that
+   `speech_ratio`, so it is consistent with the 09-30 mechanism, not
+   evidence of it.
+3. **The one `3` came under an instrumental.** Both `3` selections
+   (17:42:32, 17:43:06) and the only `3` snapshot (conf 0.87, 4 raw
+   clusters, fragmentation 0.53) fall while *The Mic — 12" Instrumental
+   Version* played (pushed 17:39:50). That is the 09-30 direction: the
+   playback gate holds music the VAD only half-believes. One instance, and
+   the next instrumental (*Greenbacks — 12" Instrumental*, pushed
+   17:42:54) did not hold it: the bucket was `pair` at 17:43:39 and `solo`
+   by 17:44:08. The log doesn't say when *Greenbacks* actually started.
+4. **Dominance was pinned and says nothing here.** It sat at 1.0 in 5 of 9
+   snapshots and ≥ 0.47 in all. At 66 % that is expected, but the
+   2026-09-30 offline check found speech alone reaching the provisional
+   knots, and eight people at 2 ft is loud speech. This session cannot
+   inform the knots; the dominance ladder is still the instrument for
+   that.
+5. **The DJ was judged good while the sensor was wrong.** The founder
+   tapped 3 `good`, let 5 tracks play through and made 1 manual pick
+   (Hip-Hop / mid at 17:26:49). No vetoes. So the product read was fine
+   for this room, but every one of these 9 records stamps `solo`, `pair`
+   or `3` for an 8-person room, and `tuning_report.py` will credit those
+   verdicts to the `solo`/`pair` cells.
+6. **Mapping gaps (aside).** Four selections found no playlist:
+   `Hip-Hop` / low ×3, `Pop` / low ×1. The founder's `playlists.json` has
+   no low tier for either.
+
+**Earlier the same day (16:40–17:12): seven people, demo.** Same launch
+path, same 30-minute kill. 50 selections: `solo` 45, `pair` 5, nothing
+higher. Corpus: 2 `played_through`, 3 `good`, all stamped `solo`/`pair`.
+Windows volume was not recorded for that run. Log:
+`data/sessions/2026-10-08-run1-7people.log`.
+
+**Caveats.** Non-gating and uncontrolled. Volumes are the founder's
+recollection; Atmos and mic input are unknown. Who talked, and how much,
+was not measured. The selection log samples the cell only at selection
+events, and the 9 corpus snapshots fall where taps and track ends put
+them. No audio, so no replay and no thr05-style comparison.
+
+**Open items.**
+
+- **Corpus gating.** The 2026-10-08 override and annotation records (9 in
+  this run, 5 in the 16:40 run) carry a bucket known to be wrong for the
+  room. Under invariant 9 they would be marked, not removed. Whether to
+  exclude them from per-cell rates in `tuning_report.py`, and how to mark
+  them, is the founder's call. Nothing was changed.
+- **Music-detection gate.** This adds an 8-person point to the 09-30 open
+  item: no milestone owns the gate. It is not a before-picture, because
+  there is no recording.
+- **Next informal session.** Launch from a separate PowerShell window
+  (no 30-minute limit) with the log teed to a file, as 09-30 part (f) did;
+  record Windows volume, Atmos and mic input at the start; a Sound
+  Recorder capture would make the session replayable.
+- **Operating levels (decided by the founder, 2026-10-08).** 66 % is now
+  the 8-person small-room level, added to the volume steps in
+  `docs/DOMINANCE-LADDER-RUN-SHEET.md` beside 32 % and 76 %. It is a
+  recorded operating level, not a ladder take.
+
+**Founder direction (2026-10-08).** This session is kept as a test and as
+reference data, not a calibration: RTR still has building ahead, and the
+run was to show eight people how far it has come. From here on, informal
+sessions are assessed on three recorded variables: **room size** (people
+and room), **Windows volume %** (Spotify at 100 %), and **the song
+decisions** (the DJ's selections and the cells they were made for, plus
+the labels). This entry is the first row on that basis.
+
 ## 2026-09-30 (late night, offline) — before the dominance ladder: speech alone already reaches the provisional knots
 
 **Setup.** No mic and no session: analysis only, written while preparing

@@ -118,6 +118,11 @@ follow how RTR is meant to be used, not the 09-06 ladder's 56/76:
   dominates the mic, so it anchors `HI`. It's also the level the
   provisional knots came from.
 - **56 %** is optional, in between.
+- **66 %: the 8-person small-room level** (founder, 2026-10-08). Eight
+  people in a small room, ~2 ft from the laptop, Spotify 100 %. It is a
+  recorded operating level, not yet a ladder step: no takes below use it.
+  The one session at this level read eight people as `solo` most of the
+  time (FIELD-NOTES 2026-10-08).
 
 What the mic hears at 32 % is unmeasured. For scale: on 2026-09-24 the
 built-in array heard music at −46.1 dBFS at 16 % and −25.5 dBFS at 75 %.
