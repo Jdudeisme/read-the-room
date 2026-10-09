@@ -80,7 +80,9 @@ def create_app(
             bridge.unregister(token)
 
     @app.post("/annotations", status_code=201)
-    async def annotate(payload: AnnotationIn) -> dict:
+    def annotate(payload: AnnotationIn) -> dict:
+        """Append the label. (Sync handler: FastAPI runs it on the
+        threadpool, so the disk append never blocks the event loop.)"""
         try:
             record = build_record(
                 payload.verdict, payload.state, payload.recommendation
