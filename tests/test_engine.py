@@ -419,14 +419,15 @@ def test_reference_tap_lands_in_the_signature_store():
     assert rig.emotion.reference_submits == [TRACK_A]
 
 
-# -- pinned behaviors that M8-03 will change --------------------------------------
+# -- M8-03: corrections bind to the reading's context -----------------------------
+# These two were pinned characterization tests of the pre-M8-03 behavior
+# (wrong-track correction; uncorrected after a stop). M8-03 flipped them
+# deliberately (founder-approved, 2026-10-09).
 
 
-def test_track_boundary_corrects_with_the_current_track_PINNED_M8_03():
-    """PINNED (ROADMAP M8-03): a reading taken under track A, still fresh
-    when B becomes current, is corrected with B's signature. M8-03 binds
-    the correction to the reading's context and flips this assertion
-    deliberately."""
+def test_track_boundary_keeps_the_readings_own_track():
+    """ROADMAP M8-03: a reading taken under track A, still fresh when B
+    becomes current, stays corrected with A's signature."""
     rig = Rig()
     for _ in range(rig.config.music_min_refs):
         rig.signatures.add_pull_reference(TRACK_A, 0.3, 0.2)
@@ -438,13 +439,18 @@ def test_track_boundary_corrects_with_the_current_track_PINNED_M8_03():
     assert under_a.emotion_correction["track_id"] == TRACK_A
     rig.play(TRACK_B)  # same reading, still fresh
     under_b = rig.tick(dt=1.0, ratio=0.0)
-    assert under_b.emotion_correction["track_id"] == TRACK_B  # today's behavior
+    assert under_b.emotion_correction == under_a.emotion_correction
+    assert under_b.emotion_correction["track_id"] == TRACK_A
+    rig.reading(0.5, 0.3, age=0.1)  # a new reading lands under B
+    fresh_b = rig.tick(dt=1.0, ratio=0.6)
+    assert fresh_b.emotion_correction["track_id"] == TRACK_B
 
 
-def test_playback_stop_feeds_a_fresh_reading_uncorrected_PINNED_M8_03():
-    """PINNED (ROADMAP M8-03): when playback stops while a reading taken
-    over music is still fresh, the next tick feeds it to the EMAs
-    uncorrected. M8-03 keeps it corrected with its captured context."""
+def test_playback_stop_keeps_a_music_reading_corrected():
+    """ROADMAP M8-03: a reading taken during playback stays corrected with
+    its captured context after playback stops; a reading taken after the
+    stop is uncorrected. The published dominance is the live measurement
+    (founder choice (a)), so it reads None once playback is off."""
     rig = Rig()
     for _ in range(rig.config.music_min_refs):
         rig.signatures.add_pull_reference(TRACK_A, 0.3, 0.2)
@@ -455,10 +461,11 @@ def test_playback_stop_feeds_a_fresh_reading_uncorrected_PINNED_M8_03():
     assert corrected.emotion_correction is not None
     rig.stop_playback()
     after = rig.tick(dt=1.0, ratio=0.0)
-    assert after.emotion_correction is None  # today's behavior
+    assert after.emotion_correction == corrected.emotion_correction
     assert after.emotion_music_dominance is None
-    # Uncorrected: the raw 0.5 pulled the EMA back up from the corrected value.
-    assert after.valence > corrected.valence
+    rig.reading(0.5, 0.3, age=0.1)  # taken with playback off
+    clean = rig.tick(dt=1.0, ratio=0.6)
+    assert clean.emotion_correction is None
 
 
 # -- certification, consumers, publish ----------------------------------------------

@@ -15,6 +15,14 @@ engine (proving `_Frozen` faithful); from the extraction on it is
 test side by side and requires exact float equality on every step's
 (valence, arousal, confidence, correction), and on the final signature
 store and clean baseline. Offline, no models.
+
+M8-03 (founder-approved, 2026-10-09) deliberately changed one thing: the
+playback context a reading is corrected with is now captured on the tick
+the reading first appears, not taken from each tick. So `_Frozen` is now fed
+each reading's captured context (`bind_context=True`), and the corrector
+must still match it exactly. That proves M8-03 changed the context and
+nothing else. `test_m8_03_changes_behavior_on_this_script` shows the script
+does exercise the difference.
 """
 
 from __future__ import annotations
@@ -248,16 +256,23 @@ class _Corrector:
         return self.corrector._clean_baseline
 
 
-def _run(subject, signatures: TrackSignatureStore, script: list[Step]):
+def _run(subject, signatures: TrackSignatureStore, script: list[Step],
+         bind_context: bool = False):
+    """Drive `subject` through the script. With `bind_context`, each step
+    gets the context captured when its reading first appeared (M8-03
+    semantics, computed here independently of the code under test)."""
     out = []
+    captured: dict[float, tuple] = {}
     for s in script:
         if s.ref_tap is not None:
             signatures.add_reference(*s.ref_tap)
         staleness = max(0.0, s.now - s.reading.at)
-        out.append(
-            subject.step(s.reading, staleness, s.playback_active,
-                         s.track_id, s.dominance, s.now)
+        context = captured.setdefault(
+            s.reading.at, (s.playback_active, s.track_id, s.dominance)
         )
+        if not bind_context:
+            context = (s.playback_active, s.track_id, s.dominance)
+        out.append(subject.step(s.reading, staleness, *context, s.now))
     return out
 
 
@@ -282,14 +297,15 @@ def test_script_covers_every_branch():
 def test_corrector_matches_frozen_copy():
     """The M8-01 acceptance test. At c1c49fc this compared `_Frozen` with
     the live pre-refactor `Engine._bank_evidence` / `_correct` and passed,
-    proving the copy faithful; it now compares `_Frozen` with the
-    extracted collaborator."""
+    proving the copy faithful. It then compared `_Frozen` with the
+    extracted collaborator. Since M8-03, `_Frozen` is fed each reading's
+    captured context."""
     config = _config()
     script = _script()
     frozen = _Frozen(config, _store(config))
     live = _Corrector(config)
     assert _run(live, live.signatures, script) == _run(
-        frozen, frozen._signatures, script
+        frozen, frozen._signatures, script, bind_context=True
     )
     assert _snapshot(live.signatures, live.baseline) == _snapshot(
         frozen._signatures, frozen._clean_baseline
@@ -368,3 +384,23 @@ def test_engine_wires_the_corrector_only_with_a_signature_store():
     assert on._music_aware is not None
     assert on._music_aware._signatures is on._signatures
     assert off._signatures is None and off._music_aware is None
+
+
+def test_m8_03_changes_behavior_on_this_script():
+    """Guards the test above against proving nothing: on this script the
+    pre-M8-03 per-tick context gives different outputs, and the change is
+    confined to steps whose reading outlived a context change."""
+    config = _config()
+    script = _script()
+    per_tick = _Frozen(config, _store(config))
+    bound = _Frozen(config, _store(config))
+    old = _run(per_tick, per_tick._signatures, script)
+    new = _run(bound, bound._signatures, script, bind_context=True)
+    first_seen: dict[float, tuple] = {}
+    stale_context = []
+    for s in script:
+        ctx = (s.playback_active, s.track_id, s.dominance)
+        stale_context.append(first_seen.setdefault(s.reading.at, ctx) != ctx)
+    changed = [o != n for o, n in zip(old, new)]
+    assert sum(changed) >= 5
+    assert all(c <= sc for c, sc in zip(changed, stale_context))
