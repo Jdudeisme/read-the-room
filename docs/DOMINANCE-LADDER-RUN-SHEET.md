@@ -106,8 +106,12 @@ Also:
 | id | track | why | Spotify URI |
 |---|---|---|---|
 | T1 | "Welcome To New York (Taylor's Version)" | continuity with 2026-09-06 | `spotify:track:1hR8BSuEqPCCZfv93zzzz9` |
-| T2 | founder's pick: **mellow** (see below) | the low-high-band end, where mix is most likely absorbed as clean | |
-| T3 | founder's pick: **bright** (see below) | the high end; checks `HI` saturation | |
+| T2 | **"Georgia On My Mind", Oscar Peterson Trio** (*Night Train*, 3:44). Founder's mellow pick, 2026-10-09 | the low-high-band end, where mix is most likely absorbed as clean | `spotify:track:2fOx7wWR2sOBIWyveecAGX` |
+| T3 | **"Good Life", Kanye West ft. T-Pain** (*Graduation*, 3:27). Founder's bright pick, 2026-10-09 | the high end; checks `HI` saturation | `spotify:track:4ZPdLEztrlZqbJkgHNw54L` |
+
+Spotify lists several releases of both. Play these exact URIs, so every
+take is the same recording. If Spotify relinks one (as happened to
+*Giant Steps* on 2026-10-09), note the id it actually played.
 
 At least two tracks are required; T1 + T2 is the minimum. T3 is strongly
 recommended.

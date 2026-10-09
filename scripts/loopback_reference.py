@@ -14,9 +14,15 @@ Turn on Do Not Disturb first.
 
 **Threads.** soundcard talks to WASAPI over COM, so the recorder is opened
 and read inside its own daemon thread. `stop()` sets an event and joins
-briefly, and never waits indefinitely: if the loopback stalls (WASAPI can
-deliver no packets while nothing plays), the thread is abandoned, as
-workers are elsewhere in RTR.
+briefly, and never waits indefinitely: a stalled loopback would be
+abandoned, as workers are elsewhere in RTR.
+
+**Silence is zeros, not a stall** (JPad self-tests, 2026-10-09, nothing
+written to disk). With Spotify paused, the loopback delivered 50 blocks
+(5.00 s of audio in 5.03 s wall, at most 125 ms apart), all exact zeros,
+and the thread exited on `stop()`. While music played, 5.00 s arrived in
+5.02 s, the longest wait for a 100 ms block was 110 ms, and the loudest
+block was -8.7 dBFS. Opening took ~0.5 s.
 
 **Clock log.** Every block's arrival time (`time.monotonic`) and the
 running frame count are kept, so drift between the speaker clock and the

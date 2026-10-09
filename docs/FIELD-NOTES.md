@@ -111,6 +111,25 @@ are measured insufficient.
 (no-gate replay), `data/m12-replay/chunk-survey.npz` (per-chunk features,
 segment, certified).
 
+**4. Loopback self-tests (founder-approved; nothing written to disk).**
+Five seconds each, `soundcard` on its own thread
+(`scripts/loopback_reference.py`, as `capture_room_wav.py --reference`
+uses it):
+
+- **Music playing.** Spotify was still playing the DJ's queue after the
+  M8 gate. 5.00 s of audio arrived in 5.02 s; the longest wait for a
+  100 ms block was 110 ms; the loudest block was −8.7 dBFS.
+- **Spotify paused.** 50 blocks, 5.00 s in 5.03 s, at most 125 ms apart,
+  **all exact zeros**, and the thread exited on stop. So WASAPI loopback
+  on JPad does not stall in silence, and silence in the reference is
+  unambiguous (digital zero, not a noise floor).
+
+Opening took ~0.5 s. The founder's ladder picks (2026-10-09): T2
+*Georgia On My Mind* (Oscar Peterson Trio, 3:44), T3 *Good Life* (Kanye
+West ft. T-Pain, 3:27); URIs in the run sheet. Windows volume was set to
+66 % at the time of the silent test (no effect on a silent loopback).
+The session sets volume per take.
+
 ## 2026-10-09 (afternoon, 15:45–15:59) — M8 gate part (c), live smoke on JPad: the wiring holds; M8 PASSES (founder call)
 
 **Setup.** Founder alone, run under `docs/M8-TEST-PLAN.md` part (c), on
