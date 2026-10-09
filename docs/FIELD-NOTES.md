@@ -5,6 +5,112 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-09 (evening, offline) — M12 starts: no loopback in the current audio stack; the 09-30 replay is now reproducible from the repo; cheap reference-free features detect music, not the record's vocals
+
+**Setup.** No mic and nobody in the room: device listing and offline
+analysis only, on JPad, branch `milestone-12-hear-the-room`.
+`docs/M12-PROPOSAL.md` decisions D1–D4 were approved by the founder the
+same evening.
+
+**1. The playback reference needs a new dependency (M12-01).** Listing
+devices only, with no stream opened:
+
+- `sounddevice` 0.5.6 bundles PortAudio "V19.7.0-devel". It exposes no
+  WASAPI loopback device, and `WasapiSettings` has no loopback option.
+  JPad has no "Stereo Mix"-style input; the WDM-KS inputs are unnamed
+  endpoints.
+- `soundcard` 0.4.6 lists `'Speakers (Cirrus Logic XU (with APO
+  Extensions))'` as a 2-channel loopback.
+
+Evidence event, per D1: a fresh venv from `pip install -e .[dev]`
+resolved `soundcard` 0.4.6 with numpy 1.26.4, torch 2.2.2+cpu and
+sounddevice 0.5.6. `pip check` was clean, 383 tests passed, the loopback
+was listed, and all four libraries imported together in one process. It
+is pinned in `pyproject.toml`
+(`soundcard>=0.4.6,<0.5; sys_platform == 'win32'`) with provenance. No
+`src/` code uses it yet.
+
+**2. Gate (a) has a committed harness.** `scripts/m12_partf_replay.py`
+mirrors the 09-30 session's JPad config (stated in its docstring) and adds
+a gate hook at the certification point. With `--gate none` it reproduces
+`data/partf-replay/faithful.jsonl` exactly: **830 rows, 0 differing
+fields**. Its per-segment table equals the FIELD-NOTES 2026-09-30 (night)
+"faithful" column on every row:
+
+| segment | buckets (none gate) | certified ratio | frag |
+|---|---|---|---|
+| vocal hip-hop | solo 117 / pair 23 / `3` 3 | 0.79 | 0.80 |
+| instrumental hip-hop | solo 43 / pair 10 | 0.45 | 0.89 |
+| big band | pair 40 / solo 2 | 0.46 | 0.81 |
+| no music (skip gap) | solo 22 | 0.77 | 0.78 |
+| manual Hip-Hop/mid | solo 66 / pair 50 | 0.80 | 0.80 |
+| jazz | pair 152 / `3` 108 / `4` 23 / solo 59 | 0.55 | 0.62 |
+
+**3. Cheap reference-free features detect music, not the record's
+vocals (M12-03, D3).** `scripts/m12_chunk_survey.py` streams Silero
+exactly as the engine does and computes eight model-free features per
+512-sample chunk: VAD `p`, `hi` (> 2 kHz share), `lo` (< 300 Hz share),
+spectral `flat`ness, `flux`, `beat` periodicity over 5 s, `p_sd` over
+1 s, and relative `lvl`. That is 52,000 chunks, 32,332 certified at the
+session's thresholds, in 42 s. The only contrast this recording offers
+is certified chunks in the no-music gap (room speech only, n = 1,057)
+against each music segment's certified chunks (room speech plus whatever
+music certified). Three people talked throughout, so there is no
+per-chunk truth.
+
+AUC against the gap (0.5 = indistinguishable):
+
+| segment | hi | lo | flat | beat |
+|---|---|---|---|---|
+| vocal hip-hop | 0.75 | 0.28 | 0.68 | 0.71 |
+| instrumental | 0.69 | 0.14 | 0.59 | 0.62 |
+| big band | 0.73 | 0.16 | 0.65 | 0.71 |
+| manual Hip-Hop/mid | 0.75 | 0.23 | 0.70 | 0.87 |
+| jazz | 0.60 | 0.20 | 0.51 | 0.81 |
+
+Each feature's threshold was set at 5 % false refusal of the gap's room
+speech. Share of each segment's certified chunks that the threshold
+would refuse:
+
+| feature | vocal hip-hop | instrumental | big band | manual Hip-Hop | jazz |
+|---|---|---|---|---|---|
+| hi | 6 % | 4 % | 4 % | 6 % | 4 % |
+| lo | 15 % | 36 % | 26 % | 16 % | 26 % |
+| flat | 9 % | 3 % | 2 % | 7 % | 1 % |
+| beat | 25 % | 14 % | 27 % | 56 % | 46 % |
+
+Findings:
+
+- **Every feature separates music on from music off, roughly evenly
+  across genres. None singles out vocal hip-hop**, the segment where the
+  VAD certified the record. RTR already knows music is on
+  (`playback_active`), so a music-presence detector adds nothing at the
+  certification point.
+- `lo` points the wrong way for the rap problem: it refuses more under
+  the instrumental (36 %) than under vocal hip-hop (15 %).
+- `beat` is a rhythmic-music detector. It would refuse half the certified
+  chunks under jazz and the hip-hop playlist, where three people were
+  really talking. That is M5's "blindness" failure, built in.
+- The high-band share (the M6 dominance proxy) separates least at a
+  usable false-refusal rate (4–6 %). That matches 2026-09-30 (late
+  night): speech alone reaches the provisional knots.
+
+**What this decides, and what it doesn't.** On this recording, a cheap
+per-chunk reference-free gate isn't worth building: the reference-free
+fallback in M12-03 is not "a threshold on a spectral feature". That
+supports the proposal's order: the reference capture (M12-01) and
+reference-based signals (residual and coherence, M12-02/03) first. The
+classifier option stays third, as chartered. Not tested: end-to-end
+replays with any of these as gates. Each table above shows the gate would
+refuse too little of the rap or too much of the talk to be worth the
+8 minutes. Not shown: whether a model (a speech/music classifier) can
+separate rap from talk. That is the charter's step 3, only if steps 1–2
+are measured insufficient.
+
+**Files** (`data/` is gitignored, uncommitted): `data/m12-replay/none.jsonl`
+(no-gate replay), `data/m12-replay/chunk-survey.npz` (per-chunk features,
+segment, certified).
+
 ## 2026-10-09 (afternoon, 15:45–15:59) — M8 gate part (c), live smoke on JPad: the wiring holds; M8 PASSES (founder call)
 
 **Setup.** Founder alone, run under `docs/M8-TEST-PLAN.md` part (c), on
