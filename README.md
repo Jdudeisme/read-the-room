@@ -621,6 +621,38 @@ M7's engine-path addition is centroid arithmetic (O(k²) on a handful of
 clusters) inside the existing clustering pass — within run-to-run
 variance of every prior row, as required.
 
+### Milestone 8 gate (Windows laptop `JPad`)
+
+All three parts of the M8 gate pass (2026-10-09). It is the first
+milestone gated on the reference machine; compare against the JPad rows
+above, not the Mac's. See [docs/M8-TEST-PLAN.md](docs/M8-TEST-PLAN.md).
+Part (a): `pytest`, 383 passed, offline, no models; the engine
+orchestration now has its own suite (`tests/test_engine.py`). Part (b):
+the benchmark below. Part (c): a 10-minute live smoke, founder alone
+(15:45–15:59). Statuses were ready within 2 s, the "hearing through
+music" chip fired, and there were no exceptions. 14 pull samples banked
+live, and corrections followed them (refs 3 → 8). M8-03's frame check
+passed at a track boundary. Recorded caveats: one person read `pair`/`3`
+under jazz, the known 2026-09-30 certification issue owned by M12, with
+headcount unchanged by M8; the shutdown flush could not be confirmed from
+the live log; M8-03's after-stop case was not exercised live. M8-05 was
+shelved on a measurement. See the 2026-10-09 entries in
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback` | headcount, contended hops | 0.24–0.26 s | 0.25–0.28 s | < 1.66 s | PASS |
+| `bench_headcount.py --fallback` | emotion, overall | 0.33–0.35 s | 0.37–0.40 s | < 1.2 s absolute | PASS |
+
+Ranges are three branch runs, alternated with three `main` runs in the
+same session (`main`: headcount 0.23–0.25 / 0.25–0.28 s, emotion
+0.33–0.34 / 0.38–0.39 s), 2026-10-09 15:01–15:02. They sit within
+run-to-run variance of the 2026-09-06 JPad row. The benchmark times the
+workers directly and never imports `engine.py`, so it cannot see M8's
+orchestration refactor by construction; tick cost is not benchmarked.
+The script still prints the Mac's 1.37 s budget (FIELD-NOTES 2026-10-09);
+the JPad budget above is the README's 1.66 s.
+
 ## Tests
 
 ```bash

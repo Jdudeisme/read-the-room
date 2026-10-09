@@ -6,6 +6,7 @@ retry, device resolution, and error mapping.
 """
 
 import json
+import threading
 import time
 import urllib.parse
 
@@ -251,6 +252,159 @@ class TestAuth:
     def test_requires_client_id(self, tmp_path):
         with pytest.raises(ValueError, match="CLIENT_ID"):
             SpotifyProvider(PlaybackConfig(), playlists={})
+
+
+# Spotify Web API error bodies, shape {"error": {"status", "message",
+# "reason"?}}. These are the DOCUMENTED shapes (Web API reference, "Player
+# Error Reasons"), not observed ones: no 403 from /me/player/pause has been
+# captured on JPad yet (2026-10-09). Replace with a captured body when one
+# turns up.
+_PAUSE_403_BODIES = {
+    "already_paused": {"error": {"status": 403, "message": "Player command failed: Restriction violated", "reason": "ALREADY_PAUSED"}},
+    "premium": {"error": {"status": 403, "message": "Player command failed: Premium required", "reason": "PREMIUM_REQUIRED"}},
+    "restriction": {"error": {"status": 403, "message": "Player command failed: Restriction violated", "reason": "REMOTE_CONTROL_DISALLOW"}},
+    "no_reason": {"error": {"status": 403, "message": "Forbidden"}},
+}
+
+
+class _Pause403Spotify(FakeSpotify):
+    def __init__(self, body):
+        super().__init__()
+        self.body = body  # dict, or None for an empty 403
+
+    def __call__(self, request):
+        if request.url.path == "/v1/me/player/pause":
+            self.requests.append(request)
+            if self.body is None:
+                return httpx.Response(403)
+            return httpx.Response(403, json=self.body)
+        return super().__call__(request)
+
+
+class TestPause403:
+    """M8-08 (AUDIT finding 8d): swallow only "already paused"."""
+
+    @pytest.mark.parametrize("kind", ["premium", "restriction"])
+    def test_restriction_403_raises(self, config, kind):
+        p = _provider(config, _Pause403Spotify(_PAUSE_403_BODIES[kind]))
+        with pytest.raises(ProviderError) as info:
+            p.pause()
+        assert info.value.status == 403
+        assert info.value.reason == _PAUSE_403_BODIES[kind]["error"]["reason"]
+
+    def test_already_paused_403_is_the_goal_state(self, config):
+        p = _provider(config, _Pause403Spotify(_PAUSE_403_BODIES["already_paused"]))
+        p.pause()  # no raise
+
+    @pytest.mark.parametrize("body", [_PAUSE_403_BODIES["no_reason"], None])
+    def test_ambiguous_403_stays_permissive(self, config, body):
+        """No reason, or no body at all: the pre-M8-08 behavior holds."""
+        p = _provider(config, _Pause403Spotify(body))
+        p.pause()  # no raise
+
+    def test_reason_is_none_on_non_json_errors(self, config):
+        class Teapot(FakeSpotify):
+            def __call__(self, request):
+                if request.url.path == "/v1/me/player/pause":
+                    return httpx.Response(500, text="<html>oops</html>")
+                return super().__call__(request)
+
+        with pytest.raises(ProviderError) as info:
+            _provider(config, Teapot()).pause()
+        assert info.value.status == 500 and info.value.reason is None
+
+
+class _SlowTokenSpotify(FakeSpotify):
+    """Holds each token POST open long enough for a second thread to
+    arrive, and records whether the token lock was held during API calls."""
+
+    def __init__(self):
+        super().__init__()
+        self.provider = None
+        self.api_calls_under_lock = 0
+
+    def __call__(self, request):
+        if request.url.path == "/api/token":
+            time.sleep(0.05)
+        elif self.provider is not None and self.provider._token_lock.locked():
+            self.api_calls_under_lock += 1
+        return super().__call__(request)
+
+
+class TestTokenConcurrency:
+    """M8-06 (AUDIT finding 4): one refresher at a time, API I/O outside
+    the lock."""
+
+    def _expired(self, tmp_path):
+        save_token_cache(
+            tmp_path / "token.json",
+            {"access_token": "stale", "refresh_token": "refresh-1",
+             "expires_at": time.time() - 10},
+        )
+
+    def _race(self, call, n=2):
+        barrier = threading.Barrier(n)
+        errors: list[BaseException] = []
+
+        def run():
+            barrier.wait()
+            try:
+                call()
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run) for _ in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(5)
+        assert errors == []
+
+    def test_concurrent_expired_token_refreshes_exactly_once(self, tmp_path, config):
+        self._expired(tmp_path)
+        fake = _SlowTokenSpotify()
+        p = _provider(config, fake)
+        self._race(p.devices)
+        posts = [r for r in fake.requests if r.url.path == "/api/token"]
+        assert len(posts) == 1
+        assert load_token_cache(tmp_path / "token.json")["refresh_token"] == "refresh-2"
+
+    def test_concurrent_401s_refresh_exactly_once(self, config):
+        fake = _SlowTokenSpotify()
+        p = _provider(config, fake)
+        p._access_token()  # load the cache ("ok", valid) before the race
+        fake.reject_token = True  # both in-flight requests get a 401
+
+        gate = threading.Barrier(2)
+        real_request = p._client.request
+
+        def both_in_flight(*args, **kwargs):
+            # Make both threads send with the old token before either
+            # refreshes; otherwise the race is not exercised. Only API
+            # calls carry a bearer header; the token POST (which also goes
+            # through client.request) must not wait here.
+            if kwargs.get("headers") and p._token["access_token"] == "ok":
+                try:
+                    gate.wait(1)
+                except threading.BrokenBarrierError:
+                    pass
+            return real_request(*args, **kwargs)
+
+        p._client.request = both_in_flight
+        self._race(p.devices)
+        posts = [r for r in fake.requests if r.url.path == "/api/token"]
+        assert len(posts) == 1
+
+    def test_api_requests_never_run_under_the_token_lock(self, tmp_path, config):
+        self._expired(tmp_path)  # the first call refreshes, then calls the API
+        fake = _SlowTokenSpotify()
+        p = _provider(config, fake)
+        fake.provider = p
+        p.devices()
+        fake.reject_token = True  # 401 path: refresh, then retry
+        p.devices()
+        assert fake.refreshes == 2
+        assert fake.api_calls_under_lock == 0
 
 
 class TestHelpers:

@@ -32,6 +32,10 @@ Ground rules for the executing agent:
 
 ## M8 — Trust the engine offline
 
+> **Gate passed 2026-10-09** on JPad (FIELD-NOTES 2026-10-09; README M8
+> gate). M8-01/02/03/04/06/07/08/09/10 done; M8-05 shelved (ledger,
+> Finding 3).
+
 **Charter.** M7 proved the headcount middle; M8 proves the *engine orchestration*
 — the code that composes VAD, emotion, the M6 music-aware correction, and
 headcount every tick — without a live session. Today `Engine._tick`,
@@ -205,7 +209,13 @@ during a playback test, no exceptions in the log).
   ((TAPS−1)/2 samples) — compare steady-state, not the first 63 samples.
 - **Effort:** S
 
-### M8-05 — `separation_score`: all-singleton case returns None, not 0.0 — REQUIRES-REVIEW
+### M8-05 — `separation_score`: all-singleton case returns None, not 0.0 — REQUIRES-REVIEW — **SHELVED 2026-10-09**
+
+> **Shelved (founder, 2026-10-09)** before any code changed: the premise
+> below ("masked because count_pressure and smear are ~0") is false, and
+> the change as specced turns loud fragmented crowds into a solo reading.
+> Evidence and disposition: the ledger entry "Finding 3" at the end of
+> this file. The charter is kept as written, for the record.
 
 - **Problem:** AUDIT finding 3. When every cluster is a singleton (n ≥ 3),
   `separation_score` returns 0.0 (src/sensing/headcount.py:275), which
@@ -1314,6 +1324,23 @@ Every AUDIT item not in the backlog above, with its disposition:
   server** (spotify_auth.py:62–106): **REJECTED.** One-shot interactive flow,
   human present, worst case is "run it again"; hardening it buys nothing for
   either goal.
+- **Finding 3 — `separation_score` returns 0.0 when every cluster is a
+  singleton** (headcount.py `separation_score`; was M8-05):
+  **SHELVED (founder, 2026-10-09).** Measured before any code change,
+  `HeadcountEstimator` defaults, n mutually distant 192-d embeddings of
+  1.25 s each, speech ratio 0.9, −25 dBFS. Every singleton falls below the
+  min-mass floor, so `raw_clusters` 1 and fragmentation 1.00, and `smear`
+  is 1: the "babble confetti" crowd signature, not a masked corner. For
+  every n from 3 to 40, today: crowd weight 0.686, log2 5.51 (crowd
+  regime). As specced (None): crowd weight 0.000, log2 0.00 (solo),
+  confidence 0.10–0.40. The 0.0 is semantically "undefined read as
+  collapsed", but here collapsed is the right answer, and the fix would
+  invert loud fragmented crowds to solo. Quiet input is unaffected either
+  way. Pinned by `test_all_singleton_confetti_reads_as_crowd_SHELVED_M8_05`
+  in `tests/test_headcount.py`. Revisit only with a design that keeps this
+  case in the crowd regime (for example, None only when the singletons are
+  mass-passing), as its own REQUIRES-REVIEW plan, re-gated on the
+  2026-07-15 gate-WAV replay.
 - **AUDIT note — torch/numpy/speechbrain version pins**: **ACCEPTED AS-IS,
   explicitly out of scope everywhere above.** The pins were set for the Intel
   Mac's wheels and are documented at the pin site (pyproject.toml:10–28). The

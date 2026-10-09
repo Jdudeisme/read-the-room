@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import platform
 import socket
+import threading
 import time
 from typing import Protocol
 
@@ -30,7 +31,8 @@ from . import dsp
 from .config import Config
 from .emotion import EmotionWorker
 from .headcount import BucketSmoother, HeadcountEstimator, HeadcountWorker
-from .music import CleanBaseline, TrackSignatureStore, apply_correction, dominance
+from .music import TrackSignatureStore, dominance
+from .music_aware import MusicAwareCorrector
 from .state import Ema, RoomState, TrendTracker, energy_score, mood_quadrant
 from .vad import VadGate
 
@@ -146,12 +148,27 @@ class Engine:
             if config.music_aware_enabled and config.emotion_enabled
             else None
         )
-        # The room's emotion read absent music, for pull sampling.
-        self._clean_baseline = CleanBaseline(config.music_baseline_tau_s)
-        self._last_banked_at: float | None = None  # dedup per inference
+        # Banking, correction and the discount floor (M8-01: extracted from
+        # the tick, behavior unchanged). Exists exactly when the store does,
+        # which is also the only case where dominance is ever computed.
+        self._music_aware = (
+            MusicAwareCorrector(config, self._signatures)
+            if self._signatures is not None
+            else None
+        )
         self._trend = TrendTracker(config.trend_horizon_s, config.trend_slope_threshold)
         self._vad_position = 0
         self._running = False
+        # Idempotent shutdown (M8-07, AUDIT finding 5). run()'s finally and
+        # the dashboard's main thread both call stop(). The first call does
+        # the work; any other waits until it finishes, so the process never
+        # exits mid-flush. Workers are not joined (daemon threads, by design).
+        self._stop_lock = threading.Lock()
+        self._stopped = False
+        # Held around each tick in run(). stop() takes it for the final flush,
+        # so the flush never overlaps a tick's own signature save. Contended
+        # only at shutdown, where stop() waits at most one tick.
+        self._tick_lock = threading.Lock()
 
     @property
     def emotion_status(self) -> str:
@@ -183,7 +200,8 @@ class Engine:
                 if delay > 0:
                     time.sleep(delay)
                 next_tick += self.config.hop_s
-                state = self._tick()
+                with self._tick_lock:
+                    state = self._tick()
                 for consumer in self.consumers:
                     try:
                         consumer.on_state(state)
@@ -198,18 +216,26 @@ class Engine:
             self.stop()
 
     def stop(self) -> None:
-        self._running = False
-        self.source.stop()
-        if self.emotion is not None:
-            self.emotion.stop()
-        if self.headcount is not None:
-            self.headcount.stop()
-        if self._signatures is not None:
-            self._signatures.flush()
+        with self._stop_lock:
+            if self._stopped:
+                return
+            self._stopped = True
+            self._running = False
+            self.source.stop()
+            if self.emotion is not None:
+                self.emotion.stop()
+            if self.headcount is not None:
+                self.headcount.stop()
+            if self._signatures is not None:
+                with self._tick_lock:
+                    self._signatures.flush()
 
-    def _tick(self) -> RoomState:
-        now = time.monotonic()
-        wall = time.time()
+    def _tick(self, now: float | None = None, wall: float | None = None) -> RoomState:
+        # Optional clocks (M8-02, founder choice 2026-10-09): tests drive time
+        # through the tick instead of patching time.monotonic, which the
+        # workers also read on their own threads. Production passes nothing.
+        now = time.monotonic() if now is None else now
+        wall = time.time() if wall is None else wall
         window = self.source.ring.read_last(
             int(self.config.window_s * self.config.sample_rate)
         )
@@ -281,25 +307,13 @@ class Engine:
             if reading is not None:
                 v_inst, a_inst = reading.valence, reading.arousal
                 confidence = reading.confidence
-                if self._signatures is not None:
-                    self._bank_evidence(
+                if self._music_aware is not None:
+                    out = self._music_aware.process(
                         reading, staleness, playback_active,
                         playback_track_id, music_dominance, now,
                     )
-                if music_dominance is not None and music_dominance > 0.0:
-                    corrected = self._correct(
-                        v_inst, a_inst, playback_track_id, music_dominance
-                    )
-                    if corrected is not None:
-                        v_inst, a_inst, emotion_correction = corrected
-                    else:
-                        # Discount floor: no usable signature yet — the
-                        # reading is blended room+song and we can't unblend
-                        # it, so it arrives with less conviction.
-                        confidence *= max(
-                            0.0,
-                            1.0 - self.config.music_discount_gamma * music_dominance,
-                        )
+                    v_inst, a_inst = out.valence, out.arousal
+                    confidence, emotion_correction = out.confidence, out.correction
                 valence = self._ema_valence.update(v_inst, now)
                 arousal = self._ema_arousal.update(a_inst, now)
 
@@ -333,86 +347,6 @@ class Engine:
             energy, now, playback_active, playback_track_id,
             music_dominance, emotion_correction,
         )
-
-    def _bank_evidence(
-        self,
-        reading,
-        staleness: float | None,
-        playback_active: bool,
-        playback_track_id: str | None,
-        music_dominance: float | None,
-        now: float,
-    ) -> None:
-        """Feed the clean baseline and the pull estimator from a RAW
-        reading, once per inference (readings persist across ticks). The
-        baseline learns the room absent music; while it is fresh, a
-        speech-over-music reading measures the playing track's pull
-        directly — the interaction, not the standalone response
-        (additivity failed its 2026-07-11 test)."""
-        if reading.at == self._last_banked_at:
-            return
-        fresh = staleness is not None and staleness <= (
-            self.config.emotion_min_interval_s + self.config.hop_s
-        )
-        if not fresh:
-            return
-        self._last_banked_at = reading.at
-        clean = not playback_active or (
-            music_dominance is not None
-            and music_dominance <= self.config.music_baseline_m_max
-        )
-        if clean:
-            self._clean_baseline.update(reading.valence, reading.arousal, now)
-            return
-        if (
-            playback_track_id is not None
-            and music_dominance is not None
-            and music_dominance >= self.config.music_pull_m_floor
-        ):
-            base = self._clean_baseline.get(
-                now, self.config.music_baseline_max_age_s
-            )
-            if base is not None:
-                self._signatures.add_pull_reference(
-                    playback_track_id,
-                    (reading.valence - base[0]) / music_dominance,
-                    (reading.arousal - base[1]) / music_dominance,
-                )
-
-    def _correct(
-        self,
-        v_inst: float,
-        a_inst: float,
-        playback_track_id: str | None,
-        m: float,
-    ) -> tuple[float, float, dict] | None:
-        """Subtract the playing track's pull. Basis order: the measured
-        pull signature, else the standalone response scaled by the
-        gate-measured super-additivity ratios (cold start), else None —
-        the caller falls back to the confidence discount."""
-        sig = self._signatures.lookup(playback_track_id)
-        if sig is None:
-            return None
-        if sig.pull_refs >= self._signatures.min_refs:
-            basis, pv, pa, refs = "pull", sig.pull_valence, sig.pull_arousal, sig.pull_refs
-            scale_v, scale_a = self.config.music_beta_v, self.config.music_beta_a
-        elif sig.refs >= self._signatures.min_refs:
-            basis, pv, pa, refs = "standalone", sig.valence, sig.arousal, sig.refs
-            scale_v = self.config.music_standalone_scale_v
-            scale_a = self.config.music_standalone_scale_a
-        else:
-            return None
-        v, a, dv, da = apply_correction(
-            v_inst, a_inst, pv, pa, m, scale_v, scale_a,
-            self.config.music_max_correction,
-        )
-        return v, a, {
-            "valence": round(dv, 3),
-            "arousal": round(da, 3),
-            "track_id": playback_track_id,
-            "basis": basis,
-            "refs": refs,
-        }
 
     def _publish(
         self, wall, loudness, activity, measured, speech_ratio, valence,

@@ -633,3 +633,24 @@ class TestM7StableMiddle:
         result = est.estimate(speech_ratio=0.7, loudness_dbfs=-30.0)
         assert result.raw_clusters == 1
         assert result.rescued_clusters == 0
+
+
+def test_all_singleton_confetti_reads_as_crowd_SHELVED_M8_05():
+    """PINNED (ROADMAP ledger, Finding 3; M8-05 shelved 2026-10-09). When
+    every cluster is a singleton, `separation_score` returns 0.0, which the
+    crowd blend reads as collapsed. For loud, saturated speech that is the
+    right answer: every singleton is below the min-mass floor, so
+    fragmentation is 1 and the buffer is babble confetti. Returning None
+    here (the shelved M8-05) dropped crowd weight to 0 and read the room as
+    solo. Change this only with a new reviewed design."""
+    rng = np.random.default_rng(3)
+    for n in (3, 12, 40):
+        emb = rng.standard_normal((n, 192)).astype(np.float32)
+        emb /= np.linalg.norm(emb, axis=1, keepdims=True)
+        est = HeadcountEstimator()
+        est.add(emb, [1.25] * n, now=0.0)
+        result = est.estimate(speech_ratio=0.9, loudness_dbfs=-25.0)
+        assert result.separation == 0.0
+        assert result.fragmentation == 1.0
+        assert result.crowd_weight > 0.5
+        assert result.log2_count > 3.0  # crowd regime, not solo
