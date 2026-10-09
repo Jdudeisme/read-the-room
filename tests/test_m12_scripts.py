@@ -61,3 +61,39 @@ def test_segment_table_counts_buckets_per_segment(tmp_path):
 )
 def test_auc(pos, neg, expected):
     assert survey.auc(np.array(pos, float), np.array(neg, float)) == expected
+
+
+ar = _load("analyze_reference")
+
+
+def _noise(seconds, seed=0):
+    return np.random.default_rng(seed).standard_normal(int(seconds * ar.SR)).astype(np.float32) * 0.1
+
+
+def test_gcc_phat_recovers_a_known_delay():
+    ref = _noise(10)
+    lag = 437  # samples: 27.3 ms
+    mic = np.concatenate([np.zeros(lag, np.float32), ref[:-lag]]) * 0.3 + _noise(10, 1) * 0.05
+    got, peak = ar.gcc_phat(mic, ref, int(0.5 * ar.SR))
+    assert got == lag and peak > 0.1
+
+
+def test_delays_skip_windows_where_the_reference_is_off():
+    ref = np.concatenate([_noise(10), np.zeros(10 * ar.SR, np.float32)])
+    mic = ref.copy()
+    d = ar.delays(mic, ref)
+    assert [x["t"] for x in d] == [0.0]
+    assert d[0]["delay_ms"] == 0.0
+
+
+def test_clock_ratio_reads_a_fast_reference_clock():
+    t = np.arange(0, 60, 1.0)
+    mic = [[x, x * ar.SR] for x in t]
+    ref = [[x, x * 48_000 * (1 + 50e-6)] for x in t]  # +50 ppm
+    assert ar.clock_ratio(mic, ref, 48_000) == pytest.approx(50.0, abs=0.01)
+
+
+def test_transport_spans():
+    on = _noise(1)
+    ref = np.concatenate([on, np.zeros(ar.SR, np.float32), on])
+    assert ar.transport(ref) == [(0.0, 1.0), (2.0, 3.0)]

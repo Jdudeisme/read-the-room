@@ -1,6 +1,11 @@
 # Dominance ladder on JPad — run sheet
 
-**Status.** Written 2026-09-30, not yet run. Human-run on JPad (the only
+**Status.** Written 2026-09-30, not yet run. **Extended 2026-10-09 for
+M12-01** (docs/M12-PROPOSAL.md, decision D4): every take also records the
+laptop's playback reference (`--reference`), the 66 % level gets mix
+takes, and two takes are added (`P1` transport, and Block X's Atmos-off
+take, now required). One sitting answers the ladder's question and the
+M12-01 probe's. Human-run on JPad (the only
 machine; the Mac was retired 2026-09-30), founder solo. It changes no
 constant, threshold, ramp or default. Its output is a FIELD-NOTES entry and
 one founder decision on the knots. Any knot change that follows is a
@@ -64,6 +69,7 @@ Fill this table in; it goes into the FIELD-NOTES entry verbatim.
 | Spotify "Normalize volume" + level | Spotify → Settings → Audio quality | |
 | Spotify Equalizer | Spotify → Settings → Playback | |
 | Spotify volume | Spotify app | 100 % |
+| **Do Not Disturb** | Windows Quick Settings | **ON, required.** The reference records every sound the laptop plays, notifications included |
 | Repeat-one | Spotify | **on** (2026-09-06: Spotify otherwise moves on to the next track) |
 | Power | plugged in? Windows power mode | |
 | Laptop position | | centre of the room, lid at the usual angle |
@@ -100,11 +106,58 @@ Also:
 | id | track | why | Spotify URI |
 |---|---|---|---|
 | T1 | "Welcome To New York (Taylor's Version)" | continuity with 2026-09-06 | `spotify:track:1hR8BSuEqPCCZfv93zzzz9` |
-| T2 | founder's pick: **mellow** (acoustic, soft top end) | the low-high-band end, where mix is most likely absorbed as clean | |
-| T3 | founder's pick: **bright** (dense hi-hats, EDM/hip-hop) | the high end; checks `HI` saturation | |
+| T2 | founder's pick: **mellow** (see below) | the low-high-band end, where mix is most likely absorbed as clean | |
+| T3 | founder's pick: **bright** (see below) | the high end; checks `HI` saturation | |
 
 At least two tracks are required; T1 + T2 is the minimum. T3 is strongly
 recommended.
+
+### How to pick T2 and T3
+
+The ladder measures one thing about music: **how much of its energy is
+above 2 kHz** (the high-band share behind `dominance()`). Speech sits
+mostly below 2 kHz; sibilants, hi-hats, cymbals and bright synths sit
+above it. T2 and T3 are the two ends of that scale, so the knots are
+tested where they are most likely to fail.
+
+**T2, mellow: almost nothing above 2 kHz.** Listen for:
+- soft acoustic instruments: piano, nylon or fingerpicked guitar,
+  upright bass, strings, soft horns;
+- no hi-hats, cymbals, shakers or claps (brushes on a snare are fine);
+- a gentle, breathy or low vocal, not a belted or bright one;
+- slow tempo, warm production, not a loud modern master.
+
+Why it matters: if music this soft can't be told from speech (mix
+windows read as "clean"), the music-aware correction can't engage on
+this kind of music at small-room volume. That is the decision rule's
+outcome B. Examples of the type: a slow piano-trio ballad (Bill Evans,
+or an Oscar Peterson ballad the DJ already plays), Norah Jones *Don't
+Know Why*, a fingerpicked folk song.
+
+**T3, bright: a lot above 2 kHz, all the way through.** Listen for:
+- constant hi-hats, ideally fast 16th-note or rolling trap hats, with
+  cymbals, claps and shakers;
+- bright synth leads or distorted textures;
+- a loud, modern master that stays dense from start to finish, with no
+  long quiet intro;
+- vocals welcome: rap over trap hats is ideal for M12, because vocal
+  hip-hop is what passed certification on 2026-09-30.
+
+Why it matters: it checks that `HI` saturates (m reaches 1 when music
+dominates) and gives M12 a vocal track the VAD is likely to believe.
+Examples of the type: trap or modern hip-hop with rolling hats, or
+four-on-the-floor EDM or house.
+
+**For both:**
+- **On Spotify**, so the DJ path and the reference both see it.
+- **3–4 minutes**, because every mix and music take is one full play.
+  Avoid long intros, outros or quiet bridges: a take is only as good as
+  its least typical minute.
+- **No skips or ads.** Repeat-one on.
+
+The music-only take (`Tn-MO32`) measures each pick's real high-band share
+at the mic, so a pick that sounds wrong is caught in the data. Record
+the actual share in the FIELD-NOTES entry either way.
 
 ## Volume steps
 
@@ -117,12 +170,12 @@ follow how RTR is meant to be used, not the 09-06 ladder's 56/76:
 - **76 %: the large-room level** (10–15+ people). Here music unambiguously
   dominates the mic, so it anchors `HI`. It's also the level the
   provisional knots came from.
-- **56 %** is optional, in between.
 - **66 %: the 8-person small-room level** (founder, 2026-10-08). Eight
-  people in a small room, ~2 ft from the laptop, Spotify 100 %. It is a
-  recorded operating level, not yet a ladder step: no takes below use it.
-  The one session at this level read eight people as `solo` most of the
-  time (FIELD-NOTES 2026-10-08).
+  people in a small room, ~2 ft from the laptop, Spotify 100 %. The one
+  session at this level read eight people as `solo` most of the time
+  (FIELD-NOTES 2026-10-08). **Since 2026-10-09 it is a ladder step**: each
+  track gets an `MX66` take (M12 decision D2).
+- **56 %** is no longer used (replaced by 66 %).
 
 What the mic hears at 32 % is unmeasured. For scale: on 2026-09-24 the
 built-in array heard music at −46.1 dBFS at 16 % and −25.5 dBFS at 75 %.
@@ -137,8 +190,14 @@ command. `DATE` is the session date (`20261001` style). Names must be
 unique, because the capture script overwrites files of the same name.
 
 ```powershell
-.venv\Scripts\python.exe scripts\capture_room_wav.py --seconds <S> --name ladder-DATE-<ID> --note "<note>"
+.venv\Scripts\python.exe scripts\capture_room_wav.py --seconds <S> --name ladder-DATE-<ID> --note "<note>" --reference
 ```
+
+`--reference` (M12-01) also writes `ladder-DATE-<ID>.ref.wav`: what the
+laptop played during the take. It's on for **every** take, controls
+included, where it should record silence (a check in itself). Confirm the
+first lines name both `Microphone Array on SoundWire D` and the
+`reference: loopback of 'Speakers ...'`.
 
 - **Speech, all takes:** read aloud continuously from the same book or
   article at a natural level, unless the take says otherwise.
@@ -153,24 +212,30 @@ unique, because the capture script overwrites files of the same name.
 | 1 | C1 | speech | — | — | N, reading | 180 | control: the reference |
 | 2 | T1-MO32 | music | T1 | 32 % | silent | full track | mic-side music level at the operating volume |
 | 3 | T1-MX32 | mix | T1 | 32 % | N, reading | full track | **the operating condition** |
-| 4 | T1-MX76 | mix | T1 | 76 % | N, reading | full track | large-room; anchors HI |
-| 5 | C2 | speech | — | — | **F**, reading | 180 | control: distance |
-| 6 | T2-MO32 | music | T2 | 32 % | silent | full track | |
-| 7 | T2-MX32 | mix | T2 | 32 % | N, reading | full track | |
-| 8 | T2-MX76 | mix | T2 | 76 % | N, reading | full track | |
-| 9 | C3 | speech | — | — | N, **animated conversation** (not reading; laugh, vary pitch) | 180 | control: style |
-| 10 | T3-MO32 | music | T3 | 32 % | silent | full track | |
-| 11 | T3-MX32 | mix | T3 | 32 % | N, reading | full track | |
-| 12 | T3-MX76 | mix | T3 | 76 % | N, reading | full track | |
-| 13 | C4 | speech | — | — | N, reading | 180 | control: repeat of C1 (drift) |
+| 4 | T1-MX66 | mix | T1 | 66 % | N, reading | full track | 8-person small-room level |
+| 5 | T1-MX76 | mix | T1 | 76 % | N, reading | full track | large-room; anchors HI |
+| 6 | C2 | speech | — | — | **F**, reading | 180 | control: distance |
+| 7 | T2-MO32 | music | T2 | 32 % | silent | full track | |
+| 8 | T2-MX32 | mix | T2 | 32 % | N, reading | full track | |
+| 9 | T2-MX66 | mix | T2 | 66 % | N, reading | full track | |
+| 10 | T2-MX76 | mix | T2 | 76 % | N, reading | full track | |
+| 11 | C3 | speech | — | — | N, **animated conversation** (not reading; laugh, vary pitch) | 180 | control: style |
+| 12 | T3-MO32 | music | T3 | 32 % | silent | full track | |
+| 13 | T3-MX32 | mix | T3 | 32 % | N, reading | full track | |
+| 14 | T3-MX66 | mix | T3 | 66 % | N, reading | full track | |
+| 15 | T3-MX76 | mix | T3 | 76 % | N, reading | full track | |
+| 16 | C4 | speech | — | — | N, reading | 180 | control: repeat of C1 (drift) |
+| 17 | P1 | music | T1 | 32 % | silent | 150 | **M12-01 transport**: start the capture, play T1 at 0:10, pause at 0:40, play at 0:55, **skip** to the next song at 1:25, stop at 2:10. Note each clock time |
+| 18 | X-T1-MO32-atmosoff | music | T1 | 32 % | silent | 90 | **required now** (see Block X): answers M12's "is the loopback before or after Atmos?" |
 
-That's about 45–55 minutes of capture. 76 % is loud for a small room, so
-keep those takes together per track and short breaks between them are
-fine. C1 and C4 bracket the session, so drift shows up as a C1/C4
-difference rather than as a knot. Optional 56 % mix takes (`Tn-MX56`) fill
-in the middle if time allows.
+That's about 60–70 minutes of capture. 66 % and 76 % are loud for a
+small room, so keep each track's mix takes together, and short breaks
+between them are fine. C1 and C4 bracket the session, so drift shows up as
+a C1/C4 difference rather than as a knot, and the reference's delay
+across C1–C4's span measures M12-01's clock drift.
 
-**Optional Block X (only after take 13): one variable at a time.**
+**Block X (after take 17): one variable at a time.** The Atmos-off take
+is required since 2026-10-09; the enhancements take stays optional.
 Each is 90 s of T1 music-only at 32 %, then put the setting back and
 record that you did.
 - `X-T1-MO32-atmosoff`: **Dolby Atmos off**. Measures how much Atmos
@@ -182,6 +247,13 @@ record that you did.
 
 A big shift from either means that setting is part of the capture path
 and belongs in every calibration record.
+
+For M12, the Atmos-off take's **reference** is compared with
+`T1-MO32`'s (`analyze_reference.py --compare`, below). If the loopback
+changes when Atmos is toggled, the loopback is tapped after Atmos, and
+the canceller sees what the speakers are fed. If it doesn't change, the
+tap is before Atmos, and the canceller must also learn Atmos's
+processing.
 
 ## Analysis (offline, any time after)
 
@@ -195,7 +267,23 @@ $D = "data/captures/ladder-DATE"
   --hi-from MX76 --json "$D-result.json"
 ```
 
-It mirrors the engine: 5 s windows every 2 s, streaming Silero at the
+M12-01, the same takes' references (delay, drift, levels, transport,
+Atmos):
+
+```powershell
+.venv\Scripts\python.exe scripts\analyze_reference.py `
+  "$D-T1-MO32" "$D-T1-MX32" "$D-T1-MX66" "$D-T1-MX76" `
+  "$D-T2-MO32" "$D-T2-MX32" "$D-T2-MX66" "$D-T2-MX76" `
+  "$D-T3-MO32" "$D-T3-MX32" "$D-T3-MX66" "$D-T3-MX76" `
+  "$D-C1" "$D-C4" --json "$D-reference.json"
+.venv\Scripts\python.exe scripts\analyze_reference.py "$D-P1" --transport
+.venv\Scripts\python.exe scripts\analyze_reference.py "$D-T1-MO32" "$D-X-T1-MO32-atmosoff" --compare "$D-T1-MO32" "$D-X-T1-MO32-atmosoff"
+```
+
+Add `mix:Tn-MX66="$D-Tn-MX66.wav"` for each track to the dominance command
+above.
+
+The dominance analyzer mirrors the engine: 5 s windows every 2 s, streaming Silero at the
 playback certification threshold, the same `dsp.analyze` and
 `dominance()` functions, and only eligible windows (speech ratio ≥ 0.2)
 are scored. It scores the `config.py` defaults, the knots in force, and
