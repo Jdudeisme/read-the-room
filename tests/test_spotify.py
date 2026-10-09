@@ -254,6 +254,66 @@ class TestAuth:
             SpotifyProvider(PlaybackConfig(), playlists={})
 
 
+# Spotify Web API error bodies, shape {"error": {"status", "message",
+# "reason"?}}. These are the DOCUMENTED shapes (Web API reference, "Player
+# Error Reasons"), not observed ones: no 403 from /me/player/pause has been
+# captured on JPad yet (2026-10-09). Replace with a captured body when one
+# turns up.
+_PAUSE_403_BODIES = {
+    "already_paused": {"error": {"status": 403, "message": "Player command failed: Restriction violated", "reason": "ALREADY_PAUSED"}},
+    "premium": {"error": {"status": 403, "message": "Player command failed: Premium required", "reason": "PREMIUM_REQUIRED"}},
+    "restriction": {"error": {"status": 403, "message": "Player command failed: Restriction violated", "reason": "REMOTE_CONTROL_DISALLOW"}},
+    "no_reason": {"error": {"status": 403, "message": "Forbidden"}},
+}
+
+
+class _Pause403Spotify(FakeSpotify):
+    def __init__(self, body):
+        super().__init__()
+        self.body = body  # dict, or None for an empty 403
+
+    def __call__(self, request):
+        if request.url.path == "/v1/me/player/pause":
+            self.requests.append(request)
+            if self.body is None:
+                return httpx.Response(403)
+            return httpx.Response(403, json=self.body)
+        return super().__call__(request)
+
+
+class TestPause403:
+    """M8-08 (AUDIT finding 8d): swallow only "already paused"."""
+
+    @pytest.mark.parametrize("kind", ["premium", "restriction"])
+    def test_restriction_403_raises(self, config, kind):
+        p = _provider(config, _Pause403Spotify(_PAUSE_403_BODIES[kind]))
+        with pytest.raises(ProviderError) as info:
+            p.pause()
+        assert info.value.status == 403
+        assert info.value.reason == _PAUSE_403_BODIES[kind]["error"]["reason"]
+
+    def test_already_paused_403_is_the_goal_state(self, config):
+        p = _provider(config, _Pause403Spotify(_PAUSE_403_BODIES["already_paused"]))
+        p.pause()  # no raise
+
+    @pytest.mark.parametrize("body", [_PAUSE_403_BODIES["no_reason"], None])
+    def test_ambiguous_403_stays_permissive(self, config, body):
+        """No reason, or no body at all: the pre-M8-08 behavior holds."""
+        p = _provider(config, _Pause403Spotify(body))
+        p.pause()  # no raise
+
+    def test_reason_is_none_on_non_json_errors(self, config):
+        class Teapot(FakeSpotify):
+            def __call__(self, request):
+                if request.url.path == "/v1/me/player/pause":
+                    return httpx.Response(500, text="<html>oops</html>")
+                return super().__call__(request)
+
+        with pytest.raises(ProviderError) as info:
+            _provider(config, Teapot()).pause()
+        assert info.value.status == 500 and info.value.reason is None
+
+
 class _SlowTokenSpotify(FakeSpotify):
     """Holds each token POST open long enough for a second thread to
     arrive, and records whether the token lock was held during API calls."""

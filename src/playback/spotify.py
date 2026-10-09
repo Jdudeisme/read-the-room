@@ -91,10 +91,37 @@ def bare_playlist_id(configured: str) -> str:
     return value
 
 
-def _error(message: str, status: int | None = None) -> ProviderError:
+def _error(
+    message: str, status: int | None = None, reason: str | None = None
+) -> ProviderError:
     err = ProviderError(message)
     err.status = status
+    # Spotify's player-error `reason` (e.g. "ALREADY_PAUSED",
+    # "PREMIUM_REQUIRED") when the body carried one; None otherwise.
+    err.reason = reason
     return err
+
+
+def _error_reason(res: httpx.Response) -> str | None:
+    """`reason` from a Spotify error body, `{"error": {"status", "message",
+    "reason"?}}`. Absent on many errors; never raises."""
+    try:
+        error = res.json().get("error")
+    except Exception:
+        return None
+    if isinstance(error, dict) and isinstance(error.get("reason"), str):
+        return error["reason"]
+    return None
+
+
+# 403 reasons on PUT /me/player/pause that mean the goal state already
+# holds (M8-08, AUDIT finding 8d). None is a 403 with no body or no
+# reason. That case is ambiguous and stays permissive, as before M8-08,
+# so a mid-demo pause against an already-paused player never starts
+# raising. Every other reason (PREMIUM_REQUIRED, REMOTE_CONTROL_DISALLOW,
+# DEVICE_NOT_CONTROLLABLE, ...) means music may still be playing, so it
+# raises.
+_PAUSE_NOOP_403_REASONS = frozenset({None, "ALREADY_PAUSED"})
 
 
 class SpotifyProvider:
@@ -202,6 +229,7 @@ class SpotifyProvider:
             raise _error(
                 f"spotify {method} {path} -> {res.status_code}: {res.text[:200]}",
                 res.status_code,
+                _error_reason(res),
             )
         return res
 
@@ -274,8 +302,11 @@ class SpotifyProvider:
         try:
             self._request("PUT", "/me/player/pause", params=self._player_params())
         except ProviderError as exc:
-            if getattr(exc, "status", None) == 403:
-                return  # already paused / restriction — the goal state holds
+            if (
+                getattr(exc, "status", None) == 403
+                and getattr(exc, "reason", None) in _PAUSE_NOOP_403_REASONS
+            ):
+                return  # already paused: the goal state holds
             self._device = None
             raise
 
