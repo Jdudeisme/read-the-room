@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import platform
 import socket
+import threading
 import time
 from typing import Protocol
 
@@ -158,6 +159,16 @@ class Engine:
         self._trend = TrendTracker(config.trend_horizon_s, config.trend_slope_threshold)
         self._vad_position = 0
         self._running = False
+        # Idempotent shutdown (M8-07, AUDIT finding 5). run()'s finally and
+        # the dashboard's main thread both call stop(). The first call does
+        # the work; any other waits until it finishes, so the process never
+        # exits mid-flush. Workers are not joined (daemon threads, by design).
+        self._stop_lock = threading.Lock()
+        self._stopped = False
+        # Held around each tick in run(). stop() takes it for the final flush,
+        # so the flush never overlaps a tick's own signature save. Contended
+        # only at shutdown, where stop() waits at most one tick.
+        self._tick_lock = threading.Lock()
 
     @property
     def emotion_status(self) -> str:
@@ -189,7 +200,8 @@ class Engine:
                 if delay > 0:
                     time.sleep(delay)
                 next_tick += self.config.hop_s
-                state = self._tick()
+                with self._tick_lock:
+                    state = self._tick()
                 for consumer in self.consumers:
                     try:
                         consumer.on_state(state)
@@ -204,14 +216,19 @@ class Engine:
             self.stop()
 
     def stop(self) -> None:
-        self._running = False
-        self.source.stop()
-        if self.emotion is not None:
-            self.emotion.stop()
-        if self.headcount is not None:
-            self.headcount.stop()
-        if self._signatures is not None:
-            self._signatures.flush()
+        with self._stop_lock:
+            if self._stopped:
+                return
+            self._stopped = True
+            self._running = False
+            self.source.stop()
+            if self.emotion is not None:
+                self.emotion.stop()
+            if self.headcount is not None:
+                self.headcount.stop()
+            if self._signatures is not None:
+                with self._tick_lock:
+                    self._signatures.flush()
 
     def _tick(self, now: float | None = None, wall: float | None = None) -> RoomState:
         # Optional clocks (M8-02, founder choice 2026-10-09): tests drive time

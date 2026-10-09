@@ -140,6 +140,7 @@ class MicSource:
         self.ring = RingBuffer(int(buffer_seconds * sample_rate))
         self._device = _resolve_device(device)
         self._stream = None
+        self._stop_lock = threading.Lock()  # M8-07: stop() may race itself
         self._resampler: Resampler | None = None
         self.device_name = ""
         self.capture_rate = sample_rate
@@ -174,10 +175,13 @@ class MicSource:
         )
 
     def stop(self) -> None:
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        # Take the stream under the lock, release it outside: a second
+        # caller finds None and returns, so stop()/close() run at most once.
+        with self._stop_lock:
+            stream, self._stream = self._stream, None
+        if stream is not None:
+            stream.stop()
+            stream.close()
 
     def _callback(self, indata, frames, time_info, status) -> None:
         mono = indata[:, 0]
@@ -199,6 +203,7 @@ class SynthSource:
         self.capture_rate = sample_rate
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._stop_lock = threading.Lock()  # M8-07: stop() may race itself
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, daemon=True, name="synth-source")
@@ -206,8 +211,10 @@ class SynthSource:
 
     def stop(self) -> None:
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
+        with self._stop_lock:
+            thread, self._thread = self._thread, None
+        if thread is not None:
+            thread.join(timeout=2.0)
 
     def _run(self) -> None:
         block_s = 0.1

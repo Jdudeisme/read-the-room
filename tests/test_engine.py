@@ -29,6 +29,7 @@ behavior M8-03 will change, and say so.
 from __future__ import annotations
 
 import dataclasses
+import threading
 
 import numpy as np
 import pytest
@@ -56,12 +57,13 @@ class FakeSource:
 
     def __init__(self, seconds: float = 30.0):
         self.ring = RingBuffer(int(seconds * SR))
+        self.stops = 0
 
     def start(self) -> None:
         pass
 
     def stop(self) -> None:
-        pass
+        self.stops += 1
 
 
 class FakeVad:
@@ -551,3 +553,65 @@ def test_music_aware_off_means_no_dominance_and_no_correction(enabled):
         assert state.emotion_music_dominance is None
         assert state.emotion_correction is None
         assert state.emotion_confidence == 0.9
+
+
+# -- M8-07: idempotent shutdown ---------------------------------------------------
+
+
+def _count_flushes(rig: Rig) -> list[int]:
+    calls: list[int] = []
+    real = rig.signatures.flush
+
+    def spy():
+        calls.append(1)
+        real()
+
+    rig.signatures.flush = spy
+    return calls
+
+
+def test_concurrent_stop_stops_the_source_and_flushes_exactly_once():
+    for _ in range(100):
+        rig = Rig()
+        flushes = _count_flushes(rig)
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def stop():
+            barrier.wait()
+            try:
+                rig.engine.stop()
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=stop) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(5)
+        assert errors == []
+        assert rig.source.stops == 1
+        assert len(flushes) == 1
+
+
+def test_stop_after_runs_own_finally_is_a_no_op():
+    rig = Rig(hop_s=0.01)
+    flushes = _count_flushes(rig)
+    rig.engine.run(max_ticks=1)  # run()'s finally is the first stop
+    rig.engine.stop()  # the dashboard main thread's, second
+    assert rig.source.stops == 1
+    assert len(flushes) == 1
+
+
+def test_final_flush_waits_for_an_in_flight_tick():
+    rig = Rig()
+    flushes = _count_flushes(rig)
+    rig.engine._tick_lock.acquire()  # a tick is mid-way on the engine thread
+    stopper = threading.Thread(target=rig.engine.stop)
+    stopper.start()
+    stopper.join(0.1)
+    assert stopper.is_alive() and flushes == []  # waiting, not flushing
+    rig.engine._tick_lock.release()
+    stopper.join(5)
+    assert not stopper.is_alive()
+    assert len(flushes) == 1

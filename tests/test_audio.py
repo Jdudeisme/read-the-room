@@ -20,10 +20,14 @@ Comparisons skip the first 64 output samples: the FIR's group delay is
 
 from __future__ import annotations
 
+import threading
+import time
+from unittest import mock
+
 import numpy as np
 import pytest
 
-from sensing.audio import Resampler
+from sensing.audio import MicSource, Resampler, SynthSource
 
 TARGET = 16_000
 STEADY = 64  # output samples past the FIR warm-up
@@ -106,3 +110,45 @@ def test_empty_block_is_a_no_op():
     before = r._frac
     assert r.process(np.empty(0, dtype=np.float32)).size == 0
     assert r._frac == before
+
+
+# -- M8-07: idempotent source shutdown ---------------------------------------------
+
+
+def test_mic_double_stop_releases_the_stream_once():
+    mic = MicSource(16_000, 1.0)  # no device opened; the stream is a Mock
+    stream = mic._stream = mock.Mock()
+    mic.stop()
+    mic.stop()
+    assert stream.stop.call_count == 1
+    assert stream.close.call_count == 1
+
+
+def test_mic_concurrent_stop_releases_the_stream_at_most_once():
+    for _ in range(20):
+        mic = MicSource(16_000, 1.0)
+        stream = mic._stream = mock.Mock()
+        # PortAudio's stop() takes real time; hold the check-then-act
+        # window open so the pre-M8-07 race actually shows.
+        stream.stop.side_effect = lambda: time.sleep(0.01)
+        barrier = threading.Barrier(2)
+
+        def stop():
+            barrier.wait()
+            mic.stop()
+
+        threads = [threading.Thread(target=stop) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(5)
+        assert stream.stop.call_count == 1
+        assert stream.close.call_count == 1
+
+
+def test_synth_double_stop_is_safe():
+    synth = SynthSource(16_000, 1.0)
+    synth.start()
+    synth.stop()
+    synth.stop()
+    assert synth._thread is None
