@@ -125,7 +125,7 @@ scripted VAD, scripted emotion and headcount workers, and a scripted
 The track-boundary and playback-stop tests pin today's behavior with a
 comment naming M8-03.
 
-Open design point for founder review: `_tick` reads `time.monotonic()`
+Design point, now decided: `_tick` reads `time.monotonic()`
 and `time.time()` itself. The charter says not to mock `time.monotonic`
 globally and to inject time through the tick path. Two options:
 
@@ -137,8 +137,10 @@ globally and to inject time through the tick path. Two options:
   concern doesn't arise, but it is closer to what the charter warns
   against.
 
-Recommendation: (i). M8-02's scope says "no `src/` changes beyond M8-01",
-so (i) would be folded into M8-01's commit 2 as part of the seam.
+**Decided: (i)** (founder, 2026-10-09). M8-01's two commits had already
+landed, so it is its own commit just before the M8-02 suite: optional
+`now`/`wall` parameters on `_tick`, no behavior change. It is the only
+`src/` change M8-02 makes.
 
 ## Risks
 

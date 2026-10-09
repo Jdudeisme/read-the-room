@@ -213,9 +213,12 @@ class Engine:
         if self._signatures is not None:
             self._signatures.flush()
 
-    def _tick(self) -> RoomState:
-        now = time.monotonic()
-        wall = time.time()
+    def _tick(self, now: float | None = None, wall: float | None = None) -> RoomState:
+        # Optional clocks (M8-02, founder choice 2026-10-09): tests drive time
+        # through the tick instead of patching time.monotonic, which the
+        # workers also read on their own threads. Production passes nothing.
+        now = time.monotonic() if now is None else now
+        wall = time.time() if wall is None else wall
         window = self.source.ring.read_last(
             int(self.config.window_s * self.config.sample_rate)
         )
