@@ -97,20 +97,37 @@ class Resampler:
         kernel = 2 * cutoff * np.sinc(2 * cutoff * n) * np.hamming(self._TAPS)
         self._kernel = (kernel / kernel.sum()).astype(np.float32)
         self._carry = np.zeros(self._TAPS - 1, dtype=np.float32)
-        self._frac = 0.0  # fractional source-sample offset into the next block
+        # The previous block's last filtered sample. Interpolation runs over
+        # [prev_last, *filtered], so a read position that falls between two
+        # blocks interpolates across the boundary instead of clamping.
+        self._prev_last = np.zeros(1, dtype=np.float32)
+        # Read offset into the next block's [prev_last, *filtered] grid.
+        # Invariant: 0 <= _frac (M8-04). Before M8-04 the grid ended at the
+        # block's last sample, _frac went down to -1 at a third of block
+        # boundaries, and np.interp clamped those reads to the next block's
+        # first sample. That was up to 0.06 error on a 0.5-amplitude sine
+        # at 44.1 kHz (the output rate was unaffected).
+        self._frac = 0.0
 
     def process(self, block: np.ndarray) -> np.ndarray:
+        if block.size == 0:
+            # np.convolve "valid" swaps its arguments when the signal is
+            # shorter than the kernel, so the bare carry would yield two
+            # spurious samples (found by M8-04's tests).
+            return np.empty(0, dtype=np.float32)
         signal = np.concatenate((self._carry, block.astype(np.float32, copy=False)))
         filtered = np.convolve(signal, self._kernel, mode="valid")
         self._carry = signal[-(self._TAPS - 1) :]
         if filtered.size == 0:
             return np.empty(0, dtype=np.float32)
-        positions = np.arange(self._frac, filtered.size - 1, self.ratio)
+        grid = np.concatenate((self._prev_last, filtered))
+        self._prev_last = filtered[-1:]
+        # Every position below filtered.size has both neighbours in `grid`.
+        positions = np.arange(self._frac, filtered.size, self.ratio)
         if positions.size == 0:
             self._frac -= filtered.size  # consumed without producing output
-            self._frac = max(self._frac, 0.0)
             return np.empty(0, dtype=np.float32)
-        out = np.interp(positions, np.arange(filtered.size), filtered)
+        out = np.interp(positions, np.arange(grid.size), grid)
         self._frac = positions[-1] + self.ratio - filtered.size
         return out.astype(np.float32)
 
