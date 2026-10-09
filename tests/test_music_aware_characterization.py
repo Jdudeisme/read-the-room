@@ -9,10 +9,12 @@ characterization test that shares code with what it tests proves nothing.
 Do not edit it to make a test pass; if the comparison fails, the refactor
 changed behavior.
 
-The script drives `_Frozen` and the code under test side by side and
-requires exact float equality on every step's (valence, arousal,
-confidence, correction), and on the final signature store and clean
-baseline. Offline, no models.
+Two commits: at c1c49fc the code under test was the live pre-refactor
+engine (proving `_Frozen` faithful); from the extraction on it is
+`MusicAwareCorrector`. The script drives `_Frozen` and the code under
+test side by side and requires exact float equality on every step's
+(valence, arousal, confidence, correction), and on the final signature
+store and clean baseline. Offline, no models.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ import pytest
 from sensing.config import Config
 from sensing.emotion import EmotionReading
 from sensing.engine import Engine
+from sensing.music_aware import MusicAwareCorrector
 from sensing.music import CleanBaseline, TrackSignatureStore, apply_correction
 
 
@@ -224,34 +227,25 @@ def _snapshot(signatures: TrackSignatureStore, baseline: CleanBaseline):
     )
 
 
-class _LiveEngine:
-    """The live engine's methods, driven through the same inline block."""
+class _Corrector:
+    """The extracted collaborator, behind the same step() surface."""
 
     def __init__(self, config: Config):
-        self.engine = Engine(object(), config, [])
-        self.engine._signatures = _store(config)
+        self.corrector = MusicAwareCorrector(config, _store(config))
 
     def step(self, reading, staleness, playback_active, track_id, m, now):
-        e = self.engine
-        emotion_correction = None
-        v_inst, a_inst = reading.valence, reading.arousal
-        confidence = reading.confidence
-        e._bank_evidence(reading, staleness, playback_active, track_id, m, now)
-        if m is not None and m > 0.0:
-            corrected = e._correct(v_inst, a_inst, track_id, m)
-            if corrected is not None:
-                v_inst, a_inst, emotion_correction = corrected
-            else:
-                confidence *= max(0.0, 1.0 - e.config.music_discount_gamma * m)
-        return v_inst, a_inst, confidence, emotion_correction
+        out = self.corrector.process(
+            reading, staleness, playback_active, track_id, m, now
+        )
+        return out.valence, out.arousal, out.confidence, out.correction
 
     @property
     def signatures(self):
-        return self.engine._signatures
+        return self.corrector._signatures
 
     @property
     def baseline(self):
-        return self.engine._clean_baseline
+        return self.corrector._clean_baseline
 
 
 def _run(subject, signatures: TrackSignatureStore, script: list[Step]):
@@ -285,12 +279,15 @@ def test_script_covers_every_branch():
     assert frozen._signatures.lookup("spotify:track:B").pull_refs >= 1
 
 
-def test_live_engine_matches_frozen_copy():
-    """Proves `_Frozen` is a faithful copy of the pre-refactor engine."""
+def test_corrector_matches_frozen_copy():
+    """The M8-01 acceptance test. At c1c49fc this compared `_Frozen` with
+    the live pre-refactor `Engine._bank_evidence` / `_correct` and passed,
+    proving the copy faithful; it now compares `_Frozen` with the
+    extracted collaborator."""
     config = _config()
     script = _script()
     frozen = _Frozen(config, _store(config))
-    live = _LiveEngine(config)
+    live = _Corrector(config)
     assert _run(live, live.signatures, script) == _run(
         frozen, frozen._signatures, script
     )
@@ -359,3 +356,15 @@ def test_script_detects_mutation(name):
         original._signatures, original._clean_baseline
     )
     assert not (same_outputs and same_state)
+
+
+def test_engine_wires_the_corrector_only_with_a_signature_store():
+    """Trap 5: the corrector exists exactly when the store does, the only
+    case in which the tick ever computes dominance."""
+    on = Engine(object(), _config(), [])
+    off = Engine(
+        object(), dataclasses.replace(_config(), music_aware_enabled=False), []
+    )
+    assert on._music_aware is not None
+    assert on._music_aware._signatures is on._signatures
+    assert off._signatures is None and off._music_aware is None
