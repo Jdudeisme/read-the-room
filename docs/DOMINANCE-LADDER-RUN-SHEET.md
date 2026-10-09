@@ -298,11 +298,10 @@ it reports:
 - **bankable**: the fraction at m ≥ `pull_m_floor`, which bank a pull
   sample.
 
-## Decision rule — DRAFT, founder edits and signs before the session
+## Decision rule — SIGNED 2026-10-09
 
-The two tolerances below (0.05 and 0.10) are **proposals**. Change them
-before the session if you want different ones, then sign. They must not
-change after the data is in.
+The founder kept the proposed tolerances (0.05 and 0.10) and added the
+66 % mix takes (2026-10-09). They must not change after the data is in.
 
 Inputs, from the analyzer:
 - **LO\*** = the worst control's p95. The `rule inputs` line prints it,
@@ -322,20 +321,29 @@ is small (on 09-24, contamination scaled with level), so absorbing
 there costs less than banking speech as pull.
 
 - **A — separable at the operating level.** HI\* > LO\*, **every**
-  control has bankable ≤ 0.05, and **every** `MX32` and `MX76` take has
-  clean ≤ 0.10. → Propose (LO\*, HI\*) as the new knots. This is the
+  control has bankable ≤ 0.05, and **every** `MX32`, `MX66` and `MX76`
+  take has clean ≤ 0.10. → Propose (LO\*, HI\*) as the new knots. This is the
   second ladder on this machine, so it meets CLAUDE.md's "measured twice"
   bar. Promoting them to `config.py` defaults (replacing the Mac's) is a
   REQUIRES-REVIEW diff with this entry as its evidence. `.env` then drops
   its override.
-- **B — separable at large-room volume only.** As A, but some `MX32` take
-  has clean > 0.10, while every `MX76` take has clean ≤ 0.10. →
-  Same proposal, plus a written operating envelope: "the music-aware
-  correction engages in large rooms. At small-room volume (32 %),
-  speech over music mostly reads as clean speech, so it is left
-  uncorrected." Whether that's acceptable is a founder decision recorded
-  with it. It's likely to be, if the 32 % pull is small. Measuring that
-  pull is a separate question this session does not answer.
+- **B — separable only above small-room volume.** As A, but some
+  `MX32` take has clean > 0.10, while every `MX76` take has clean
+  ≤ 0.10. → Same proposal, plus a written operating envelope stating the
+  lowest level at which it engages. Pick the sub-case by the `MX66` takes:
+  - **B66: every `MX66` take has clean ≤ 0.10.** "The music-aware
+    correction engages from the 66 % level up (a small room of 8, and
+    larger). At 32 % (1–5 people), speech over music mostly reads as
+    clean speech, so it is left uncorrected."
+  - **B76: some `MX66` take has clean > 0.10.** "The music-aware
+    correction engages at the 76 % level only (10–15+ people). At 32 %
+    and 66 %, speech over music mostly reads as clean speech, so it is
+    left uncorrected." This is the weaker envelope. It would leave the
+    2026-10-08 eight-person room uncorrected.
+
+  Whether the envelope is acceptable is a founder decision recorded with
+  it. It's likely to be at 32 %, if the pull there is small. Measuring
+  that pull is a separate question this session does not answer.
 - **C — not separable.** HI\* ≤ LO\*, **or** no pair scored meets the
   control condition (bankable ≤ 0.05) while keeping `MX76` clean
   ≤ 0.10. → **Change no knots.** On this mic, high-band *share* cannot
@@ -350,7 +358,8 @@ C1 vs C4 is reported either way. If C4's p95 differs from C1's by more
 than the spread among C1–C3, record the session as drifting. The verdict
 then stands only if it holds with C4 excluded **and** with C1 excluded.
 
-Signed: ____________ Date: ________
+Signed: Jordan Smith (founder), on the founder's instruction to Claude
+("add the 66% takes to the rule and sign it"). Date: 2026-10-09
 
 ## Afterwards
 
