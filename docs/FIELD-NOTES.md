@@ -66,6 +66,22 @@ Findings:
    changed here. Filed as a finding for ROADMAP M10-05 (single source of
    truth for replay constants).
 
+**Part (b) re-run, 15:01–15:02: PASS.** Founder asked for a cold-machine
+re-run. JPad was not truly cold: on AC, charging (42 %), 98.4 h since the
+last boot, Balanced power plan, and ~18 % background CPU (20 s mean;
+samples 10–26 %) from open apps. But nothing heavy had run for ~30 min.
+Three alternating rounds:
+
+| Run | headcount contended mean / p95 | emotion overall mean / p95 |
+|---|---|---|
+| `main` #1 / #2 / #3 | 0.23 / 0.25, 0.24 / 0.26, 0.25 / 0.28 s | 0.34 / 0.38, 0.34 / 0.39, 0.33 / 0.38 s |
+| branch #1 / #2 / #3 | 0.26 / 0.28, 0.26 / 0.28, 0.24 / 0.25 s | 0.33 / 0.37, 0.35 / 0.40, 0.33 / 0.38 s |
+
+Both trees are back on the 2026-09-06 row (0.23 / 0.25; 0.35 / 0.39),
+which confirms the earlier slowdown was machine state after the replay.
+The branch overlaps `main` on every column. README M8 gate section added,
+marked in progress.
+
 **The 2026-07-15 gate-WAV replay reproduces on M8 code.**
 `scripts/m7_replay_session.py data/captures/m7-gate-2026-07-15.wav` at
 `4e15b17` (headcount code identical to `main`): rescue off **solo 126 /
@@ -97,8 +113,8 @@ so the check had nothing to bind. The live part (c) is its real test.
 
 **Open.** Part (c), the 10-minute live smoke, is founder-run on JPad per
 `docs/M8-TEST-PLAN.md`. It includes the M8-03 frame check, which needs a
-skip and a pause during talk. Then (b) is re-run on a cold machine, and
-the README gate row is added. M8 is not passed until then.
+skip and a pause during talk. (b) has since passed on the re-run above.
+M8 is not passed until (c) has run and its README row is filled in.
 
 ## 2026-10-08 (evening, 17:26–17:58) — eight people at two feet, music at 66 %: the bucket reads `solo`, and the one `3` came under an instrumental (non-gating)
 
