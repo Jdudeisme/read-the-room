@@ -5,6 +5,100 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-09 (afternoon, 15:45–15:59) — M8 gate part (c), live smoke on JPad: the wiring holds; M8 PASSES (founder call)
+
+**Setup.** Founder alone, run under `docs/M8-TEST-PLAN.md` part (c), on
+JPad, branch `milestone-8-trust-engine` @ `c374152`. Config is this
+machine's `.env` unchanged: `RTR_MUSIC_AWARE_ENABLED=1`, knots
+0.022/0.050 (PROVISIONAL), `RTR_VAD_PLAYBACK_THRESHOLD=0.75`, headcount
+interval 2.0, rescue off, mic pinned to `Microphone Array on SoundWire D`.
+The founder's assessment variables: **room** one person, small room;
+**volume** per the run sheet (Windows 32 %, Spotify 100 %, Atmos on, mic
+input 34 %; no deviation reported); **song decisions** below.
+
+The dashboard ran in its own PowerShell window with the log redirected to
+`data/sessions/m8-gate-2026-10-09.log`. `scripts/record_frames.py` ran in
+a second window and wrote `data/sessions/m8-gate-2026-10-09.frames.jsonl`
+(400 frames, 15:46:00–15:59:18). Both are uncommitted. Before the founder
+opened the page, Claude confirmed the port-8000 server was this launch's
+own child process (launcher 27572 → venv python 47480 → server 29848, all
+created 15:45:54), per FIELD-NOTES 2026-09-06. Two false starts were
+caught on the way: the first launch never ran (no log was created), and a
+second window was given the dashboard command and refused the open log
+file. Neither reached a running process.
+
+The founder's timeline: talking from 15:49:15; DJ started a track by
+itself at 15:49:45 (log: `play` 15:49:43); **Skip** 15:54:15; **pause in
+the Spotify app** 15:56:17, then quiet ~15 s, talking again 15:56:45;
+music restarted by itself 15:57:05 (log: `play` 15:56:59); Ctrl+C in both
+windows 15:59:15.
+
+**The checks.**
+
+| # | Check | Result |
+|---|---|---|
+| 1 | No exceptions in the log | **PASS.** No traceback, `ERROR` or exception lines in 13 min |
+| — | Statuses ready | **PASS.** Emotion and headcount `ready` by 15:46:02, 399 of 400 frames |
+| — | Mic alive (09-06 dead-mic check) | **PASS.** Loudness −73.2 to −25.0 dBFS |
+| 2 | Clean shutdown (M8-07) | **No traceback.** The final flush is **not confirmable**: the signature file's last write (15:59:13) predates the last frame (15:59:18), so it was a throttled periodic save. The stop's flush either had nothing dirty or did not run; the log can't tell which. The offline tests cover it |
+| 3 | Banking | **PASS.** Pull refs 1,312 → 1,326; tracks 79 → 84; one new track banked 8 pull samples live |
+| 4 | Corrections, "hearing through music" chip | **PASS.** 22 corrected frames from 15:53:44, all `basis: pull`, refs climbing 3 → 8 as samples banked; the chip renders whenever a correction is present |
+| 5 | Headcount | **Behaves as before (charter); fails the plan's stricter wording.** See finding 1 |
+| 6 | M8-03 binding (`record_frames.py --check`) | **PASS at the track boundary**: 146 readings, 2 corrected frames across the skip, both naming the reading's own track. **After-stop: not measured** (0 frames). See finding 2 |
+
+Headcount by phase (frames):
+
+| Phase | Buckets |
+|---|---|
+| before music (to 15:49:45) | solo 18 (95 frames before the first reading) |
+| first tracks (to the skip) | solo 50 / **pair 79** / **`3` 6** |
+| after the skip (to the pause) | solo 34 / **pair 27** |
+| paused | solo 24 |
+| music again | solo 61 / pair 6 |
+
+The DJ made 15 selections, for cells `solo` ×10, `pair` ×4 and `3` ×1.
+All are jazz except the single `3` pick, Drake's *Privileged Rappers*:
+the phantom bucket choosing the music. The `pair` cell drove
+selections 15:52:17–15:54:53.
+
+**Findings.**
+
+1. **One person read as `pair` and `3` under jazz.** This is the known
+   2026-09-30 mechanism: music the playback gate only half-rejects
+   certifies as speech. That replay showed jazz driving `pair`/`3` with
+   the same knots. M8 does not touch the headcount path, and the 07-15
+   replay reproduces 126 / 110 / 45 on M8 code. So the charter's "headcount
+   behaving as before" holds. The run sheet's check 5 said "reads `solo`
+   for one person". That was stricter than the charter and wrong given
+   09-30, and it fails as written. Recorded here instead of being reworded
+   after the fact. Owner: M12 (M12-03, playback-aware certification). It
+   also bears on the dominance ladder.
+2. **M8-03 after a stop was not exercised.** At the pause, the playing
+   track (the relinked "Giant Steps", see 3) had 2 pull refs and 2
+   standalone refs, one short of `min_refs` 3, so its readings carried the
+   discount floor, not a correction. With nothing corrected, there was
+   nothing to bind across the stop. The track-boundary half was measured
+   and passed. The stop half is covered offline
+   (`test_playback_stop_keeps_a_music_reading_corrected`, the frame-check
+   unit tests). To measure it live: pause while the chip is showing.
+3. **Spotify relinked a track.** At 15:54:19 "started 'Giant Steps', but
+   the provider reports id …1ZXu0ib26kWfQQngREMcU2 for requested
+   …47vmcuvMWFIsMaiHFIGSIu". This is market relinking. The signature store
+   now holds both ids (1 standalone ref on the requested id, 2 + 2 on the
+   played one), so evidence for one recording splits across two keys. It
+   is logged at INFO and harmless to the run. File it if it recurs.
+4. **Playlist gaps (aside).** "No mapped playlist" for Jazz/high (×2) and
+   Hip-Hop/low (×1): the founder's local `playlists.json` has no such
+   tiers.
+
+**Verdict: M8 PASSES** (founder, 2026-10-09). Part (a): 383 passed. Part
+(b): the 15:01 re-run is back on the 09-06 row, with the branch within
+`main`'s spread. Part (c) meets the charter's criterion: statuses ready,
+chip fires during playback, no exceptions, corrections and banking
+working, and headcount as before. Recorded caveats: check 5 as worded,
+the shutdown flush not confirmable live, and M8-03's stop half not
+measured live.
+
 ## 2026-10-09 (afternoon, offline) — M8 gate parts (a) and (b) on JPad; the 07-15 replay still reproduces; M8-05 shelved on a measurement
 
 **Setup.** No mic and nobody in the room: everything here is offline, on

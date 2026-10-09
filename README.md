@@ -621,13 +621,23 @@ M7's engine-path addition is centroid arithmetic (O(k²) on a handful of
 clusters) inside the existing clustering pass — within run-to-run
 variance of every prior row, as required.
 
-### Milestone 8 gate (Windows laptop `JPad`) — IN PROGRESS
+### Milestone 8 gate (Windows laptop `JPad`)
 
-The first milestone gated on the reference machine; compare against the
-JPad rows above, not the Mac's. See
-[docs/M8-TEST-PLAN.md](docs/M8-TEST-PLAN.md). Part (a), `pytest` (383
-passed, offline, no models), and part (b), the benchmark below, pass.
-**Part (c), the 10-minute live smoke, has not run**, so M8 is not passed.
+All three parts of the M8 gate pass (2026-10-09). It is the first
+milestone gated on the reference machine; compare against the JPad rows
+above, not the Mac's. See [docs/M8-TEST-PLAN.md](docs/M8-TEST-PLAN.md).
+Part (a): `pytest`, 383 passed, offline, no models; the engine
+orchestration now has its own suite (`tests/test_engine.py`). Part (b):
+the benchmark below. Part (c): a 10-minute live smoke, founder alone
+(15:45–15:59). Statuses were ready within 2 s, the "hearing through
+music" chip fired, and there were no exceptions. 14 pull samples banked
+live, and corrections followed them (refs 3 → 8). M8-03's frame check
+passed at a track boundary. Recorded caveats: one person read `pair`/`3`
+under jazz, the known 2026-09-30 certification issue owned by M12, with
+headcount unchanged by M8; the shutdown flush could not be confirmed from
+the live log; M8-03's after-stop case was not exercised live. M8-05 was
+shelved on a measurement. See the 2026-10-09 entries in
+[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md).
 
 | Benchmark | Scenario | mean | p95 | Budget | Verdict |
 |---|---|---|---|---|---|

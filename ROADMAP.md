@@ -32,6 +32,10 @@ Ground rules for the executing agent:
 
 ## M8 — Trust the engine offline
 
+> **Gate passed 2026-10-09** on JPad (FIELD-NOTES 2026-10-09; README M8
+> gate). M8-01/02/03/04/06/07/08/09/10 done; M8-05 shelved (ledger,
+> Finding 3).
+
 **Charter.** M7 proved the headcount middle; M8 proves the *engine orchestration*
 — the code that composes VAD, emotion, the M6 music-aware correction, and
 headcount every tick — without a live session. Today `Engine._tick`,

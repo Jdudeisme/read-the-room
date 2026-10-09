@@ -1,4 +1,6 @@
-# Milestone 8 Proposal — Trust the engine offline (DRAFT)
+# Milestone 8 Proposal — Trust the engine offline
+
+> **Status:** executed; gate passed 2026-10-09 (FIELD-NOTES, README M8 gate).
 
 M7 proved the headcount middle. M8 proves the **engine orchestration**: the
 code in `src/sensing/engine.py` that composes VAD, emotion, the M6

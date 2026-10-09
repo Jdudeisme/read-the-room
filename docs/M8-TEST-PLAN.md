@@ -167,3 +167,11 @@ it during a live session. `--check FILE` runs check 6 offline:
 It reports PASS/FAIL and how many corrected frames crossed a track
 boundary or outlived a playback stop. If both are 0, the run didn't
 exercise M8-03, and check 6 counts as **not measured**.
+
+## Post-gate note (2026-10-09)
+
+The gate ran and passed (FIELD-NOTES 2026-10-09). Check 5 above ("reads
+`solo` for one person") was stricter than the charter's "headcount
+behaving as before". One person read `pair`/`3` under jazz, which is the
+known 2026-09-30 certification issue (M12). The check is left as written,
+and its failure is recorded in the field notes rather than reworded.
