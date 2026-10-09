@@ -107,7 +107,7 @@ Also:
 |---|---|---|---|
 | T1 | "Welcome To New York (Taylor's Version)" | continuity with 2026-09-06 | `spotify:track:1hR8BSuEqPCCZfv93zzzz9` |
 | T2 | **"Georgia On My Mind", Oscar Peterson Trio** (*Night Train*, 3:44). Founder's mellow pick, 2026-10-09 | the low-high-band end, where mix is most likely absorbed as clean | `spotify:track:2fOx7wWR2sOBIWyveecAGX` |
-| T3 | **"Good Life", Kanye West ft. T-Pain** (*Graduation*, 3:27). Founder's bright pick, 2026-10-09 | the high end; checks `HI` saturation | `spotify:track:4ZPdLEztrlZqbJkgHNw54L` |
+| T3 | **"Surround Sound", JID ft. 21 Savage & Baby Tate** (*The Forever Story (Extended Version)*, 3:50). Founder's bright pick, 2026-10-09, replacing *Good Life* the same day: a faster, stronger beat, denser drums and more rap | the high end; checks `HI` saturation; dense rap for M12 | `spotify:track:1udwFobQ1JoOdWPQrp2b6u` |
 
 Spotify lists several releases of both. Play these exact URIs, so every
 take is the same recording. If Spotify relinks one (as happened to

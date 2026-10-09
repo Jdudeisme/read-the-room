@@ -126,7 +126,10 @@ uses it):
 
 Opening took ~0.5 s. The founder's ladder picks (2026-10-09): T2
 *Georgia On My Mind* (Oscar Peterson Trio, 3:44), T3 *Good Life* (Kanye
-West ft. T-Pain, 3:27); URIs in the run sheet. Windows volume was set to
+West ft. T-Pain, 3:27); URIs in the run sheet. Later the same evening the
+founder replaced T3 with *Surround Sound* (JID ft. 21 Savage & Baby Tate,
+3:50): "a little faster, stronger beat and drums and more speech", which
+means denser drums for the high band and more rap for M12. Windows volume was set to
 66 % at the time of the silent test (no effect on a silent loopback).
 The session sets volume per take.
 
