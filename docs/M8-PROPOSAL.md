@@ -53,7 +53,7 @@ during a playback test, no exceptions in the log).
 | 4 | M8-06 token-refresh lock, M8-07 idempotent shutdown, M8-09 annotations off the loop, M8-10 `httpx2` | agent | small, independent; M8-07 touches engine.py, so after M8-02 |
 | 5 | M8-08 `pause()` 403 | agent | implement as specced or leave (CLAUDE.md) |
 | 6 | **M8-03** bind corrections to the reading's context | **founder: plan + diff** | changes published V/A; flips two pinned M8-02 tests deliberately |
-| 7 | **M8-05** `separation_score` all-singleton → None | **founder: plan + diff** | changes a published headcount field |
+| 7 | ~~**M8-05** `separation_score` all-singleton → None~~ **SHELVED 2026-10-09** | founder | premise false: the change turns loud fragmented crowds into solo (ROADMAP ledger, Finding 3) |
 | 8 | test plan, then gate (b)/(c) on JPad | founder runs | the gate |
 
 The engine soft freeze holds throughout: nothing touches engine.py except
