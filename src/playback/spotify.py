@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -120,23 +121,42 @@ class SpotifyProvider:
         )
         self._client = client or httpx.Client(timeout=10.0)
         self._token: dict | None = None
+        # Serializes token state (M8-06, AUDIT finding 4). The controller
+        # worker and the HTTP threadpool both reach _access_token, and
+        # Spotify rotates refresh tokens on PKCE apps: two concurrent
+        # refreshes can persist the losing token and force a manual re-auth.
+        # The token POST runs under this lock on purpose (one refresher);
+        # API requests never do.
+        self._token_lock = threading.Lock()
         self._device: str | None = None  # resolved device id cache
 
     # -- auth -----------------------------------------------------------------
 
     def _access_token(self) -> str:
-        if self._token is None:
-            self._token = load_token_cache(Path(self._config.token_cache_path))
-        if self._token is None:
-            raise _error(
-                "not authenticated: run read-the-room-spotify-auth once "
-                f"(no token cache at {self._config.token_cache_path})"
-            )
-        if time.time() >= float(self._token.get("expires_at", 0)) - _EXPIRY_MARGIN_S:
+        with self._token_lock:
+            if self._token is None:
+                self._token = load_token_cache(Path(self._config.token_cache_path))
+            if self._token is None:
+                raise _error(
+                    "not authenticated: run read-the-room-spotify-auth once "
+                    f"(no token cache at {self._config.token_cache_path})"
+                )
+            # Checked under the lock, so a thread that waited on another's
+            # refresh sees the fresh expiry and does not refresh again.
+            if time.time() >= float(self._token.get("expires_at", 0)) - _EXPIRY_MARGIN_S:
+                self._refresh()
+            return self._token["access_token"]
+
+    def _refresh_rejected(self, rejected: str) -> None:
+        """A 401 on `rejected`: refresh, unless another thread already
+        replaced that token while this request was in flight."""
+        with self._token_lock:
+            if self._token is not None and self._token.get("access_token") != rejected:
+                return
             self._refresh()
-        return self._token["access_token"]
 
     def _refresh(self) -> None:
+        """Caller holds _token_lock."""
         refresh_token = (self._token or {}).get("refresh_token")
         if not refresh_token:
             raise _error("token cache has no refresh_token; re-run spotify auth")
@@ -165,7 +185,8 @@ class SpotifyProvider:
     def _request(
         self, method: str, path: str, *, _retry_auth: bool = True, **kwargs
     ) -> httpx.Response:
-        headers = {"Authorization": f"Bearer {self._access_token()}"}
+        token = self._access_token()
+        headers = {"Authorization": f"Bearer {token}"}
         try:
             res = self._client.request(
                 method, API_BASE + path, headers=headers, **kwargs
@@ -173,7 +194,7 @@ class SpotifyProvider:
         except httpx.HTTPError as exc:
             raise _error(f"spotify unreachable: {exc}") from exc
         if res.status_code == 401 and _retry_auth:
-            self._refresh()  # token revoked/expired early; retry once
+            self._refresh_rejected(token)  # revoked/expired early; retry once
             return self._request(method, path, _retry_auth=False, **kwargs)
         if res.status_code == 429:
             raise _error("spotify rate limited (429)", 429)

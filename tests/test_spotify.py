@@ -6,6 +6,7 @@ retry, device resolution, and error mapping.
 """
 
 import json
+import threading
 import time
 import urllib.parse
 
@@ -251,6 +252,99 @@ class TestAuth:
     def test_requires_client_id(self, tmp_path):
         with pytest.raises(ValueError, match="CLIENT_ID"):
             SpotifyProvider(PlaybackConfig(), playlists={})
+
+
+class _SlowTokenSpotify(FakeSpotify):
+    """Holds each token POST open long enough for a second thread to
+    arrive, and records whether the token lock was held during API calls."""
+
+    def __init__(self):
+        super().__init__()
+        self.provider = None
+        self.api_calls_under_lock = 0
+
+    def __call__(self, request):
+        if request.url.path == "/api/token":
+            time.sleep(0.05)
+        elif self.provider is not None and self.provider._token_lock.locked():
+            self.api_calls_under_lock += 1
+        return super().__call__(request)
+
+
+class TestTokenConcurrency:
+    """M8-06 (AUDIT finding 4): one refresher at a time, API I/O outside
+    the lock."""
+
+    def _expired(self, tmp_path):
+        save_token_cache(
+            tmp_path / "token.json",
+            {"access_token": "stale", "refresh_token": "refresh-1",
+             "expires_at": time.time() - 10},
+        )
+
+    def _race(self, call, n=2):
+        barrier = threading.Barrier(n)
+        errors: list[BaseException] = []
+
+        def run():
+            barrier.wait()
+            try:
+                call()
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run) for _ in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(5)
+        assert errors == []
+
+    def test_concurrent_expired_token_refreshes_exactly_once(self, tmp_path, config):
+        self._expired(tmp_path)
+        fake = _SlowTokenSpotify()
+        p = _provider(config, fake)
+        self._race(p.devices)
+        posts = [r for r in fake.requests if r.url.path == "/api/token"]
+        assert len(posts) == 1
+        assert load_token_cache(tmp_path / "token.json")["refresh_token"] == "refresh-2"
+
+    def test_concurrent_401s_refresh_exactly_once(self, config):
+        fake = _SlowTokenSpotify()
+        p = _provider(config, fake)
+        p._access_token()  # load the cache ("ok", valid) before the race
+        fake.reject_token = True  # both in-flight requests get a 401
+
+        gate = threading.Barrier(2)
+        real_request = p._client.request
+
+        def both_in_flight(*args, **kwargs):
+            # Make both threads send with the old token before either
+            # refreshes; otherwise the race is not exercised. Only API
+            # calls carry a bearer header; the token POST (which also goes
+            # through client.request) must not wait here.
+            if kwargs.get("headers") and p._token["access_token"] == "ok":
+                try:
+                    gate.wait(1)
+                except threading.BrokenBarrierError:
+                    pass
+            return real_request(*args, **kwargs)
+
+        p._client.request = both_in_flight
+        self._race(p.devices)
+        posts = [r for r in fake.requests if r.url.path == "/api/token"]
+        assert len(posts) == 1
+
+    def test_api_requests_never_run_under_the_token_lock(self, tmp_path, config):
+        self._expired(tmp_path)  # the first call refreshes, then calls the API
+        fake = _SlowTokenSpotify()
+        p = _provider(config, fake)
+        fake.provider = p
+        p.devices()
+        fake.reject_token = True  # 401 path: refresh, then retry
+        p.devices()
+        assert fake.refreshes == 2
+        assert fake.api_calls_under_lock == 0
 
 
 class TestHelpers:
