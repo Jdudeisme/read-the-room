@@ -5,6 +5,101 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-09 (afternoon, offline) — M8 gate parts (a) and (b) on JPad; the 07-15 replay still reproduces; M8-05 shelved on a measurement
+
+**Setup.** No mic and nobody in the room: everything here is offline, on
+JPad, branch `milestone-8-trust-engine` (pushed). `main` @ `ae9775f` is the
+comparison tree, checked out as a scratch worktree. Work done on the branch
+today, in order: M8-01 (characterization test, then extraction into
+`src/sensing/music_aware.py`), the `_tick(now, wall)` seam (founder option
+(i)), M8-02 (`tests/test_engine.py`), M8-04, M8-06, M8-09, M8-08, M8-10,
+M8-07 (founder-approved plan), M8-03 (founder-approved plan and diff,
+option (a)), and `scripts/record_frames.py` (founder-approved). M8-05 was
+shelved; see below.
+
+**Part (a), offline suite: PASS.** 383 passed, about 8–10 s on JPad, no
+models, no network. That is 317 on `main` at branch time plus 66 new tests.
+`tests/test_engine.py` has one test per M8-02 acceptance bullet. The suite
+is slower than the "~4 s" CLAUDE.md quotes: it was 6.7–7.4 s on `main`
+before M8, and the additions put it at 8–10 s. The largest single
+addition is the M8-07 two-thread stop loop.
+
+Sensitivity was checked by deliberate mutation, not assumed. Seven
+boundary mutations of the frozen pre-refactor copy are each detected by
+the characterization script (now a permanent test). Six mutations of
+`music_aware.py` and five of `_tick` each fail `tests/test_engine.py`. The
+new resampler, token, pause, shutdown and M8-03 tests each fail on the
+code they replaced.
+
+**Part (b), benchmark regression row.** `bench_headcount.py --fallback`,
+alternating trees, each run importing its own `src` (`PYTHONPATH`; the
+script has no path setup of its own, so without it both trees ran the
+editable install's code, which was caught and re-run):
+
+| Run, 14:51–14:52 | headcount contended mean / p95 | emotion overall mean / p95 |
+|---|---|---|
+| `main` #1 | 0.33 / 0.38 s | 0.44 / 0.57 s |
+| branch #1 | 0.30 / 0.32 s | 0.43 / 0.48 s |
+| `main` #2 | 0.29 / 0.30 s | 0.41 / 0.45 s |
+| branch #2 | 0.29 / 0.30 s | 0.43 / 0.51 s |
+| README JPad row, 2026-09-06 | 0.23 / 0.25 s | 0.35 / 0.39 s |
+
+Findings:
+
+1. **The branch sits inside `main`'s spread on every column.** That is the
+   like-with-like comparison, and it passes.
+2. **Both trees ran about 0.06–0.10 s slower than the 09-06 row.** `main` is
+   equally slow, so it is the machine's state today, not M8 code. The run
+   followed an 8-minute ECAPA replay, and power and thermal state were not
+   recorded. The 09-06 row is a single run, so its own variance is
+   unknown. Against that row, (b) is **not settled**: a re-run on a cold,
+   idle, plugged-in JPad settles it. All verdicts stay PASS by a wide
+   margin: headcount p95 ≤ 0.38 s against JPad's 1.66 s budget.
+3. **The benchmark cannot see M8's refactor.** It times the headcount and
+   emotion workers directly and never imports `engine.py` or
+   `music_aware.py`. So (b) guards the machine and the models, not the
+   orchestration. Tick cost is not benchmarked anywhere.
+4. **The script still carries the Mac's budget.** `HEADCOUNT_BUDGET_S =
+   1.37` ("2.0 s hop minus emotion's 0.63 s solo floor") and its PASS line
+   recommends the Mac's `RTR_HEADCOUNT_MIN_INTERVAL_S=4.0`. JPad's budget
+   is 1.66 s (README). The stricter number still passes, so nothing was
+   changed here. Filed as a finding for ROADMAP M10-05 (single source of
+   truth for replay constants).
+
+**The 2026-07-15 gate-WAV replay reproduces on M8 code.**
+`scripts/m7_replay_session.py data/captures/m7-gate-2026-07-15.wav` at
+`4e15b17` (headcount code identical to `main`): rescue off **solo 126 /
+pair 110 / `3` 45**, rescue on 4/6/8 on **137 / 281** hops. That is
+identical to the recorded result and to the 2026-09-30 JPad replay.
+
+**M8-05 shelved (founder, 2026-10-09) on a measurement.** It was measured
+before any code change, with `HeadcountEstimator` defaults, n mutually
+distant 192-d embeddings, speech ratio 0.9 and −25 dBFS. Every singleton
+falls below the min-mass floor (raw 1, fragmentation 1.00, smear 1). For
+every n from 3 to 40, today reads crowd weight 0.686 / log2 5.51; the
+specced None read 0.000 / 0.00, which is solo. The charter's premise
+("masked because count_pressure and smear are ~0") is false, and the
+change would have inverted loud fragmented crowds to solo. The evidence
+is in ROADMAP's ledger (Finding 3), and the behavior is pinned in
+`tests/test_headcount.py`.
+
+**M8-10.** A fresh venv (`pip install -e .[dev]`; it resolved starlette
+1.7.0, fastapi 0.143.0, httpx2 2.13.1) passed the full suite both with
+`httpx2` and with it uninstalled (one `StarletteDeprecationWarning`).
+`httpx2` is kept as Starlette's named path forward, and the
+`pyproject.toml` comment now says what is true.
+
+**`record_frames.py` smoke.** A synthetic-source dashboard on port 8011
+ran with playback off and every data path redirected to the scratchpad:
+no mic, no Spotify, real data files untouched. The recorder wrote 14 state
+frames and `--check` ran. Synthetic audio produces no emotion readings,
+so the check had nothing to bind. The live part (c) is its real test.
+
+**Open.** Part (c), the 10-minute live smoke, is founder-run on JPad per
+`docs/M8-TEST-PLAN.md`. It includes the M8-03 frame check, which needs a
+skip and a pause during talk. Then (b) is re-run on a cold machine, and
+the README gate row is added. M8 is not passed until then.
+
 ## 2026-10-08 (evening, 17:26–17:58) — eight people at two feet, music at 66 %: the bucket reads `solo`, and the one `3` came under an instrumental (non-gating)
 
 **Setup.** Informal party playback, not a gate and not run from a run

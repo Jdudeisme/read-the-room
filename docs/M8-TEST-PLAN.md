@@ -95,9 +95,16 @@ The terminal stays quiet; the log goes to the file. Open
 http://127.0.0.1:8000 once the log shows uvicorn running (the banner
 prints before uvicorn binds).
 
-**Frame capture** (needed for the M8-03 criterion): see "Open item"
-below. Until it is approved, part (c) runs without it, and the M8-03 live
-criterion is reported as **not measured**, never as passed.
+**Frame capture** (check 6, M8-03; founder-approved 2026-10-09). Once the
+dashboard is up, start the recorder in a **second** PowerShell window:
+
+```powershell
+cd C:\dev\read-the-room
+.venv\Scripts\python.exe scripts\record_frames.py --out data\sessions\m8-gate-<DATE>.frames.jsonl
+```
+
+It prints one line and stays quiet. Stop it with Ctrl+C after the
+dashboard is stopped, or let it exit when the dashboard closes.
 
 | Minute | Do | Watch for |
 |---|---|---|
@@ -133,14 +140,17 @@ Write down the times for minutes 3, 6 and 9, and any Good/Wrong taps.
 **Pass:** (a) and (b) pass, and part (c) checks 1–5 hold. Check 6 is
 passed only if measured.
 
-## Open item — frame capture for check 6 (REQUIRES-REVIEW)
+## Frame capture — `scripts/record_frames.py` (approved 2026-10-09)
 
-The dashboard publishes frames only to the browser. Check 6 needs them on
-disk. Proposed: `scripts/record_frames.py`, a read-only websocket client
-for `ws://127.0.0.1:8000/ws`. It appends `type: "state"` frames to
-`data/sessions/<name>.frames.jsonl` (gitignored) while the founder runs
-it, and stops with Ctrl+C. It writes the same room-derived fields the
-corpus records already carry (no audio). It is off unless started by hand,
-and it is never started by Claude during a live session. This is a new
-capture of room-derived data, so it needs founder sign-off on plan and
-diff. Without it, check 6 is reported as not measured.
+A read-only websocket client for `ws://127.0.0.1:8000/ws`. It appends
+`type: "state"` frames to a JSONL file under `data/sessions/` (gitignored),
+with no audio, and runs only when a person starts it. Claude never starts
+it during a live session. `--check FILE` runs check 6 offline:
+
+```powershell
+.venv\Scripts\python.exe scripts\record_frames.py --check data\sessions\m8-gate-<DATE>.frames.jsonl
+```
+
+It reports PASS/FAIL and how many corrected frames crossed a track
+boundary or outlived a playback stop. If both are 0, the run didn't
+exercise M8-03, and check 6 counts as **not measured**.
