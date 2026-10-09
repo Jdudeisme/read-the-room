@@ -106,17 +106,30 @@ cd C:\dev\read-the-room
 It prints one line and stays quiet. Stop it with Ctrl+C after the
 dashboard is stopped, or let it exit when the dashboard closes.
 
+Two things about how the system behaves shape the timeline:
+
+- **The DJ starts music by itself.** With nothing playing, the first
+  recommendation starts a track at once (bootstrap), usually within the
+  first minute. After the pause, it may restart music within 30–60 s.
+  That is the DJ working, not a fault.
+- **M8-03 shows only while you are quiet.** While you talk, a new reading
+  lands almost every tick and captures the current track itself. The
+  fix shows when an older reading outlives a track change or a stop.
+  While you are silent the last reading keeps feeding the EMAs, so
+  **stay quiet ~15 s around the skip and around the pause.**
+
 | Minute | Do | Watch for |
 |---|---|---|
-| 0–1 | Wait; say something | emotion and headcount statuses reach `ready`; loudness readout moves when you talk |
-| 1–3 | Talk normally, **no music** | emotion values update; headcount reads `solo`; no correction shown |
-| 3–6 | Press play in Spotify on JPad if the DJ hasn't started a track; keep talking | the **"hearing through music"** chip appears; note the time |
-| 6–7 | **Skip** to the next track while talking (dashboard button) | note the time of the skip |
-| 7–9 | Keep talking over the new track | chip stays; corrections continue |
-| 9–10 | **Pause** in the Spotify app (the dashboard has no pause button) while talking; talk 30 s more | note the time; the chip clears within one 5 s playback poll |
-| 10 | Stop the dashboard with **Ctrl+C** in its window | it exits without a traceback |
+| 0–1 | Talk normally. Spotify paused/idle on JPad | statuses reach `ready`; loudness moves when you talk; emotion values appear with no correction |
+| ~1 | Keep talking; the DJ starts a track | the **"hearing through music"** chip appears; note the time |
+| 1–5 | Talk over the music | the chip's ref count grows as pull samples bank |
+| ~5 | Go **quiet**, press **Skip**, stay quiet ~15 s, then talk again | note the time of the skip |
+| 5–7 | Talk over the new track | chip stays |
+| ~7 | Go **quiet**, **pause in the Spotify app** (no dashboard pause button), stay quiet ~15 s, then talk again | note the time; the chip clears within one 5 s playback poll; music may restart by itself later |
+| 7–10 | Talk | nothing breaks if music restarts |
+| 10 | **Ctrl+C** in the dashboard window, then in the recorder window | the dashboard exits without a traceback |
 
-Write down the times for minutes 3, 6 and 9, and any Good/Wrong taps.
+Write down the times of the music start, the skip and the pause, and any Good/Wrong taps.
 
 ### Claude's checks afterward (from the log and frames)
 
