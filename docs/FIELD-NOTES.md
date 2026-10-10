@@ -5,6 +5,65 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-09 (night, offline) — M12-06: reference-based dominance turns the ladder from outcome C into B66
+
+**Setup.** Offline, on JPad, `scripts/m12_dominance_reference.py` over
+the 2026-10-09 ladder takes. Per engine window (5 s, 2 s hop):
+m = E(echo estimate) / E(mic), where echo estimate = mic − clean from
+`aec.cancel` (causal, as committed). That is the energy fraction RTR's own
+playback explains. No knots: m is already in [0, 1], and it is exactly
+0 with no playback. Eligibility is as in `analyze_dominance_wav.py`
+(Silero at 0.75, raw speech ratio ≥ 0.2). "Locked" excludes windows
+before the canceller's first lock: replaying each take from cold reads
+m = 0 until then, which a live session pays once, not per track. Results
+are in `data/m12-replay/dominance-ref-1.json` (uncommitted).
+
+| take | first lock | eligible (locked) | clean m ≤ 0.1 | bankable m ≥ 0.25 | m p10 / p50 / p90 |
+|---|---|---|---|---|---|
+| C1–C4 | — | 88 each | 1.000 | **0.000** | 0 / 0 / 0 |
+| T1-MX32 | never | 111 | **1.000** | 0.000 | 0 |
+| T1-MX66 / MX76 | 8 / 10 s | 105 / 79 | 0.010 / 0.013 | 0.990 / 0.987 | 0.52–0.58 / 0.63–0.67 / 0.70–0.77 |
+| T2-MX32 | never | 115 | **1.000** | 0.000 | 0 |
+| T2-MX66 / MX76 | 10 / 8 s | 100 / 19 | 0.000 / 0.000 | 1.000 / 0.947 | 0.66–0.68 / 0.85–0.96 / 1.0 |
+| T3-MX32 | 30 s | 103 | 0.000 | 0.942 | 0.27 / 0.37 / 0.53 |
+| T3-MX66 / MX76 | 8 / 8 s | 110 / 109 | 0.000 / 0.000 | 0.982 / 1.000 | 0.37–0.54 / 0.56–0.65 / 0.69–0.77 |
+
+**The signed rule, applied to the new estimator.** It has no knots, so
+LO\*/HI\* don't apply. The rule's tests read clean and bankable directly.
+
+- Controls bankable ≤ 0.05: **0.000** on all four, by construction. The
+  high-band share's failure (speech alone reaching the knots) can't
+  happen.
+- **A** needs every `MX32`/`MX66`/`MX76` take clean ≤ 0.10. T1-MX32 and
+  T2-MX32 are 1.000. ✗
+- **B66** needs every `MX66` and `MX76` take clean ≤ 0.10, with some
+  `MX32` above. Locked: 0.000–0.013; all windows, start-up included:
+  0.000–0.060. ✓
+- **Outcome B66.** The envelope: *the music-aware correction engages from
+  the 66 % level up. At 32 %, faint music under speech is not locked, so
+  it reads as clean and is left uncorrected.* Bright music at 32 % (T3)
+  does engage, once locked (30 s here). Whether this envelope is
+  acceptable is the founder's decision, recorded with it.
+
+**Findings.**
+
+1. **The structural failure of the old proxy is gone.** Speech-only
+   windows have m = 0 exactly: no reference energy, no echo estimate.
+2. **At 66 % and up, mix windows are unambiguous.** 98–100 % bankable,
+   and m medians 0.56–0.96, against the high-band share's 15–79 % clean
+   at 76 % (FIELD-NOTES 2026-10-09, evening).
+3. **The 32 % gap is the canceller's lock threshold, not the measure.**
+   Faint music under speech never reaches `MIN_LOCK_COHERENCE` (0.3). So
+   with no lock there is no echo estimate, and m = 0. Lowering the
+   threshold would be a separate, measured change; it isn't proposed
+   here.
+4. **m's magnitude is probably inflated on the piano** (T2-MX66 median
+   0.85, where levels suggest ~0.5). The echo estimate and the residual
+   aren't uncorrelated during double talk. The M6 corrector uses the
+   same m to bank (÷ m) and to correct (× m), so a consistent scale error
+   cancels to first order. The rule's clean/bankable split isn't
+   affected. Recorded as a known limitation.
+
 ## 2026-10-09 (night, offline) — M12-03 survey: after cancellation, certification already matches speech-only, and a residual gate would cut real speech
 
 **Setup.** Offline, on JPad, branch `milestone-12-hear-the-room` @
