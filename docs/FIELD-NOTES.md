@@ -101,6 +101,22 @@ tracker. T1-MX32 no longer locks: the confirmed first lock declines when the
 founder's voice dominates faint music, so that take passes through raw, as it
 already read fine. CPU rose. Profile it before gate (c).
 
+**Step 4 built** (`0353bb0`): `CleanSource` and `RTR_PLAYBACK_CANCEL_ENABLED` (default off).
+The streaming canceller reproduces the offline output bit for bit, both on three real
+takes and through ring plumbing fed in 30 ms chunks.
+
+**Heartbeat check** (`scripts/bench_cancel_heartbeat.py`, T3-MX66 replayed in real time
+from files with no mic, real emotion and headcount workers, 90 s per mode):
+
+| mode | tick interval p50 / p95 / max | latest tick |
+|---|---|---|
+| raw | 2.000 / 2.031 / 2.031 s | 31 ms late |
+| cancelling | 2.000 / 2.032 / 2.063 s | 63 ms late (every frame `clean`, 0 resyncs, no errors) |
+
+p95 is unchanged, and the worst tick was 3 % of a hop late. The engine's absolute
+schedule keeps lateness from accumulating. This is one 90 s run per mode; gate (c)
+repeats it alongside the `bench_headcount.py --fallback` row.
+
 **Founder decisions (2026-10-09, after this entry):** all four below are approved, and the ReferenceSource diff (`1bd14e6`) is approved.
 
 **What it decides (proposed; founder's call):**
