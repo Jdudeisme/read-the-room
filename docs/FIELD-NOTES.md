@@ -101,7 +101,7 @@ tracker. T1-MX32 no longer locks: the confirmed first lock declines when the
 founder's voice dominates faint music, so that take passes through raw, as it
 already read fine. CPU rose. Profile it before gate (c).
 
-**Step 4 built** (`0353bb0`): `CleanSource` and `RTR_PLAYBACK_CANCEL_ENABLED` (default off).
+**Step 4 built** (`0353bb0`; founder-approved diff, including the separate clean-path signatures file): `CleanSource` and `RTR_PLAYBACK_CANCEL_ENABLED` (default off).
 The streaming canceller reproduces the offline output bit for bit, both on three real
 takes and through ring plumbing fed in 30 ms chunks.
 
