@@ -45,6 +45,8 @@ LO\*/HI\* don't apply. The rule's tests read clean and bankable directly.
   does engage, once locked (30 s here). Whether this envelope is
   acceptable is the founder's decision, recorded with it.
 
+**Founder decisions (2026-10-09):** the B66 envelope is **accepted**, and the M12-06 integration plan (reference dominance whenever cancellation runs; spectral otherwise; additive `emotion_dominance_source`) is approved.
+
 **Findings.**
 
 1. **The structural failure of the old proxy is gone.** Speech-only
