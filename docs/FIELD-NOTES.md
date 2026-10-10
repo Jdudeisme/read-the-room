@@ -45,8 +45,8 @@ CPU: 0.066–0.100 s per audio second on one core (7–10 % of real time).
    loud piano) rises from 19 eligible windows to **113** of 116, and
    T1-MX76 from 84 to 111. This is the over-gating failure from the ladder
    entry, undone. RTR could hear the room under loud music again.
-3. **The speaker model hears the founder more like himself on every mix
-   take.** Under the bright track the raw embedding was barely the same
+3. **The speaker model hears the founder's voice as closer to their C1
+   voice on every mix take.** Under the bright track the raw embedding was barely the same
    person (0.13 at 76 %, 0.24 at 66 %), and clean brings it to 0.62–0.63.
    This is the headcount side of the 2026-09-30 and 2026-10-08 collapses:
    music-contaminated segments scatter or merge as "voices".
@@ -74,8 +74,8 @@ CPU: 0.066–0.100 s per audio second on one core (7–10 % of real time).
 **Caveats.** One speaker; the founder reading aloud (C3's animated style
 wasn't run with music). One room position. Eligibility counts
 certification, not correctness: "clean" isn't proven to certify only the
-founder, though ECAPA moving toward C1 says the certified audio is more
-him. No live run: the engine still reads raw.
+founder, though ECAPA moving toward C1 says more of the certified audio
+is the founder's voice. No live run: the engine still reads raw.
 
 **What it decides (proposed; founder's call):**
 - The numpy MDF is worth integrating; no library evidence event is
