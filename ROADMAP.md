@@ -484,7 +484,15 @@ with their measurements.
     Measure it, don't assume it.
 - **Effort:** L
 
-### M12-03 — Playback-aware certification gate — REQUIRES-REVIEW
+### M12-03 — Playback-aware certification gate — REQUIRES-REVIEW — **DEFERRED 2026-10-09**
+
+> **Deferred (founder, 2026-10-09)** on an offline survey (FIELD-NOTES 2026-10-09, night). After M12-02's
+> cancellation, music-only certification is ~0 (the rap 0.345 → 0.001 of chunks), and the founder's reading
+> over music certifies like their voice alone (0.755–0.888 vs 0.828–0.908). Step 1 (residual vs echo) is
+> measured harmful: real speech under loud music sits at r ≈ 0 dB, so a 0 dB gate keeps only 0.23–0.51 of
+> it. Step 2 (coherence) is ruled out by the same fact. **Reopened by M12-05's pre-registered rule** if,
+> with cancellation on, music-only phases still certify, or headcount over vocal music is worse than over
+> instrumental. Then step 3 (the classifier) is next. The charter below stands as written.
 
 - **Problem:** Certification is a single VAD threshold (0.5, or 0.75 during
   playback). Vocal music the VAD fully believes passes it (FIELD-NOTES

@@ -53,6 +53,8 @@ Results are in `data/m12-replay/gate-survey-1.json` (uncommitted).
    follow from measured quantities (certification at the C-level, the
    ~7–11 dB linear ceiling).
 
+**Founder decision (2026-10-09): M12-03 is deferred as proposed below.**
+
 **What it means for M12-03 (proposed; the founder's call).** On this
 evidence, the cancellation in M12-02 already does M12-03's job for one
 person reading at 32/66/76 % over three tracks. Building a gate now
