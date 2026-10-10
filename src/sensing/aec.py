@@ -390,6 +390,30 @@ class MdfFilter:
         return e.astype(mic_block.dtype, copy=False)
 
 
+# -- reference-based dominance (M12-06) -------------------------------------------
+
+
+def reference_dominance(mic_window: np.ndarray, echo_window: np.ndarray) -> float:
+    """The fraction of a window's mic energy that RTR's own playback
+    explains: E(echo estimate) / E(mic), clipped to [0, 1]. Exactly 0 when
+    nothing plays (the echo estimate is exactly zero then).
+
+    Replaces the high-band share as music dominance whenever cancellation
+    runs (ROADMAP M12-06). On the 2026-10-09 ladder it scored outcome B66
+    under the signed rule, where the share scored C: speech-only windows
+    are 0 by construction, and every 66/76 % mix take is >= 98 % bankable
+    once locked. At 32 % faint music never locks and reads 0 (accepted
+    envelope, founder 2026-10-09). The magnitude runs high under double
+    talk (echo and residual correlate). The M6 corrector divides by m to
+    bank and multiplies by m to correct, so a consistent scale error
+    cancels to first order. FIELD-NOTES 2026-10-09 (night)."""
+    e_mic = float(np.sum(np.asarray(mic_window, dtype=np.float64) ** 2))
+    if e_mic <= 0.0:
+        return 0.0
+    e_echo = float(np.sum(np.asarray(echo_window, dtype=np.float64) ** 2))
+    return min(1.0, e_echo / e_mic)
+
+
 # -- offline whole-signal cancellation -------------------------------------------
 
 

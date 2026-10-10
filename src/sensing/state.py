@@ -149,6 +149,12 @@ class RoomState:
     # activity, spectral balance and dominance are always raw. Additive: a
     # frame without it is a raw frame.
     analysis_stream: str = "raw"
+    # M12-06: which measure produced `emotion_music_dominance`: "spectral"
+    # (the high-band share, sensing/music.py) or "reference" (the energy
+    # fraction RTR's own playback explains, sensing/aec.py
+    # reference_dominance; only while cancellation runs). None when there
+    # is no dominance (playback off). Additive.
+    emotion_dominance_source: str | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)

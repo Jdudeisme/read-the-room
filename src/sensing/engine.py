@@ -33,6 +33,7 @@ from .config import Config
 from .emotion import EmotionWorker
 from .headcount import BucketSmoother, HeadcountEstimator, HeadcountWorker
 from .music import TrackSignatureStore, dominance
+from .aec import reference_dominance
 from .music_aware import MusicAwareCorrector
 from .state import Ema, RoomState, TrendTracker, energy_score, mood_quadrant
 from .vad import VadGate
@@ -346,7 +347,7 @@ class Engine:
         # track's measured signature before smoothing; music-only playback
         # windows become reference taps that measure that signature.
         valence = arousal = confidence = staleness = None
-        music_dominance = emotion_correction = None
+        music_dominance = emotion_correction = dominance_source = None
         if self.emotion is not None:
             has_audio = window.size >= self.config.sample_rate  # >= 1s
             if raw_ratio >= self.config.emotion_min_speech_ratio and has_audio:
@@ -363,12 +364,20 @@ class Engine:
                 ref = self.emotion.pop_reference()
                 if ref is not None:
                     self._signatures.add_reference(*ref)
-                if playback_active:
+                if playback_active and analysis is not self.source:
+                    # M12-06: while cancellation runs, dominance is the energy
+                    # fraction RTR's own playback explains (outcome B66 on the
+                    # signed ladder rule, where the high-band share was C).
+                    clean_w, echo_w = analysis.windows(n_window)
+                    music_dominance = reference_dominance(clean_w + echo_w, echo_w)
+                    dominance_source = "reference"
+                elif playback_active:
                     music_dominance = dominance(
                         measured.spectral_balance.get("high", 0.0),
                         self.config.music_dominance_lo,
                         self.config.music_dominance_hi,
                     )
+                    dominance_source = "spectral"
             reading, staleness = self.emotion.latest(now)
             if reading is not None:
                 v_inst, a_inst = reading.valence, reading.arousal
@@ -413,6 +422,7 @@ class Engine:
             energy, now, playback_active, playback_track_id,
             music_dominance, emotion_correction,
             analysis_stream="raw" if analysis is self.source else "clean",
+            dominance_source=dominance_source,
         )
 
     def _publish(
@@ -420,6 +430,7 @@ class Engine:
         arousal, confidence, staleness, hc_bucket, hc_confidence,
         hc_staleness, energy, now, playback_active, playback_track_id,
         music_dominance, emotion_correction, analysis_stream="raw",
+        dominance_source=None,
     ) -> RoomState:
         mood = None
         if (
@@ -458,4 +469,5 @@ class Engine:
             ),
             emotion_correction=emotion_correction,
             analysis_stream=analysis_stream,
+            emotion_dominance_source=dominance_source,
         )

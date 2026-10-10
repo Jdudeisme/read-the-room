@@ -678,6 +678,7 @@ class _FakeClean:
 
     def __init__(self, status="running"):
         self.ring = RingBuffer(int(30 * SR))
+        self.echo_ring = RingBuffer(int(30 * SR))
         self.status = status
         self.error = None
         self.device_name = "fake (playback cancelled)"
@@ -689,13 +690,19 @@ class _FakeClean:
     def stop(self):
         self.stops += 1
 
+    def windows(self, n):
+        end = min(self.ring.total_written, self.echo_ring.total_written)
+        return self.ring.read_range(end - n, n), self.echo_ring.read_range(end - n, n)
+
 
 def _feed_both(rig, clean, dt=2.0):
-    """Advance one tick with the clean ring carrying half the raw signal."""
+    """Advance one tick with the clean ring carrying half the raw signal and
+    the echo ring the other half (clean + echo = raw)."""
     rig.now += dt
     x = _signal(rig.high, dt, rig.amp)
     rig.source.ring.write(x)
     clean.ring.write(0.5 * x)
+    clean.echo_ring.write(0.5 * x)
     return rig.engine._tick(now=rig.now, wall=1.79e9 + rig.now)
 
 
@@ -748,3 +755,38 @@ def test_no_reference_means_no_cancellation():
     rig.engine.run(max_ticks=2)
     assert rig.engine.clean is None
     assert {s.analysis_stream for s in collect.states} == {"raw"}
+
+
+# -- M12-06: dominance from the reference while cancellation runs ---------------------
+
+
+def _prime(rig, clean):
+    w = 0.5 * _signal(rig.high, rig.config.window_s, rig.amp)
+    clean.ring.write(w)
+    clean.echo_ring.write(w)
+
+
+def test_dominance_is_the_echo_energy_fraction_while_cancelling():
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    rig.set_signal(MIXED)
+    _prime(rig, clean)
+    rig.play(TRACK_A)
+    rig.reading(0.5, 0.3)
+    rig.vad.ratio = 0.6
+    state = _feed_both(rig, clean)
+    # echo = clean = half the mic: E(echo) / E(mic) = 0.25 exactly
+    assert state.emotion_music_dominance == 0.25
+    assert state.emotion_dominance_source == "reference"
+
+
+def test_dominance_stays_spectral_on_raw_and_none_without_playback():
+    rig = Rig()
+    rig.set_signal(MIXED)
+    rig.play(TRACK_A)
+    on = rig.tick(ratio=0.6)
+    assert on.emotion_dominance_source == "spectral"
+    assert on.emotion_music_dominance == round(rig.window_m(), 3)
+    rig.stop_playback()
+    off = rig.tick(ratio=0.6)
+    assert off.emotion_music_dominance is None and off.emotion_dominance_source is None

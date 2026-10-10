@@ -191,3 +191,28 @@ def test_clean_source_passes_silence_through_and_resyncs_when_behind():
     cs.pump()
     n = cs.ring.total_written
     assert np.array_equal(cs.ring.read_range(0, n), speech[2 * SR : 2 * SR + n])  # bit-identical
+
+
+def test_clean_source_echo_ring_completes_the_mic():
+    ref = _music(18, seed=14)
+    mic = _echo(ref, _room(), 800)
+    m, r = _RingOnly(20), _RingOnly(20)
+    cs = CleanSource(m, r, 20.0)
+    m.ring.write(mic[:480])
+    r.ring.write(ref[:480])
+    assert cs.align()
+    for i in range(480, mic.size - 480 + 1, 480):
+        m.ring.write(mic[i : i + 480])
+        r.ring.write(ref[i : i + 480])
+        cs.pump()
+    n = cs.ring.total_written
+    clean_w, echo_w = cs.windows(n)
+    assert np.allclose(clean_w + echo_w, mic[480 : 480 + n], atol=1e-6)
+    late = slice(n - 4 * SR, n)  # first lock ~8 s in; converged by 14 s: most of the mic is echo
+    assert aec.reference_dominance((clean_w + echo_w)[late], echo_w[late]) > 0.9
+
+
+def test_reference_dominance_is_zero_without_playback():
+    x = np.random.default_rng(15).standard_normal(SR).astype(np.float32)
+    assert aec.reference_dominance(x, np.zeros_like(x)) == 0.0
+    assert aec.reference_dominance(np.zeros(SR, np.float32), np.zeros(SR, np.float32)) == 0.0

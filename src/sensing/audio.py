@@ -389,6 +389,9 @@ class CleanSource:
         self.mic, self.reference = mic, reference
         self.sample_rate = mic.sample_rate
         self.ring = RingBuffer(int(buffer_seconds * self.sample_rate))
+        # M12-06: the canceller's echo estimate (mic - clean), sample-aligned
+        # with `ring`, so playback dominance is E(echo) / E(clean + echo).
+        self.echo_ring = RingBuffer(int(buffer_seconds * self.sample_rate))
         self.device_name = ""
         self.capture_rate = getattr(mic, "capture_rate", mic.sample_rate)
         self.status = "stopped"  # stopped | running | failed
@@ -436,6 +439,13 @@ class CleanSource:
         self._canceller = self._factory()
         return True
 
+    def windows(self, n: int) -> tuple[np.ndarray, np.ndarray]:
+        """The latest `n` samples of (clean, echo) at the same positions.
+        The echo ring is written just after the clean one, so its total is the
+        safe common end."""
+        end = min(self.ring.total_written, self.echo_ring.total_written)
+        return self.ring.read_range(end - n, n), self.echo_ring.read_range(end - n, n)
+
     def _ref_get(self, i: int, n: int) -> np.ndarray:
         return self.reference.ring.read_range(self._pm0 + i + self._offset, n)
 
@@ -451,7 +461,9 @@ class CleanSource:
         B = self._block
         while self._pm + B <= avail and not self._stop.is_set():
             block = self.mic.ring.read_range(self._pm, B)
-            self.ring.write(self._canceller.process(block, self._ref_get))
+            clean = self._canceller.process(block, self._ref_get)
+            self.ring.write(clean)
+            self.echo_ring.write(block - clean)  # exactly zero on pass-through
             self._pm += B
             done += 1
         return done

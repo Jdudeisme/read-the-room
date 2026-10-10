@@ -61,9 +61,7 @@ def windows(mic, clean, config, vad):
         end = start + win
         vad.feed(mic[fed:end])
         fed = end
-        e_mic = float(np.sum(mic[start:end].astype(np.float64) ** 2))
-        e_echo = float(np.sum(echo[start:end] ** 2))
-        m = 0.0 if e_mic <= 0 else min(1.0, e_echo / e_mic)
+        m = aec.reference_dominance(mic[start:end], echo[start:end])
         ratio = vad.speech_ratio(config.vad_playback_threshold)
         out.append((end / sr, m, ratio >= config.emotion_min_speech_ratio))
     return out
