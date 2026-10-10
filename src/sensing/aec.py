@@ -406,17 +406,14 @@ class CancelResult:
     impulse_response: np.ndarray | None = None
 
 
-def _ref_block(ref: np.ndarray, start: int, lag: int) -> np.ndarray:
-    """The reference block aligned to mic[start:start+BLOCK] (zeros outside)."""
-    lo = start - (lag - PRE_DELAY)
-    block = np.zeros(BLOCK, dtype=np.float32)
-    s0, s1 = max(lo, 0), min(lo + BLOCK, ref.size)
-    if s1 > s0:
-        block[s0 - lo : s1 - lo] = ref[s0:s1]
-    return block
+def _ref_block(ref_get, start: int, lag: int) -> np.ndarray:
+    """The reference block aligned to mic[start:start+BLOCK]: zeros where the
+    reference has no audio (before it starts, after it ends, or not yet
+    arrived)."""
+    return ref_get(start - (lag - PRE_DELAY), BLOCK)
 
 
-def _choose_on_relock(filt, mic, ref, start, old_lag, new_lag) -> str:
+def _choose_on_relock(filt, mic_get, ref_get, start, old_lag, new_lag) -> str:
     """At a re-lock, test what to do with the learned filter on the last
     RELOCK_TEST_BLOCKS of real audio, under the NEW alignment, and pick
     whichever would have cancelled best: keep it, shift it by the lag
@@ -429,9 +426,9 @@ def _choose_on_relock(filt, mic, ref, start, old_lag, new_lag) -> str:
     first = start - n * BLOCK
     if first - PARTITIONS * BLOCK < 0:
         return "reset"
-    refs = [_ref_block(ref, first - k * BLOCK, new_lag) for k in range(PARTITIONS, 0, -1)]
-    refs += [_ref_block(ref, first + i * BLOCK, new_lag) for i in range(n)]
-    mics = [mic[first + i * BLOCK : first + (i + 1) * BLOCK] for i in range(n)]
+    refs = [_ref_block(ref_get, first - k * BLOCK, new_lag) for k in range(PARTITIONS, 0, -1)]
+    refs += [_ref_block(ref_get, first + i * BLOCK, new_lag) for i in range(n)]
+    mics = [mic_get(first + i * BLOCK, first + (i + 1) * BLOCK) for i in range(n)]
     kept = filt.W
     probe = MdfFilter(filt.B, filt.P, filt.mu)
     probe.W = kept.copy()
@@ -444,40 +441,89 @@ def _choose_on_relock(filt, mic, ref, start, old_lag, new_lag) -> str:
     return best if scores[best] > KEEP_FILTER_MIN_ERLE_DB else "reset"
 
 
-def cancel(mic: np.ndarray, ref: np.ndarray) -> CancelResult:
-    """Cancel `ref` out of `mic` (both at SR, same length or not), causally:
-    every decision at time t uses only audio up to t. Before the first lock,
-    output = input. `ref` indices are file-relative; lags may be negative
-    offline. The live `CleanSource` aligns ring positions instead."""
-    mic = np.asarray(mic, dtype=np.float32)
-    ref = np.asarray(ref, dtype=np.float32)
-    clean = mic.copy()
-    tracker, filt = DelayTracker(), MdfFilter()
-    prev_lag: int | None = None
-    res = CancelResult(clean=clean)
-    win, every = int(TRACK_WINDOW_S * SR), int(TRACK_EVERY_S * SR)
-    next_track = every
-    for start in range(0, mic.size - BLOCK + 1, BLOCK):
-        end = start + BLOCK
-        if end >= next_track:
-            a = max(0, end - win)
-            changed = tracker.update(mic[a:end], ref[a:end])
-            res.delays.append((end / SR, tracker.lag, round(tracker.coherence, 3)))
+class StreamingCanceller:
+    """The canceller, one BLOCK at a time, as the live `CleanSource` runs it.
+
+    `process(mic_block, ref_get)` takes the next BLOCK of mic samples and a
+    reader `ref_get(position, n)` for the reference in the *mic's* sample
+    index space (0 = this canceller's first mic sample), zero-filled where
+    the reference has no audio. Every decision at a block uses only audio up
+    to that block: it keeps the last TRACK_WINDOW_S of mic itself, and asks
+    the reference reader for nothing later than the current block. The
+    offline `cancel()` drives this same object from arrays, so the live path
+    is the measured path."""
+
+    def __init__(self):
+        self.tracker = DelayTracker()
+        self.filt = MdfFilter()
+        self.prev_lag: int | None = None
+        self.n = 0  # mic samples consumed so far
+        self._win = int(TRACK_WINDOW_S * SR)
+        self._every = int(TRACK_EVERY_S * SR)
+        self._next_track = self._every
+        self._hist = np.zeros(0, dtype=np.float32)  # mic [n - len(hist), n)
+        self.result = CancelResult(clean=np.empty(0, dtype=np.float32))
+
+    def _mic_get(self, a: int, b: int) -> np.ndarray:
+        first = self.n + BLOCK - self._hist.size  # history includes the current block
+        return self._hist[a - first : b - first]
+
+    def process(self, mic_block: np.ndarray, ref_get) -> np.ndarray:
+        mic_block = np.asarray(mic_block, dtype=np.float32)
+        start, end = self.n, self.n + BLOCK
+        self._hist = np.concatenate((self._hist, mic_block))[-self._win :]
+        res = self.result
+        if end >= self._next_track:
+            a = max(0, end - self._win)
+            changed = self.tracker.update(self._mic_get(a, end), ref_get(a, end - a))
+            res.delays.append((end / SR, self.tracker.lag, round(self.tracker.coherence, 3)))
             if changed:
-                choice = _choose_on_relock(filt, mic, ref, start, prev_lag, tracker.lag)
-                history = [_ref_block(ref, start - k * BLOCK, tracker.lag) for k in range(PARTITIONS, 0, -1)]
-                filt.realign(history, keep=choice != "reset")
+                lag = self.tracker.lag
+                choice = _choose_on_relock(self.filt, self._mic_get, ref_get, start, self.prev_lag, lag)
+                history = [_ref_block(ref_get, start - k * BLOCK, lag) for k in range(PARTITIONS, 0, -1)]
+                self.filt.realign(history, keep=choice != "reset")
                 if choice == "shift":
-                    filt._shift(-(tracker.lag - prev_lag))
+                    self.filt._shift(-(lag - self.prev_lag))
                 res.relocks.append(end / SR)
                 res.relock_choices.append(choice)
-            prev_lag = tracker.lag
-            next_track += every
-        if tracker.lag is None:
-            continue
-        clean[start:end] = filt.process(mic[start:end], _ref_block(ref, start, tracker.lag))
-    res.divergence_resets = filt.divergence_resets
-    res.rollbacks = filt.rollbacks
-    if tracker.lag is not None:
-        res.impulse_response = filt.impulse_response()
+            self.prev_lag = self.tracker.lag
+            self._next_track += self._every
+        self.n = end
+        res.divergence_resets = self.filt.divergence_resets
+        res.rollbacks = self.filt.rollbacks
+        if self.tracker.lag is None:
+            return mic_block.copy()
+        return self.filt.process(mic_block, _ref_block(ref_get, start, self.tracker.lag))
+
+
+def array_reader(x: np.ndarray):
+    """`ref_get` over a whole array: x[position:position+n], zero-filled
+    outside it."""
+    x = np.asarray(x, dtype=np.float32)
+
+    def get(position: int, n: int) -> np.ndarray:
+        out = np.zeros(n, dtype=np.float32)
+        lo, hi = max(position, 0), min(position + n, x.size)
+        if hi > lo:
+            out[lo - position : hi - position] = x[lo:hi]
+        return out
+
+    return get
+
+
+def cancel(mic: np.ndarray, ref: np.ndarray) -> CancelResult:
+    """Cancel `ref` out of `mic` (both at SR), causally, via the same
+    `StreamingCanceller` the live path runs. Before the first lock, output =
+    input. `ref` indices are file-relative, so lags may be negative offline.
+    The live `CleanSource` aligns ring positions instead."""
+    mic = np.asarray(mic, dtype=np.float32)
+    clean = mic.copy()
+    sc = StreamingCanceller()
+    ref_get = array_reader(ref)
+    for start in range(0, mic.size - BLOCK + 1, BLOCK):
+        clean[start : start + BLOCK] = sc.process(mic[start : start + BLOCK], ref_get)
+    res = sc.result
+    res.clean = clean
+    if sc.tracker.lag is not None:
+        res.impulse_response = sc.filt.impulse_response()
     return res

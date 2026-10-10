@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     import uvicorn
 
     from mapping import Mapper, MappingConfig
-    from sensing.audio import MicSource, ReferenceSource, SynthSource
+    from sensing.audio import CleanSource, MicSource, ReferenceSource, SynthSource
     from sensing.config import Config
     from sensing.engine import Engine
 
@@ -76,6 +76,12 @@ def main(argv: list[str] | None = None) -> int:
     reference = (
         ReferenceSource(config.sample_rate, buffer_s)
         if config.playback_reference_enabled and args.source != "synth"
+        else None
+    )
+    # M12-02: off unless RTR_PLAYBACK_CANCEL_ENABLED=1, and only with a reference.
+    clean = (
+        CleanSource(source, reference, buffer_s)
+        if config.playback_cancel_enabled and reference is not None
         else None
     )
 
@@ -142,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     engine = Engine(
         source, config, consumers=[bridge], playback_source=controller,
-        reference_source=reference,
+        reference_source=reference, clean_source=clean,
     )
     bridge.engine = engine  # regime extras + worker statuses on each frame
 

@@ -67,6 +67,21 @@ class RingBuffer:
                 return self._buf[start:end].copy()
             return np.concatenate((self._buf[start:], self._buf[:end]))
 
+    def read_range(self, position: int, n: int) -> np.ndarray:
+        """Samples [position, position + n) by absolute position (as counted
+        by `total_written`), zero-filled where they are not, or no longer,
+        in the buffer. Read-only. Used by the playback canceller (M12-02) to
+        read the reference at the mic's aligned position."""
+        out = np.zeros(n, dtype=np.float32)
+        with self._lock:
+            lo = max(position, self._written - self._capacity, 0)
+            hi = min(position + n, self._written)
+            if hi > lo:
+                out[lo - position : hi - position] = self._buf[
+                    np.arange(lo, hi) % self._capacity
+                ]
+        return out
+
     def read_since(self, position: int) -> tuple[np.ndarray, int]:
         """Samples written after `position` (a previous total_written value).
 
@@ -338,6 +353,119 @@ class ReferenceSource:
         except Exception as exc:
             self.status, self.error = "failed", f"{type(exc).__name__}: {exc}"
             self._ready.set()
+
+
+class CleanSource:
+    """M12-02 step 4: the mic with RTR's own playback cancelled, as an audio
+    source the engine can analyse instead of the raw mic.
+
+    On its own daemon thread, it reads the mic ring and the reference ring
+    (`ReferenceSource`) in 16 ms blocks, runs `aec.StreamingCanceller` (the
+    same code path the offline evaluation measured), and writes a **clean
+    ring**. The raw mic ring is never modified, so raw stays available and
+    every frame can say which stream it analysed.
+
+    **Alignment by time, not position.** The two streams open a few hundred
+    ms apart (the reference took 109–484 ms to open in the 2026-10-09
+    self-tests), so their ring positions don't line up. At start, both
+    rings' `total_written` are read back to back, which fixes the
+    reference position matching the mic's "now". The delay tracker then
+    finds only the real playout + acoustic + buffering delay. The devices
+    share one clock (measured), so this offset doesn't drift. The tracker
+    re-locks through the reference slips.
+
+    **Never a queue** (invariant 4): if processing falls more than
+    `max_behind_s` behind the mic, it jumps to the newest audio, re-aligns
+    and starts a fresh canceller (counted in `resyncs`). **Degrade, never
+    fail** (invariant 7): on any error the status becomes "failed", and the
+    engine falls back to raw. With nothing playing, the canceller passes
+    the mic through bit-identical, so the clean ring equals the raw one.
+    """
+
+    def __init__(self, mic, reference, buffer_seconds: float,
+                 canceller_factory=None, max_behind_s: float = 1.0, poll_s: float = 0.005):
+        from .aec import BLOCK, StreamingCanceller
+
+        self.mic, self.reference = mic, reference
+        self.sample_rate = mic.sample_rate
+        self.ring = RingBuffer(int(buffer_seconds * self.sample_rate))
+        self.device_name = ""
+        self.capture_rate = getattr(mic, "capture_rate", mic.sample_rate)
+        self.status = "stopped"  # stopped | running | failed
+        self.error: str | None = None
+        self.resyncs = 0
+        self._factory = canceller_factory or StreamingCanceller
+        self._block = BLOCK
+        self._max_behind = int(max_behind_s * self.sample_rate)
+        self._poll_s = poll_s
+        self._canceller = None
+        self._pm0 = 0  # mic position of the canceller's sample 0
+        self._pm = 0  # next mic position to process
+        self._offset = 0  # reference position minus mic position, same instant
+        self._stop = threading.Event()
+        self._stop_lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+
+    @property
+    def canceller(self):
+        return self._canceller
+
+    def start(self) -> None:
+        self.device_name = f"{getattr(self.mic, 'device_name', '')} (playback cancelled)"
+        self._thread = threading.Thread(target=self._run, daemon=True, name="clean-source")
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        with self._stop_lock:
+            thread, self._thread = self._thread, None
+        if thread is not None:
+            thread.join(timeout=2.0)
+        if self.status == "running":
+            self.status = "stopped"
+
+    def align(self) -> bool:
+        """Fix the mic/reference offset from both rings' current positions and
+        start a fresh canceller. False until both rings have audio."""
+        mic_total = self.mic.ring.total_written
+        ref_total = self.reference.ring.total_written
+        if mic_total == 0 or ref_total == 0:
+            return False
+        self._offset = ref_total - mic_total
+        self._pm0 = self._pm = mic_total
+        self._canceller = self._factory()
+        return True
+
+    def _ref_get(self, i: int, n: int) -> np.ndarray:
+        return self.reference.ring.read_range(self._pm0 + i + self._offset, n)
+
+    def pump(self) -> int:
+        """Process every complete mic block available; returns how many. The
+        thread calls this in a loop; tests call it directly."""
+        avail = self.mic.ring.total_written
+        if avail - self._pm > self._max_behind:
+            self.resyncs += 1
+            self.align()
+            return 0
+        done = 0
+        B = self._block
+        while self._pm + B <= avail and not self._stop.is_set():
+            block = self.mic.ring.read_range(self._pm, B)
+            self.ring.write(self._canceller.process(block, self._ref_get))
+            self._pm += B
+            done += 1
+        return done
+
+    def _run(self) -> None:
+        try:
+            while not self._stop.is_set() and not self.align():
+                time.sleep(self._poll_s)
+            self.status = "running"
+            while not self._stop.is_set():
+                if self.pump() == 0:
+                    time.sleep(self._poll_s)
+        except Exception as exc:
+            self.status, self.error = "failed", f"{type(exc).__name__}: {exc}"
 
 
 def _soundcard_loopback(rate: int, channels: int):

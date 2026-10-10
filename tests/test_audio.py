@@ -224,3 +224,17 @@ def test_reference_concurrent_stop_is_safe():
     for t in threads:
         t.join(5)
     assert ref._thread is None and ref.status == "stopped"
+
+
+# -- RingBuffer.read_range (M12-02) --------------------------------------------
+
+from sensing.audio import RingBuffer  # noqa: E402
+
+
+def test_read_range_by_absolute_position_with_wrap_and_zero_fill():
+    rb = RingBuffer(10)
+    rb.write(np.arange(25, dtype=np.float32))  # holds 15..24 after wrapping
+    assert rb.read_range(18, 4).tolist() == [18, 19, 20, 21]
+    assert rb.read_range(13, 4).tolist() == [0, 0, 15, 16]  # 13, 14 overwritten
+    assert rb.read_range(23, 4).tolist() == [23, 24, 0, 0]  # 25, 26 not yet written
+    assert rb.read_range(-2, 3).tolist() == [0, 0, 0]

@@ -25,6 +25,7 @@ import platform
 import socket
 import threading
 import time
+from pathlib import Path
 from typing import Protocol
 
 from . import dsp
@@ -90,8 +91,14 @@ class Engine:
         consumers: list[Consumer],
         playback_source: PlaybackStateSource | None = None,
         reference_source=None,
+        clean_source=None,
     ):
         self.source = source
+        # M12-02 step 4: the mic with RTR's own playback cancelled
+        # (sensing/audio.py CleanSource). When present, certification,
+        # emotion and headcount read it; DSP measures stay on raw. If it
+        # fails, the engine falls back to raw for good (invariant 7).
+        self.clean = clean_source
         # M12-01c: the laptop's own playback (sensing/audio.py
         # ReferenceSource), started and stopped with the mic. Optional:
         # if it can't open, sensing runs exactly as without it (invariant
@@ -145,15 +152,7 @@ class Engine:
         # Music-aware emotion (M6): per-track signatures — the measured
         # speech-over-music pull (primary) and the standalone response
         # (cold-start prior) — subtracted from speech readings.
-        self._signatures = (
-            TrackSignatureStore(
-                config.music_signatures_path,
-                min_refs=config.music_min_refs,
-                source_fn=lambda: capture_source_info(self.source, config),
-            )
-            if config.music_aware_enabled and config.emotion_enabled
-            else None
-        )
+        self._signatures = self._signature_store(clean=self.clean is not None)
         # Banking, correction and the discount floor (M8-01: extracted from
         # the tick, behavior unchanged). Exists exactly when the store does,
         # which is also the only case where dominance is ever computed.
@@ -175,6 +174,47 @@ class Engine:
         # so the flush never overlaps a tick's own signature save. Contended
         # only at shutdown, where stop() waits at most one tick.
         self._tick_lock = threading.Lock()
+
+    def _signature_store(self, clean: bool):
+        """Music-aware signatures for the stream being analysed. A signature
+        measures a track's pull through ONE capture path, so the clean path
+        (playback cancelled) learns its own file, `<path>.clean<ext>`, and
+        never borrows the raw path's. Raw-learned pulls would over-correct
+        readings the canceller has already partly cleaned."""
+        config = self.config
+        if not (config.music_aware_enabled and config.emotion_enabled):
+            return None
+        path = config.music_signatures_path
+        if clean and path:
+            p = Path(path)
+            path = str(p.with_name(f"{p.stem}.clean{p.suffix}"))
+        return TrackSignatureStore(
+            path,
+            min_refs=config.music_min_refs,
+            source_fn=lambda: capture_source_info(self.clean if clean else self.source, config),
+        )
+
+    def _fall_back_to_raw(self, why: str) -> None:
+        """Stop analysing the clean stream: raw from here on, with the raw
+        path's signatures."""
+        log.error("playback cancellation off (%s); analysing the raw mic", why)
+        clean, self.clean = self.clean, None
+        if clean is not None:
+            clean.stop()
+        self._vad_position = self.source.ring.total_written
+        if self._signatures is not None:
+            self._signatures.flush()
+        self._signatures = self._signature_store(clean=False)
+        self._music_aware = (
+            MusicAwareCorrector(self.config, self._signatures)
+            if self._signatures is not None
+            else None
+        )
+
+    def _analysis_source(self):
+        if self.clean is not None and self.clean.status == "failed":
+            self._fall_back_to_raw(f"clean source failed: {self.clean.error}")
+        return self.clean if self.clean is not None else self.source
 
     @property
     def emotion_status(self) -> str:
@@ -204,6 +244,12 @@ class Engine:
             except Exception:
                 log.exception("playback reference unavailable; continuing without it")
                 self.reference = None
+        if self.clean is not None:
+            if self.reference is None:
+                self._fall_back_to_raw("no playback reference")
+            else:
+                self.clean.start()
+                log.info("analysing %r", self.clean.device_name)
         self._running = True
         ticks = 0
         next_tick = time.monotonic() + self.config.hop_s
@@ -234,6 +280,8 @@ class Engine:
                 return
             self._stopped = True
             self._running = False
+            if self.clean is not None:
+                self.clean.stop()
             self.source.stop()
             if self.reference is not None:
                 self.reference.stop()
@@ -251,12 +299,15 @@ class Engine:
         # workers also read on their own threads. Production passes nothing.
         now = time.monotonic() if now is None else now
         wall = time.time() if wall is None else wall
-        window = self.source.ring.read_last(
-            int(self.config.window_s * self.config.sample_rate)
-        )
+        n_window = int(self.config.window_s * self.config.sample_rate)
+        analysis = self._analysis_source()
+        raw_window = self.source.ring.read_last(n_window)
+        # M12-02: certification, emotion and headcount read `window` (clean
+        # when cancellation runs); the DSP heartbeat reads raw (M12-04/06).
+        window = raw_window if analysis is self.source else analysis.ring.read_last(n_window)
 
         # Layer 1: DSP heartbeat.
-        measured = dsp.analyze(window, self.config.sample_rate)
+        measured = dsp.analyze(raw_window, self.config.sample_rate)
         loudness = self._ema_loudness.update(measured.rms_dbfs, now)
         activity = self._ema_activity.update(measured.onset_density, now)
 
@@ -276,7 +327,7 @@ class Engine:
         # gate v1: while the system's own output is audible, certification
         # demands a stricter per-chunk threshold — this is the centralized
         # certification point, so emotion and headcount inherit it at once.
-        new_samples, self._vad_position = self.source.ring.read_since(self._vad_position)
+        new_samples, self._vad_position = analysis.ring.read_since(self._vad_position)
         self.vad.feed(new_samples)
         cert_threshold = (
             self.config.vad_playback_threshold
@@ -361,13 +412,14 @@ class Engine:
             confidence, staleness, hc_bucket, hc_confidence, hc_staleness,
             energy, now, playback_active, playback_track_id,
             music_dominance, emotion_correction,
+            analysis_stream="raw" if analysis is self.source else "clean",
         )
 
     def _publish(
         self, wall, loudness, activity, measured, speech_ratio, valence,
         arousal, confidence, staleness, hc_bucket, hc_confidence,
         hc_staleness, energy, now, playback_active, playback_track_id,
-        music_dominance, emotion_correction,
+        music_dominance, emotion_correction, analysis_stream="raw",
     ) -> RoomState:
         mood = None
         if (
@@ -405,4 +457,5 @@ class Engine:
                 None if music_dominance is None else round(music_dominance, 3)
             ),
             emotion_correction=emotion_correction,
+            analysis_stream=analysis_stream,
         )

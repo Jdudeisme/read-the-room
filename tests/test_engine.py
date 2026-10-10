@@ -98,6 +98,7 @@ class FakeEmotion:
         self.reading: EmotionReading | None = None
         self.reference: tuple[str, float, float] | None = None
         self.submits: list[float] = []
+        self.windows: list = []
         self.reference_submits: list[str] = []
 
     def start(self) -> None:
@@ -108,6 +109,7 @@ class FakeEmotion:
 
     def submit(self, window, speech_ratio, now) -> None:
         self.submits.append(speech_ratio)
+        self.windows.append(window)
 
     def submit_reference(self, window, track_id, now) -> None:
         self.reference_submits.append(track_id)
@@ -166,13 +168,14 @@ def _signal(high_share: float, seconds: float, amp: float = 0.1) -> np.ndarray:
 
 
 class Rig:
-    def __init__(self, consumers=(), **overrides):
-        self.config = dataclasses.replace(
-            Config(), music_signatures_path=None, **overrides
-        )
+    def __init__(self, consumers=(), clean=None, **overrides):
+        overrides.setdefault("music_signatures_path", None)
+        self.config = dataclasses.replace(Config(), **overrides)
         self.source = FakeSource()
         self.playback = FakePlayback()
-        self.engine = Engine(self.source, self.config, list(consumers), self.playback)
+        self.engine = Engine(
+            self.source, self.config, list(consumers), self.playback, clean_source=clean
+        )
         self.vad = self.engine.vad = FakeVad()
         self.emotion = self.engine.emotion = FakeEmotion()
         self.headcount = self.engine.headcount = FakeHeadcount()
@@ -665,3 +668,83 @@ def test_reference_is_off_by_default(monkeypatch):
     assert Config().playback_reference_enabled is False
     monkeypatch.setenv("RTR_PLAYBACK_REFERENCE_ENABLED", "1")
     assert Config.from_env().playback_reference_enabled is True
+
+
+# -- M12-02 step 4: analysing the clean stream -------------------------------------
+
+
+class _FakeClean:
+    """A clean stream: its own ring, at half the raw amplitude."""
+
+    def __init__(self, status="running"):
+        self.ring = RingBuffer(int(30 * SR))
+        self.status = status
+        self.error = None
+        self.device_name = "fake (playback cancelled)"
+        self.stops = 0
+
+    def start(self):
+        pass
+
+    def stop(self):
+        self.stops += 1
+
+
+def _feed_both(rig, clean, dt=2.0):
+    """Advance one tick with the clean ring carrying half the raw signal."""
+    rig.now += dt
+    x = _signal(rig.high, dt, rig.amp)
+    rig.source.ring.write(x)
+    clean.ring.write(0.5 * x)
+    return rig.engine._tick(now=rig.now, wall=1.79e9 + rig.now)
+
+
+def test_clean_stream_feeds_certification_emotion_and_headcount_not_dsp():
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    clean.ring.write(0.5 * _signal(0.0, rig.config.window_s, rig.amp))
+    rig.vad.ratio = 0.6
+    raw_only = Rig()
+    raw_only.vad.ratio = 0.6
+    state = _feed_both(rig, clean)
+    ref_state = raw_only.tick(ratio=0.6)
+    assert state.analysis_stream == "clean" and ref_state.analysis_stream == "raw"
+    # VAD read the clean ring (same sample counts, different ring)...
+    assert rig.vad.fed[-1] == raw_only.vad.fed[-1]
+    # ...emotion got the clean window (half amplitude)...
+    w_clean, w_raw = rig.emotion.windows[-1], raw_only.emotion.windows[-1]
+    assert np.allclose(w_clean, 0.5 * w_raw)
+    # ...but loudness is the raw signal's (the DSP heartbeat stays raw).
+    assert state.loudness_dbfs == ref_state.loudness_dbfs
+
+
+def test_clean_path_learns_its_own_signatures_file(tmp_path):
+    cfg_path = str(tmp_path / "sigs.json")
+    clean = _FakeClean()
+    eng = Engine(FakeSource(), dataclasses.replace(Config(), music_signatures_path=cfg_path), [], clean_source=clean)
+    raw = Engine(FakeSource(), dataclasses.replace(Config(), music_signatures_path=cfg_path), [])
+    assert str(eng._signatures.path).endswith("sigs.clean.json")
+    assert str(raw._signatures.path).endswith("sigs.json")
+
+
+def test_failed_clean_stream_falls_back_to_raw_with_raw_signatures(tmp_path):
+    clean = _FakeClean()
+    rig = Rig(clean=clean, music_signatures_path=str(tmp_path / "sigs.json"))
+    clean.ring.write(0.5 * _signal(0.0, rig.config.window_s, rig.amp))
+    assert _feed_both(rig, clean).analysis_stream == "clean"
+    clean.status, clean.error = "failed", "boom"
+    state = _feed_both(rig, clean)
+    assert state.analysis_stream == "raw"
+    assert rig.engine.clean is None and clean.stops == 1
+    assert str(rig.engine._signatures.path).endswith("sigs.json")
+    assert rig.engine._music_aware._signatures is rig.engine._signatures
+
+
+def test_no_reference_means_no_cancellation():
+    collect = _Collect()
+    clean = _FakeClean()
+    rig = Rig(consumers=[collect], clean=clean, hop_s=0.01)
+    rig.engine.reference = _FakeReference(fail=True)
+    rig.engine.run(max_ticks=2)
+    assert rig.engine.clean is None
+    assert {s.analysis_stream for s in collect.states} == {"raw"}

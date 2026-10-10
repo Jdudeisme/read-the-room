@@ -143,6 +143,13 @@ class RoomState:
     emotion_music_dominance: float | None = None
     emotion_correction: dict | None = None
 
+    # Playback cancellation (M12-02): the mic stream this frame's
+    # certification, emotion and headcount read. "raw", or "clean" (RTR's
+    # own playback cancelled; sensing/audio.py CleanSource). Loudness,
+    # activity, spectral balance and dominance are always raw. Additive: a
+    # frame without it is a raw frame.
+    analysis_stream: str = "raw"
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["headcount_bucket"] = self.headcount_bucket.value if self.headcount_bucket else None

@@ -143,3 +143,51 @@ def test_first_lock_waits_for_enough_audio_and_has_no_bad_transient():
     a = int(first * SR)
     assert _erle_db(mic, res.clean, a, a + 2 * SR) > -1.0
 
+
+
+# -- CleanSource: the live plumbing equals the measured offline path ----------------
+
+from sensing.audio import CleanSource, RingBuffer  # noqa: E402
+
+
+class _RingOnly:
+    def __init__(self, seconds):
+        self.sample_rate = SR
+        self.device_name = "fake"
+        self.ring = RingBuffer(int(seconds * SR))
+
+
+def test_clean_source_matches_offline_cancel_bit_for_bit():
+    ref = _music(20, seed=11)
+    mic = _echo(ref, _room(), 800) + 0.002 * np.random.default_rng(12).standard_normal(ref.size).astype(np.float32)
+    m, r = _RingOnly(25), _RingOnly(25)
+    cs = CleanSource(m, r, 25.0)
+    chunk = 480  # 30 ms callbacks, both streams in lockstep
+    m.ring.write(mic[:chunk])
+    r.ring.write(ref[:chunk])
+    assert cs.align()
+    for i in range(chunk, mic.size - chunk + 1, chunk):
+        m.ring.write(mic[i : i + chunk])
+        r.ring.write(ref[i : i + chunk])
+        cs.pump()
+    got = cs.ring.read_range(0, cs.ring.total_written)
+    want = aec.cancel(mic[chunk:], ref[chunk:]).clean[: got.size]
+    assert got.size > 15 * SR
+    assert np.array_equal(got, want)
+
+
+def test_clean_source_passes_silence_through_and_resyncs_when_behind():
+    m, r = _RingOnly(10), _RingOnly(10)
+    cs = CleanSource(m, r, 10.0, max_behind_s=0.5)
+    speech = (0.05 * np.random.default_rng(13).standard_normal(4 * SR)).astype(np.float32)
+    m.ring.write(speech[:480])
+    r.ring.write(np.zeros(480, np.float32))
+    assert cs.align()
+    m.ring.write(speech[480 : 2 * SR])  # 1.97 s arrive at once: > 0.5 s behind
+    r.ring.write(np.zeros(2 * SR - 480, np.float32))
+    assert cs.pump() == 0 and cs.resyncs == 1  # jumped to the newest audio
+    m.ring.write(speech[2 * SR :])
+    r.ring.write(np.zeros(2 * SR, np.float32))
+    cs.pump()
+    n = cs.ring.total_written
+    assert np.array_equal(cs.ring.read_range(0, n), speech[2 * SR : 2 * SR + n])  # bit-identical
