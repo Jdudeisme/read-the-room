@@ -72,6 +72,7 @@ def test_tracker_finds_the_true_lag(lag):
     ref = _music(10)
     mic = _echo(ref, _room(), lag) + 0.002 * np.random.default_rng(5).standard_normal(ref.size).astype(np.float32)
     t = aec.DelayTracker()
+    assert t.update(mic, ref) is False  # the first lock is confirmed, not taken
     assert t.update(mic, ref) is True
     # within 10 ms of the room response: well inside the filter's 32 ms pre-delay
     assert abs(t.lag - lag) <= int(0.010 * SR)
@@ -97,21 +98,29 @@ def test_relocks_after_an_alignment_step_and_recovers():
     assert any(12.0 <= t <= 22.0 for t in res.relocks)
     assert abs(res.delays[-1][1] - 1200) <= int(0.010 * SR)
     assert _erle_db(mic, res.clean, 28 * SR, 32 * SR) > 15.0
+    # The learned path survives the slip (robustness pass): the re-lock keeps
+    # or shifts the filter and cancellation doesn't dip. Before that pass,
+    # ERLE fell back to ~0 dB at every re-lock.
+    assert res.relock_choices[-1] in ("keep", "shift")
+    r = int(res.relocks[-1] * SR)
+    assert _erle_db(mic, res.clean, r, r + 2 * SR) > 15.0
 
 
 def test_double_talk_keeps_the_speech():
-    ref = _music(16, seed=8)
+    # The first lock is confirmed at ~8 s (MIN_FIRST_LOCK_S + one 2 s
+    # update), so the speech starts after the filter has settled.
+    ref = _music(20, seed=8)
     echo = _echo(ref, _room(), 800)
     rng = np.random.default_rng(9)
     speech = np.zeros_like(ref)
-    a, b = 8 * SR, 12 * SR
+    a, b = 12 * SR, 16 * SR
     # 'speech': louder than the echo, uncorrelated with the reference
     speech[a:b] = (0.08 * rng.standard_normal(b - a) * np.abs(np.sin(2 * np.pi * 4 * np.arange(b - a) / SR))).astype(np.float32)
     res = aec.cancel(echo + speech, ref)
     kept = np.corrcoef(res.clean[a:b], speech[a:b])[0, 1]
     assert kept > 0.95
     assert res.divergence_resets == 0
-    assert _erle_db(echo, res.clean - speech, 13 * SR, 16 * SR) > 15.0  # still cancelling after
+    assert _erle_db(echo, res.clean - speech, 17 * SR, 20 * SR) > 15.0  # still cancelling after
 
 
 def test_divergence_guard_resets():
@@ -122,3 +131,15 @@ def test_divergence_guard_resets():
     for i in range(aec.DIVERGE_BLOCKS + 1):
         f.process(d + 1e-3, ref[i * aec.BLOCK : (i + 1) * aec.BLOCK])
     assert f.divergence_resets >= 1
+
+
+def test_first_lock_waits_for_enough_audio_and_has_no_bad_transient():
+    ref = _music(14)
+    mic = _echo(ref, _room(), 800)
+    res = aec.cancel(mic, ref)
+    first = res.relocks[0]
+    assert first >= aec.MIN_FIRST_LOCK_S
+    # Seeding the per-bin power from the history: no worse-than-input start.
+    a = int(first * SR)
+    assert _erle_db(mic, res.clean, a, a + 2 * SR) > -1.0
+

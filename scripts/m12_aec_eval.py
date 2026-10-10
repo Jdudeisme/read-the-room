@@ -138,6 +138,8 @@ def evaluate(prefix: str, takes: list[str], save_clean: Path | None) -> list[dic
             "cpu": round(cpu, 3),
             "relocks": res.relocks,
             "divergence_resets": res.divergence_resets,
+            "rollbacks": res.rollbacks,
+            "relock_choices": res.relock_choices,
             "lag_ms": None if res.delays[-1][1] is None else round(1000 * res.delays[-1][1] / SR, 1),
             "lock_coh": res.delays[-1][2],
             "echo_tail_ms": echo_tail_ms(res.impulse_response),

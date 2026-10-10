@@ -84,6 +84,25 @@ RELOCK_MARGIN = 0.1
 RELOCK_CONFIRMATIONS = 2
 # Below this median coherence, the "lag" is noise: hold, don't lock.
 MIN_LOCK_COHERENCE = 0.3
+# The first lock waits for this much audio and is confirmed like a re-lock.
+# On 2026-10-09, T1-MO32 locked at 2 s on its quiet intro onto a false
+# -173 ms (true -109 ms) and needed ~36 s and three re-locks to recover.
+MIN_FIRST_LOCK_S = 6.0
+# Robustness pass (2026-10-09, same evening): the 15-30 ms alignment steps
+# are the reference stream slipping. The room's echo path is unchanged, so
+# on a re-lock the filter is re-aligned and KEPT if it was helping (recent
+# ERLE above this), and reset only if it wasn't (e.g. correcting a bad
+# lock). A per-window GCC check confirmed T3-MX66's six re-locks were real
+# slips (-186 -> -119 ms), not flapping.
+KEEP_FILTER_MIN_ERLE_DB = 1.0
+# Recent-ERLE smoothing per block (~0.3 s), and the last-good snapshot the
+# divergence guard rolls back to (taken at most every SNAPSHOT_BLOCKS, ~1 s,
+# while recent ERLE is above KEEP_FILTER_MIN_ERLE_DB).
+ERLE_SMOOTH = 0.95
+SNAPSHOT_BLOCKS = 64
+# At a re-lock, candidate filters are scored on this much recent audio
+# (32 blocks = 0.5 s).
+RELOCK_TEST_BLOCKS = 32
 # The tracked lag lands within a few ms of the impulse response's main
 # energy, not exactly on its first tap: PHAT doesn't pick the largest tap,
 # and coherence barely changes over a few ms. Early reflections and the
@@ -182,8 +201,14 @@ class DelayTracker:
         if best_coh < MIN_LOCK_COHERENCE:
             return False
         if self.lag is None:
-            self.lag, self.coherence = best, best_coh
-            return True
+            if mic_window.size < int(MIN_FIRST_LOCK_S * SR):
+                return False
+            if self._pending is not None and abs(best - self._pending) <= int(0.002 * SR):
+                self.lag, self.coherence = best, best_coh
+                self._pending, self._pending_count = None, 0
+                return True
+            self._pending, self._pending_count = best, 1
+            return False
         if abs(best - self.lag) <= int(0.002 * SR) or best_coh < self.coherence + RELOCK_MARGIN:
             self._pending, self._pending_count = None, 0
             return False
@@ -223,6 +248,82 @@ class MdfFilter:
         self._sdx = np.zeros(self.bins, dtype=np.complex128)
         self._diverging = 0
         self.divergence_resets = getattr(self, "divergence_resets", 0)
+        self.rollbacks = getattr(self, "rollbacks", 0)
+        self._pd = 0.0
+        self._pe = 0.0
+        self._good: np.ndarray | None = None
+        self._good_peak: int | None = None  # echo-peak tap of the last good filter
+        self._since_snapshot = 0
+
+    @property
+    def recent_erle_db(self) -> float:
+        if self._pd <= 0 or self._pe <= 0:
+            return 0.0
+        return float(10 * np.log10(self._pd / self._pe))
+
+    def _peak(self) -> int:
+        """Tap index of the learned echo's main energy (32-tap smoothed)."""
+        ir = self.impulse_response()
+        env = np.convolve(ir**2, np.ones(32), mode="same")
+        return int(np.argmax(env))
+
+    def _shift(self, taps: int) -> None:
+        """Move the learned impulse response by `taps` (zero-filled)."""
+        ir = self.impulse_response()
+        out = np.zeros_like(ir)
+        if taps >= 0:
+            out[taps:] = ir[: ir.size - taps]
+        else:
+            out[: ir.size + taps] = ir[-taps:]
+        B = self.B
+        self.W = np.array([
+            np.fft.rfft(np.concatenate((out[p * B : (p + 1) * B], np.zeros(B))))
+            for p in range(self.P)
+        ])
+
+    def realign(self, ref_blocks: list[np.ndarray], keep: bool) -> None:
+        """After a re-lock: rebuild the reference history from blocks taken
+        at the new alignment (oldest first), keeping the learned path if
+        `keep`, else starting over.
+
+        The caller decides what to keep (see `cancel`): a step smaller than
+        the filter span is partly absorbed by adaptation before the tracker
+        re-locks, so neither "keep" nor "shift" is right a priori."""
+        if not keep:
+            self.reset()
+        X = np.zeros_like(self.X)
+        prev = np.zeros(self.B)
+        spectra = []
+        for blk in ref_blocks:
+            spectra.append(np.fft.rfft(np.concatenate((prev, blk))))
+            prev = np.asarray(blk, dtype=np.float64)
+        for i, spec in enumerate(reversed(spectra[-self.P :])):
+            X[i] = spec
+        self.X = X
+        self._prev_ref = prev
+        # Seed the per-bin power from the history: starting from zero makes the
+        # first normalized steps huge (measured: -12 dB ERLE right after lock).
+        self._pxx = np.mean(np.abs(X) ** 2, axis=0)
+
+    def predict_erle_db(self, W: np.ndarray, ref_blocks: list[np.ndarray], mic_blocks: list[np.ndarray]) -> float:
+        """ERLE that filter `W` would have achieved, without adapting, on
+        `mic_blocks` given aligned `ref_blocks` (PARTITIONS earlier blocks,
+        then one per mic block)."""
+        B, P = self.B, self.P
+        prev = np.zeros(B)
+        spectra = []
+        for blk in ref_blocks:
+            spectra.append(np.fft.rfft(np.concatenate((prev, blk))))
+            prev = np.asarray(blk, dtype=np.float64)
+        num = den = 0.0
+        for i, d in enumerate(mic_blocks):
+            j = P + i  # spectra index of the block aligned with this mic block
+            X = np.array(spectra[j - P + 1 : j + 1][::-1])
+            y = np.fft.irfft(np.sum(W * X, axis=0))[B:]
+            d = np.asarray(d, dtype=np.float64)
+            num += float(np.sum(d**2))
+            den += float(np.sum((d - y) ** 2))
+        return float(10 * np.log10((num + 1e-20) / (den + 1e-20)))
 
     def impulse_response(self) -> np.ndarray:
         """The filter as one time-domain impulse response, P*B taps."""
@@ -262,12 +363,27 @@ class MdfFilter:
         g = np.fft.irfft(G, axis=1)
         g[:, B:] = 0.0
         self.W += np.fft.rfft(g, axis=1)
-        # Divergence guard.
+        # Recent ERLE and the last-good snapshot.
+        b = ERLE_SMOOTH
+        self._pd = b * self._pd + (1 - b) * float(np.mean(d**2))
+        self._pe = b * self._pe + (1 - b) * float(np.mean(e**2))
+        self._since_snapshot += 1
+        if self._since_snapshot >= SNAPSHOT_BLOCKS and self.recent_erle_db > KEEP_FILTER_MIN_ERLE_DB:
+            self._good = self.W.copy()
+            self._good_peak = self._peak()
+            self._since_snapshot = 0
+        # Divergence guard: roll back to the last good filter if there is one.
         if np.mean(e**2) > DIVERGE_RATIO * np.mean(d**2) + 1e-20:
             self._diverging += 1
             if self._diverging >= DIVERGE_BLOCKS:
-                self.reset()
-                self.divergence_resets += 1
+                good = self._good
+                self._diverging = 0
+                if good is not None:
+                    self.W = good.copy()
+                    self.rollbacks += 1
+                else:
+                    self.reset()
+                    self.divergence_resets += 1
                 return mic_block.copy()
         else:
             self._diverging = 0
@@ -283,9 +399,49 @@ class CancelResult:
     delays: list[tuple[float, int | None, float]] = field(default_factory=list)  # (t_s, lag, coh)
     relocks: list[float] = field(default_factory=list)
     divergence_resets: int = 0
+    rollbacks: int = 0  # divergences recovered from a last-good snapshot
+    relock_choices: list[str] = field(default_factory=list)  # keep / shift / reset per re-lock
     # The converged filter as a time-domain impulse response (None if never
     # locked), for measuring the echo tail.
     impulse_response: np.ndarray | None = None
+
+
+def _ref_block(ref: np.ndarray, start: int, lag: int) -> np.ndarray:
+    """The reference block aligned to mic[start:start+BLOCK] (zeros outside)."""
+    lo = start - (lag - PRE_DELAY)
+    block = np.zeros(BLOCK, dtype=np.float32)
+    s0, s1 = max(lo, 0), min(lo + BLOCK, ref.size)
+    if s1 > s0:
+        block[s0 - lo : s1 - lo] = ref[s0:s1]
+    return block
+
+
+def _choose_on_relock(filt, mic, ref, start, old_lag, new_lag) -> str:
+    """At a re-lock, test what to do with the learned filter on the last
+    RELOCK_TEST_BLOCKS of real audio, under the NEW alignment, and pick
+    whichever would have cancelled best: keep it, shift it by the lag
+    change, or start over. A step smaller than the span is partly absorbed
+    before the re-lock, so neither keep nor shift is right a priori (the
+    re-centring heuristic tried first failed on synthetic steps)."""
+    if old_lag is None or not np.any(filt.W):
+        return "reset"
+    n = RELOCK_TEST_BLOCKS
+    first = start - n * BLOCK
+    if first - PARTITIONS * BLOCK < 0:
+        return "reset"
+    refs = [_ref_block(ref, first - k * BLOCK, new_lag) for k in range(PARTITIONS, 0, -1)]
+    refs += [_ref_block(ref, first + i * BLOCK, new_lag) for i in range(n)]
+    mics = [mic[first + i * BLOCK : first + (i + 1) * BLOCK] for i in range(n)]
+    kept = filt.W
+    probe = MdfFilter(filt.B, filt.P, filt.mu)
+    probe.W = kept.copy()
+    probe._shift(-(new_lag - old_lag))
+    scores = {
+        "keep": filt.predict_erle_db(kept, refs, mics),
+        "shift": filt.predict_erle_db(probe.W, refs, mics),
+    }
+    best = max(scores, key=scores.get)
+    return best if scores[best] > KEEP_FILTER_MIN_ERLE_DB else "reset"
 
 
 def cancel(mic: np.ndarray, ref: np.ndarray) -> CancelResult:
@@ -297,6 +453,7 @@ def cancel(mic: np.ndarray, ref: np.ndarray) -> CancelResult:
     ref = np.asarray(ref, dtype=np.float32)
     clean = mic.copy()
     tracker, filt = DelayTracker(), MdfFilter()
+    prev_lag: int | None = None
     res = CancelResult(clean=clean)
     win, every = int(TRACK_WINDOW_S * SR), int(TRACK_EVERY_S * SR)
     next_track = every
@@ -307,18 +464,20 @@ def cancel(mic: np.ndarray, ref: np.ndarray) -> CancelResult:
             changed = tracker.update(mic[a:end], ref[a:end])
             res.delays.append((end / SR, tracker.lag, round(tracker.coherence, 3)))
             if changed:
-                filt.reset()
+                choice = _choose_on_relock(filt, mic, ref, start, prev_lag, tracker.lag)
+                history = [_ref_block(ref, start - k * BLOCK, tracker.lag) for k in range(PARTITIONS, 0, -1)]
+                filt.realign(history, keep=choice != "reset")
+                if choice == "shift":
+                    filt._shift(-(tracker.lag - prev_lag))
                 res.relocks.append(end / SR)
+                res.relock_choices.append(choice)
+            prev_lag = tracker.lag
             next_track += every
         if tracker.lag is None:
             continue
-        lo = start - (tracker.lag - PRE_DELAY)
-        block = np.zeros(BLOCK, dtype=np.float32)
-        s0, s1 = max(lo, 0), min(lo + BLOCK, ref.size)
-        if s1 > s0:
-            block[s0 - lo : s1 - lo] = ref[s0:s1]
-        clean[start:end] = filt.process(mic[start:end], block)
+        clean[start:end] = filt.process(mic[start:end], _ref_block(ref, start, tracker.lag))
     res.divergence_resets = filt.divergence_resets
+    res.rollbacks = filt.rollbacks
     if tracker.lag is not None:
         res.impulse_response = filt.impulse_response()
     return res
