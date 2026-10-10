@@ -1,0 +1,324 @@
+"""Playback cancellation (M12-02): subtract RTR's own music from the mic.
+
+RTR plays music into the room it measures. `ReferenceSource` (M12-01c)
+captures exactly what the speakers are fed, so the music's part of the mic
+signal can be *estimated and subtracted* instead of guessed at. This module
+is that estimator. It is pure numpy: no model, no I/O, no threads. It is
+built and measured offline first (docs/M12-02-PLAN.md, approved
+2026-10-09). Nothing in the engine uses it yet; that switch is a separate,
+reviewed step.
+
+**What the 2026-10-09 JPad measurements decided** (FIELD-NOTES, evening;
+the plan's table):
+
+- The reference is post-Atmos and pre-volume, so the filter learns
+  speaker + room + the unknown volume gain, and re-learns when the volume
+  moves.
+- Mic and speaker share one clock, so there is no drift compensation. But
+  the bulk alignment **steps** by 15–30 ms in some takes, and a single
+  GCC-PHAT peak can lock onto a **false** lag on rhythmic music (T1: −175
+  vs a true −110 ms). So `DelayTracker` scores candidate lags by
+  coherence over seconds, and re-locks only on a clear, repeated win.
+- The linear ceiling is **~7–11 dB** ERLE on this path (coherence
+  0.66–0.83). The canceller narrows the problem; the residual is M12-03's.
+
+**Algorithm.** A partitioned-block frequency-domain NLMS (the "MDF"
+family, as in Speex): overlap-save, block `BLOCK` samples, `PARTITIONS`
+blocks of filter span, gradient-constrained. Adaptation is **coherence
+controlled** per frequency bin: a bin adapts at full rate while the mic
+is coherent with the reference (the echo dominates), and barely at all
+while it isn't (people talking over the music, "double talk", where
+cancellers classically diverge). A divergence guard resets the filter if
+its output grows louder than its input.
+
+**Silence passes through bit-identical.** With an all-zero reference
+history (nothing playing; the loopback delivers exact zeros), the echo
+estimate is exactly zero and the output *is* the input. That keeps
+"shadow is first-class" true at the sample level (tests pin it).
+
+Constants below are first-build choices, each with its reason. The
+M12-02 evaluation (`scripts/m12_aec_eval.py`) measures them. They are
+not calibration values yet, and change only with that evidence.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import numpy as np
+
+SR = 16_000
+# 16 ms blocks: one Silero chunk is 32 ms, so cancellation adds at most half
+# a VAD chunk of latency.
+BLOCK = 256
+# Filter span 13 x 16 ms = 208 ms. A small room's reverberant tail is
+# ~0.2-0.4 s; the evaluation's fitted-impulse-response "echo tail" is the
+# measurement that confirms or moves this.
+PARTITIONS = 13
+# NLMS step (normalized, 0 < MU <= 1). 0.5 is a conventional fast-but-
+# stable choice for partitioned FDAF; the evaluation measures convergence.
+MU = 0.5
+# Per-bin power smoothing per block (16 ms): tau = -16 ms / ln(0.9), about
+# 150 ms.
+POWER_SMOOTH = 0.9
+# Regularization floor on the per-bin reference power, relative to its mean:
+# keeps near-empty bins from taking huge steps.
+REG_FRACTION = 1e-3
+# Divergence guard: reset when output power exceeds input power by this
+# ratio, sustained over DIVERGE_BLOCKS (~0.5 s).
+DIVERGE_RATIO = 2.0
+DIVERGE_BLOCKS = 32
+
+# Delay tracking. Search +/-600 ms: the 2026-10-09 file-relative lags spanned
+# -74..-217 ms. In live use the true acoustic lag is tens of ms.
+MAX_LAG_S = 0.6
+TRACK_WINDOW_S = 10.0  # GCC candidates come from the last 10 s
+# Candidates are scored by coherence over only the last 5 s: half the FFT
+# work, and a step is won by the new lag in about half the time.
+SCORE_WINDOW_S = 5.0
+TRACK_EVERY_S = 2.0  # one estimate per engine hop
+GCC_CANDIDATES = 5  # top GCC-PHAT peaks re-scored by coherence
+# Re-lock only when a different lag beats the current one by this much
+# coherence on two consecutive estimates (hysteresis against false peaks).
+RELOCK_MARGIN = 0.1
+RELOCK_CONFIRMATIONS = 2
+# Below this median coherence, the "lag" is noise: hold, don't lock.
+MIN_LOCK_COHERENCE = 0.3
+# The tracked lag lands within a few ms of the impulse response's main
+# energy, not exactly on its first tap: PHAT doesn't pick the largest tap,
+# and coherence barely changes over a few ms. Early reflections and the
+# speaker's own response can also sit just before it. A causal filter can't
+# model taps ahead of its window, so the window starts this far before the
+# tracked lag: 2 blocks (32 ms) of the 208 ms span.
+PRE_DELAY = 2 * BLOCK
+_COH_NPERSEG = 1024
+_COH_BAND = (200.0, 4000.0)
+
+
+# -- delay estimation ------------------------------------------------------------
+
+
+def coherence(x: np.ndarray, y: np.ndarray, nperseg: int = _COH_NPERSEG) -> float:
+    """Median magnitude-squared coherence of x and y over `_COH_BAND`
+    (Welch, Hann, 50 % overlap). 1 = y is a linear function of x."""
+    n = min(x.size, y.size)
+    if n < 2 * nperseg:
+        return 0.0
+    win = np.hanning(nperseg)
+    step = nperseg // 2
+    starts = np.arange(0, n - nperseg + 1, step)
+    idx = starts[:, None] + np.arange(nperseg)[None, :]
+    X = np.fft.rfft(win * x[idx], axis=1)  # one batched FFT per signal
+    Y = np.fft.rfft(win * y[idx], axis=1)
+    sxy = np.mean(X * np.conj(Y), axis=0)
+    sxx = np.mean(np.abs(X) ** 2, axis=0)
+    syy = np.mean(np.abs(Y) ** 2, axis=0)
+    c = np.abs(sxy) ** 2 / (sxx * syy + 1e-30)
+    f = np.fft.rfftfreq(nperseg, 1.0 / SR)
+    band = (f >= _COH_BAND[0]) & (f < _COH_BAND[1])
+    return float(np.median(c[band]))
+
+
+def gcc_candidates(mic: np.ndarray, ref: np.ndarray, max_lag: int, k: int) -> list[int]:
+    """The `k` strongest GCC-PHAT peaks, as lags L with mic[n] ~ ref[n - L].
+    Peaks within 2 ms of a stronger one are skipped (same peak)."""
+    n = 1 << int(np.ceil(np.log2(mic.size + ref.size)))
+    cross = np.fft.rfft(mic, n) * np.conj(np.fft.rfft(ref, n))
+    cross /= np.abs(cross) + 1e-12
+    cc = np.fft.irfft(cross, n)
+    cc = np.abs(np.concatenate((cc[-max_lag:], cc[: max_lag + 1])))
+    lags = np.arange(-max_lag, max_lag + 1)
+    out: list[int] = []
+    sep = int(0.002 * SR)
+    for i in np.argsort(-cc):
+        if all(abs(lags[i] - j) > sep for j in out):
+            out.append(int(lags[i]))
+        if len(out) == k:
+            break
+    return out
+
+
+def score_lag(mic: np.ndarray, ref: np.ndarray, lag: int) -> float:
+    """Coherence of mic with ref shifted by `lag` (mic[n] ~ ref[n - lag]),
+    over the overlap."""
+    if lag >= 0:
+        m, r = mic[lag:], ref[: ref.size - lag]
+    else:
+        m, r = mic[: mic.size + lag], ref[-lag:]
+    n = min(m.size, r.size)
+    return coherence(r[:n], m[:n])
+
+
+@dataclass
+class DelayTracker:
+    """Bulk mic-vs-reference delay, re-estimated every TRACK_EVERY_S over the
+    last TRACK_WINDOW_S. Candidates come from GCC-PHAT and are scored by
+    coherence, so a beat-period false peak loses to the true lag. A new lag
+    replaces the current one only after RELOCK_CONFIRMATIONS consecutive
+    clear wins."""
+
+    lag: int | None = None
+    coherence: float = 0.0
+    _pending: int | None = None
+    _pending_count: int = 0
+
+    def update(self, mic_window: np.ndarray, ref_window: np.ndarray) -> bool:
+        """Returns True if the lag changed (the filter must re-converge)."""
+        if not np.any(ref_window):
+            return False  # nothing playing: hold
+        max_lag = int(MAX_LAG_S * SR)
+        tail = int(SCORE_WINDOW_S * SR)
+        m_tail, r_tail = mic_window[-tail:], ref_window[-tail:]
+        # Candidates from the whole window (stable) and from its newest part
+        # (a fresh step shows there first).
+        cands = list(dict.fromkeys(
+            gcc_candidates(mic_window, ref_window, max_lag, GCC_CANDIDATES)
+            + gcc_candidates(m_tail, r_tail, max_lag, GCC_CANDIDATES)
+        ))
+        scored = sorted(((score_lag(m_tail, r_tail, c), c) for c in cands), reverse=True)
+        best_coh, best = scored[0]
+        if self.lag is not None:
+            self.coherence = score_lag(m_tail, r_tail, self.lag)
+        if best_coh < MIN_LOCK_COHERENCE:
+            return False
+        if self.lag is None:
+            self.lag, self.coherence = best, best_coh
+            return True
+        if abs(best - self.lag) <= int(0.002 * SR) or best_coh < self.coherence + RELOCK_MARGIN:
+            self._pending, self._pending_count = None, 0
+            return False
+        if self._pending is not None and abs(best - self._pending) <= int(0.002 * SR):
+            self._pending_count += 1
+        else:
+            self._pending, self._pending_count = best, 1
+        if self._pending_count >= RELOCK_CONFIRMATIONS:
+            self.lag, self.coherence = best, best_coh
+            self._pending, self._pending_count = None, 0
+            return True
+        return False
+
+
+# -- the adaptive filter ---------------------------------------------------------
+
+
+class MdfFilter:
+    """Partitioned-block frequency-domain NLMS with per-bin coherence-
+    controlled step and a divergence guard. Feed aligned blocks: `ref_block`
+    is the reference already shifted by the bulk delay."""
+
+    def __init__(self, block: int = BLOCK, partitions: int = PARTITIONS, mu: float = MU):
+        self.B, self.P, self.mu = block, partitions, mu
+        self.bins = block + 1
+        self.reset()
+
+    def reset(self) -> None:
+        """Forget the learned path (after a delay re-lock)."""
+        self.W = np.zeros((self.P, self.bins), dtype=np.complex128)
+        self.X = np.zeros((self.P, self.bins), dtype=np.complex128)
+        self._prev_ref = np.zeros(self.B)
+        self._pxx = np.zeros(self.bins)
+        self._sdd = np.zeros(self.bins)
+        self._syy = np.zeros(self.bins)
+        self._sdy = np.zeros(self.bins, dtype=np.complex128)
+        self._sdx = np.zeros(self.bins, dtype=np.complex128)
+        self._diverging = 0
+        self.divergence_resets = getattr(self, "divergence_resets", 0)
+
+    def impulse_response(self) -> np.ndarray:
+        """The filter as one time-domain impulse response, P*B taps."""
+        return np.concatenate([np.fft.irfft(w)[: self.B] for w in self.W])
+
+    def process(self, mic_block: np.ndarray, ref_block: np.ndarray) -> np.ndarray:
+        B = self.B
+        x2 = np.concatenate((self._prev_ref, ref_block))
+        self._prev_ref = ref_block.astype(np.float64, copy=True)
+        self.X = np.roll(self.X, 1, axis=0)
+        self.X[0] = np.fft.rfft(x2)
+        if not np.any(self.X):
+            return mic_block.copy()  # no playback in the filter span: exact pass-through
+        Y = np.sum(self.W * self.X, axis=0)
+        y = np.fft.irfft(Y)[B:]
+        d = mic_block.astype(np.float64)
+        e = d - y
+        # Per-bin statistics for the step size.
+        D = np.fft.rfft(np.concatenate((np.zeros(B), d)))
+        Yb = np.fft.rfft(np.concatenate((np.zeros(B), y)))
+        a = POWER_SMOOTH
+        self._pxx = a * self._pxx + (1 - a) * np.abs(self.X[0]) ** 2
+        self._sdd = a * self._sdd + (1 - a) * np.abs(D) ** 2
+        self._syy = a * self._syy + (1 - a) * np.abs(Yb) ** 2
+        self._sdy = a * self._sdy + (1 - a) * D * np.conj(Yb)
+        self._sdx = a * self._sdx + (1 - a) * D * np.conj(self.X[0])
+        coh_dy = np.abs(self._sdy) ** 2 / (self._sdd * self._syy + 1e-30)
+        coh_dx = np.abs(self._sdx) ** 2 / (self._sdd * self._pxx + 1e-30)
+        # Before the filter has learned anything, mic-vs-reference coherence
+        # is the only echo evidence; afterwards, mic-vs-echo-estimate is.
+        rate = np.clip(np.maximum(coh_dy, coh_dx), 0.0, 1.0)
+        E = np.fft.rfft(np.concatenate((np.zeros(B), e)))
+        reg = REG_FRACTION * (np.mean(self._pxx) + 1e-12)
+        step = self.mu * rate / (self._pxx * self.P + reg)
+        G = np.conj(self.X) * (step * E)
+        # Gradient constraint (linear, not circular, convolution).
+        g = np.fft.irfft(G, axis=1)
+        g[:, B:] = 0.0
+        self.W += np.fft.rfft(g, axis=1)
+        # Divergence guard.
+        if np.mean(e**2) > DIVERGE_RATIO * np.mean(d**2) + 1e-20:
+            self._diverging += 1
+            if self._diverging >= DIVERGE_BLOCKS:
+                self.reset()
+                self.divergence_resets += 1
+                return mic_block.copy()
+        else:
+            self._diverging = 0
+        return e.astype(mic_block.dtype, copy=False)
+
+
+# -- offline whole-signal cancellation -------------------------------------------
+
+
+@dataclass
+class CancelResult:
+    clean: np.ndarray
+    delays: list[tuple[float, int | None, float]] = field(default_factory=list)  # (t_s, lag, coh)
+    relocks: list[float] = field(default_factory=list)
+    divergence_resets: int = 0
+    # The converged filter as a time-domain impulse response (None if never
+    # locked), for measuring the echo tail.
+    impulse_response: np.ndarray | None = None
+
+
+def cancel(mic: np.ndarray, ref: np.ndarray) -> CancelResult:
+    """Cancel `ref` out of `mic` (both at SR, same length or not), causally:
+    every decision at time t uses only audio up to t. Before the first lock,
+    output = input. `ref` indices are file-relative; lags may be negative
+    offline. The live `CleanSource` aligns ring positions instead."""
+    mic = np.asarray(mic, dtype=np.float32)
+    ref = np.asarray(ref, dtype=np.float32)
+    clean = mic.copy()
+    tracker, filt = DelayTracker(), MdfFilter()
+    res = CancelResult(clean=clean)
+    win, every = int(TRACK_WINDOW_S * SR), int(TRACK_EVERY_S * SR)
+    next_track = every
+    for start in range(0, mic.size - BLOCK + 1, BLOCK):
+        end = start + BLOCK
+        if end >= next_track:
+            a = max(0, end - win)
+            changed = tracker.update(mic[a:end], ref[a:end])
+            res.delays.append((end / SR, tracker.lag, round(tracker.coherence, 3)))
+            if changed:
+                filt.reset()
+                res.relocks.append(end / SR)
+            next_track += every
+        if tracker.lag is None:
+            continue
+        lo = start - (tracker.lag - PRE_DELAY)
+        block = np.zeros(BLOCK, dtype=np.float32)
+        s0, s1 = max(lo, 0), min(lo + BLOCK, ref.size)
+        if s1 > s0:
+            block[s0 - lo : s1 - lo] = ref[s0:s1]
+        clean[start:end] = filt.process(mic[start:end], block)
+    res.divergence_resets = filt.divergence_resets
+    if tracker.lag is not None:
+        res.impulse_response = filt.impulse_response()
+    return res

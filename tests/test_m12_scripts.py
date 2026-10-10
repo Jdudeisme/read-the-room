@@ -97,3 +97,21 @@ def test_transport_spans():
     on = _noise(1)
     ref = np.concatenate([on, np.zeros(ar.SR, np.float32), on])
     assert ar.transport(ref) == [(0.0, 1.0), (2.0, 3.0)]
+
+
+ev = _load("m12_aec_eval")
+
+
+def test_echo_tail_spans_the_energetic_part_of_an_impulse_response():
+    ir = np.zeros(1600)
+    ir[160:480] = 1.0  # energy only between 10 and 30 ms
+    assert ev.echo_tail_ms(ir) == pytest.approx(20.0, abs=0.2)
+    assert ev.echo_tail_ms(np.zeros(10)) is None
+
+
+def test_eligible_windows_counts_certified_5s_windows():
+    per_win, per_hop = int(5 * ev.SR / 512), int(2 * ev.SR / 512)
+    probs = np.zeros(per_win + 4 * per_hop)
+    probs[: per_win] = 0.9  # only the first window is mostly speech
+    assert ev.eligible_windows(probs) >= 1
+    assert ev.eligible_windows(np.zeros_like(probs)) == 0
