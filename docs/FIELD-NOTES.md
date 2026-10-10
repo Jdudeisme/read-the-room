@@ -61,6 +61,12 @@ CPU: 0.066–0.100 s per audio second on one core (7–10 % of real time).
    - T3-MX66 re-locked 9 times and ended on a wrong lag (−117 ms; that
      take's other estimates sat near −172 / −190). Under heavy double talk
      with alignment steps, coherence-scored candidates flap.
+     **Correction (same evening):** it didn't flap. An independent
+     per-window GCC check (10 s windows) shows that take's alignment
+     really slipped about six times, −186 → −119 ms. The tracker followed
+     correctly and ended at −117 ms against GCC's −119. The real cost was
+     that each re-lock reset the learned filter; the robustness pass
+     (`84567a1`) addresses that.
    - Divergence resets fired 1–4 times on most loud mix takes and on two
      music-only takes. The guard worked, but each reset costs
      re-convergence.
@@ -76,6 +82,24 @@ wasn't run with music). One room position. Eligibility counts
 certification, not correctness: "clean" isn't proven to certify only the
 founder, though ECAPA moving toward C1 says more of the certified audio
 is the founder's voice. No live run: the engine still reads raw.
+
+**Re-run after the robustness pass** (`84567a1`; `data/m12-replay/aec-eval-2.json`):
+
+| | first run | after the pass |
+|---|---|---|
+| divergence resets, all takes | 19 | **0** (8 rollbacks to the last good filter) |
+| re-lock action | always reset | chosen per re-lock by 0.5 s test: mostly **shift** (T3-MX66: 7 of 9) |
+| T3-MO32 eligible raw → clean | 62 → 0 | 62 → **0** |
+| T2-MX76 eligible raw → clean | 19 → 113 | 19 → **109** |
+| ECAPA to C1, clean, T3-MX66 / MX76 | 0.62 / 0.63 | **0.68 / 0.65** |
+| ERLE, music-only T1 / T2 / T3 | 7.3 / 6.8 / 4.2 dB | 7.3 / 7.0 / 4.3 dB |
+| controls | bit-identical | bit-identical |
+| CPU, s per audio s | 0.066–0.100 | 0.089–0.160 |
+
+ERLE barely moves, which confirms the 7–11 dB ceiling is JPad's path, not the
+tracker. T1-MX32 no longer locks: the confirmed first lock declines when the
+founder's voice dominates faint music, so that take passes through raw, as it
+already read fine. CPU rose. Profile it before gate (c).
 
 **Founder decisions (2026-10-09, after this entry):** all four below are approved, and the ReferenceSource diff (`1bd14e6`) is approved.
 
