@@ -73,6 +73,12 @@ class Config:
     # the capture layer resamples if the device can't open at 16 kHz.
     sample_rate: int = 16_000
     input_device: str | None = None
+    # M12-01c playback reference: capture what the laptop plays (WASAPI
+    # loopback) into its own ring beside the mic's. Off by default for
+    # privacy, not from a measurement: the loopback holds every sound the
+    # laptop plays (calls, notifications). Nothing consumes it before
+    # M12-02/03/06. See sensing/audio.py ReferenceSource.
+    playback_reference_enabled: bool = False
 
     # Rolling analysis window.
     window_s: float = 5.0
@@ -209,6 +215,9 @@ class Config:
         device = _env_str("RTR_INPUT_DEVICE", "") or None
         return cls(
             input_device=device,
+            playback_reference_enabled=_env_bool(
+                "RTR_PLAYBACK_REFERENCE_ENABLED", cls.playback_reference_enabled
+            ),
             window_s=_env_float("RTR_WINDOW_S", cls.window_s),
             hop_s=_env_float("RTR_HOP_S", cls.hop_s),
             emotion_enabled=_env_bool("RTR_EMOTION_ENABLED", cls.emotion_enabled),

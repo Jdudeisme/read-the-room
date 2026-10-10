@@ -13,6 +13,15 @@ import numpy as np
 # Rates to try if the device won't open at the analysis rate directly.
 _FALLBACK_RATES = (48_000, 44_100)
 
+# Playback reference (M12-01c). JPad's WASAPI speaker runs shared-mode at
+# 48 kHz (device listing, 2026-10-09), so the loopback is read at that rate
+# and resampled here. 20 ms blocks keep the reference ring as fresh as the
+# mic's: the 2026-10-09 self-tests returned every requested block in about
+# its own duration, plus at most ~25 ms.
+_REFERENCE_NATIVE_RATE = 48_000
+_REFERENCE_CHANNELS = 2
+_REFERENCE_BLOCK_S = 0.02
+
 
 class RingBuffer:
     """Single-writer single-reader circular float32 buffer.
@@ -235,6 +244,109 @@ class SynthSource:
             self.ring.write(block)
             t0 += block_s
             time.sleep(block_s)
+
+
+class ReferenceSource:
+    """M12-01c: the laptop's own playback, captured as a reference signal.
+
+    A WASAPI loopback of the default speaker, via `soundcard` (pinned,
+    Windows-only; sounddevice's bundled PortAudio exposes no loopback,
+    docs/M12-PROPOSAL.md decision D1). It is resampled to the analysis rate
+    into its own `RingBuffer`, beside the mic's, for the playback canceller
+    (M12-02), the certification gate (M12-03) and reference-based dominance
+    (M12-06). Nothing reads it yet.
+
+    Measured on JPad, 2026-10-09 (FIELD-NOTES, evening): the loopback is
+    tapped **after** Dolby Atmos and **before** the Windows volume slider.
+    Silence arrives as exact zeros, not a stall. Within a take, alignment
+    to the mic is steady to < 0.4 ms but can step by 15–30 ms, so
+    consumers must track alignment and never assume a fixed delay.
+
+    **Privacy.** The loopback is everything the laptop plays, calls and
+    notifications included. It lives only in this in-memory ring and is
+    never written to disk here. Off unless `RTR_PLAYBACK_REFERENCE_ENABLED=1`.
+
+    **Never blocks the heartbeat** (invariant 3): capture runs on its own
+    daemon thread (soundcard's COM calls stay on that thread); the engine
+    only reads the ring. `stop()` is idempotent (the M8-07 swap-under-lock
+    pattern) and joins with a bound, so a stalled loopback is abandoned,
+    never waited on. `recorder_factory` is the test seam: it returns
+    `(device_name, context_manager)`, where the manager yields an object
+    with `record(numframes) -> ndarray (frames, channels)`.
+    """
+
+    def __init__(
+        self,
+        sample_rate: int,
+        buffer_seconds: float,
+        recorder_factory=None,
+    ):
+        self.sample_rate = sample_rate
+        self.ring = RingBuffer(int(buffer_seconds * sample_rate))
+        self.device_name = ""
+        self.capture_rate = _REFERENCE_NATIVE_RATE
+        self.status = "stopped"  # stopped | running | failed
+        self.error: str | None = None
+        self.blocks = 0
+        self.last_block_at: float | None = None
+        self._factory = recorder_factory or _soundcard_loopback
+        self._block_frames = int(round(_REFERENCE_BLOCK_S * _REFERENCE_NATIVE_RATE))
+        self._resampler = Resampler(_REFERENCE_NATIVE_RATE, sample_rate)
+        self._stop = threading.Event()
+        self._ready = threading.Event()
+        self._stop_lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+
+    def start(self, timeout_s: float = 5.0) -> None:
+        """Open the loopback. Raises RuntimeError if it can't open within
+        `timeout_s`. Callers degrade without a reference; it is never
+        required for sensing."""
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name="reference-source"
+        )
+        self._thread.start()
+        if not self._ready.wait(timeout_s):
+            self.status, self.error = "failed", "loopback did not open in time"
+            self._stop.set()
+        if self.status == "failed":
+            raise RuntimeError(f"playback reference unavailable: {self.error}")
+
+    def stop(self) -> None:
+        self._stop.set()
+        with self._stop_lock:
+            thread, self._thread = self._thread, None
+        if thread is not None:
+            thread.join(timeout=2.0)
+        if self.status == "running":
+            self.status = "stopped"
+
+    def _run(self) -> None:
+        try:
+            name, manager = self._factory(_REFERENCE_NATIVE_RATE, _REFERENCE_CHANNELS)
+            self.device_name = name
+            with manager as rec:
+                self.status = "running"
+                self._ready.set()
+                while not self._stop.is_set():
+                    block = rec.record(numframes=self._block_frames)
+                    mono = np.asarray(block, dtype=np.float32).mean(axis=1)
+                    out = self._resampler.process(mono)
+                    if out.size:
+                        self.ring.write(out)
+                    self.blocks += 1
+                    self.last_block_at = time.monotonic()
+        except Exception as exc:
+            self.status, self.error = "failed", f"{type(exc).__name__}: {exc}"
+            self._ready.set()
+
+
+def _soundcard_loopback(rate: int, channels: int):
+    """The default speaker's WASAPI loopback (soundcard, Windows)."""
+    import soundcard as sc
+
+    speaker = sc.default_speaker()
+    loop = sc.get_microphone(id=str(speaker.name), include_loopback=True)
+    return loop.name, loop.recorder(samplerate=rate, channels=channels)
 
 
 def _resolve_device(device: str | None):

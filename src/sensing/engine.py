@@ -89,8 +89,14 @@ class Engine:
         config: Config,
         consumers: list[Consumer],
         playback_source: PlaybackStateSource | None = None,
+        reference_source=None,
     ):
         self.source = source
+        # M12-01c: the laptop's own playback (sensing/audio.py
+        # ReferenceSource), started and stopped with the mic. Optional:
+        # if it can't open, sensing runs exactly as without it (invariant
+        # 7). The tick does not read it yet.
+        self.reference = reference_source
         self.config = config
         self.consumers = list(consumers)
         self.playback_source = playback_source
@@ -191,6 +197,13 @@ class Engine:
             self.headcount.start()
         self.source.start()
         log.info("capturing from %r", self.source.device_name)
+        if self.reference is not None:
+            try:
+                self.reference.start()
+                log.info("playback reference from %r", self.reference.device_name)
+            except Exception:
+                log.exception("playback reference unavailable; continuing without it")
+                self.reference = None
         self._running = True
         ticks = 0
         next_tick = time.monotonic() + self.config.hop_s
@@ -222,6 +235,8 @@ class Engine:
             self._stopped = True
             self._running = False
             self.source.stop()
+            if self.reference is not None:
+                self.reference.stop()
             if self.emotion is not None:
                 self.emotion.stop()
             if self.headcount is not None:

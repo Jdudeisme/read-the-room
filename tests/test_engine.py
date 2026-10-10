@@ -622,3 +622,46 @@ def test_final_flush_waits_for_an_in_flight_tick():
     stopper.join(5)
     assert not stopper.is_alive()
     assert len(flushes) == 1
+
+
+# -- M12-01c: the playback reference's lifecycle ---------------------------------
+
+
+class _FakeReference:
+    def __init__(self, fail=False):
+        self.fail = fail
+        self.device_name = "Speakers (fake)"
+        self.starts = 0
+        self.stops = 0
+
+    def start(self):
+        self.starts += 1
+        if self.fail:
+            raise RuntimeError("playback reference unavailable: device busy")
+
+    def stop(self):
+        self.stops += 1
+
+
+def test_reference_starts_and_stops_with_the_engine():
+    rig = Rig(hop_s=0.01)
+    ref = rig.engine.reference = _FakeReference()
+    rig.engine.run(max_ticks=2)
+    rig.engine.stop()  # a second stop (M8-07): still one reference stop
+    assert (ref.starts, ref.stops) == (1, 1)
+
+
+def test_reference_failure_never_stops_sensing():
+    collect = _Collect()
+    rig = Rig(consumers=[collect], hop_s=0.01)
+    rig.engine.reference = _FakeReference(fail=True)
+    rig.engine.run(max_ticks=3)
+    assert len(collect.states) == 3  # ticks ran, published as without it
+    assert rig.engine.reference is None
+
+
+def test_reference_is_off_by_default(monkeypatch):
+    monkeypatch.delenv("RTR_PLAYBACK_REFERENCE_ENABLED", raising=False)
+    assert Config().playback_reference_enabled is False
+    monkeypatch.setenv("RTR_PLAYBACK_REFERENCE_ENABLED", "1")
+    assert Config.from_env().playback_reference_enabled is True

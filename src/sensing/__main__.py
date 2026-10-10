@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import dataclasses
 
-    from .audio import MicSource, SynthSource
+    from .audio import MicSource, ReferenceSource, SynthSource
     from .config import Config
     from .consumers import ConsoleRenderer, JsonlWriter
     from .engine import Engine
@@ -75,8 +75,15 @@ def main(argv: list[str] | None = None) -> int:
         source = SynthSource(config.sample_rate, buffer_s)
     else:
         source = MicSource(config.sample_rate, buffer_s, config.input_device)
+    # M12-01c: off unless RTR_PLAYBACK_REFERENCE_ENABLED=1; never with the
+    # synthetic source, which has no playback to reference.
+    reference = (
+        ReferenceSource(config.sample_rate, buffer_s)
+        if config.playback_reference_enabled and args.source != "synth"
+        else None
+    )
 
-    engine = Engine(source, config, consumers=[])
+    engine = Engine(source, config, consumers=[], reference_source=reference)
     consumers: list = [ConsoleRenderer(engine)]
     jsonl = None
     if args.jsonl:
