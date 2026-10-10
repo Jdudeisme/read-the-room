@@ -5,6 +5,66 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-09 (night, offline) — M12-03 survey: after cancellation, certification already matches speech-only, and a residual gate would cut real speech
+
+**Setup.** Offline, on JPad, branch `milestone-12-hear-the-room` @
+`8a2ab82`, with `scripts/m12_gate_survey.py` over the 2026-10-09 ladder
+takes. For each take: `aec.cancel` (as committed), then Silero over raw
+and over clean. Per 512-sample chunk:
+r = 10·log10(E_clean / E_echo), smoothed over 3 chunks, where the echo
+estimate is mic − clean. This is the charter's first, cheapest evidence
+("post-cancellation residual level against the reference level"),
+measured in mic units. A chunk certifies at p ≥ 0.75 (playback
+threshold). The gate would refuse a certified chunk when r < threshold.
+Results are in `data/m12-replay/gate-survey-1.json` (uncommitted).
+
+| take | certified chunks raw → clean | clean + gate at −6 / −3 / 0 / +3 / +6 dB | eligible windows raw → clean | r of certified chunks p10 / p50 / p90 |
+|---|---|---|---|---|
+| C1 / C3 / C4 (speech only) | 0.828 / 0.908 / 0.871, unchanged | unchanged (no playback, r = +∞) | 89 → 89 | — |
+| T1 / T2-MO32, P1 (music only) | 0.000–0.002 → 0.000 | 0.000 | 0 → 0 | — |
+| T3-MO32 (rap only) | **0.345 → 0.001** | 0.001 … 0.000 | **62 → 0** | 3.3 / 3.8 / 4.4 |
+| T1-MX32 / MX66 / MX76 | 0.854 / 0.758 / 0.548 → 0.854 / 0.823 / 0.825 | MX76: 0.727 / 0.552 / **0.331** / 0.159 / 0.099 | 111 / 108 / 84 → 111 / 111 / 111 | MX76: −6.5 / −1.5 / 4.2 |
+| T2-MX32 / MX66 / MX76 | 0.888 / 0.594 / **0.094** → 0.888 / 0.777 / **0.755** | MX76: 0.546 / 0.377 / **0.229** / 0.115 / 0.052 | 116 / 98 / 19 → 116 / 111 / 109 | MX76: −9.1 / −3.0 / 4.5 |
+| T3-MX32 / MX66 / MX76 | 0.943 / 0.895 / 0.876 → 0.820 / 0.816 / 0.824 | MX76: 0.720 / 0.559 / **0.367** / 0.204 / 0.100 | 119 / 114 / 114 → 119 / 115 / 119 | MX76: −6.7 / −0.9 / 5.8 |
+
+**Findings.**
+
+1. **After cancellation, music-only false certification is ~0.** At most
+   0.001 of chunks across four music-only takes, and no eligible window.
+   That includes the rap (0.345 → 0.001), which is the failure M12-03 was
+   chartered for.
+2. **After cancellation, the founder's reading over music certifies like
+   their voice alone.** All nine mix takes land at 0.755–0.888 certified,
+   against 0.828–0.908 for C1, C3 and C4. Raw was 0.094–0.943: blinded
+   under loud piano, inflated by certified rap at 32 %. Cancellation
+   removes both errors.
+3. **The residual-vs-echo gate would reintroduce blindness.** At 66–76 %
+   the music at the mic is as loud as the voice, so real speech chunks sit
+   at r ≈ 0 dB (certified-chunk medians −3.0 to +1.5 dB). A 0 dB gate
+   keeps only 0.23–0.51 of certified chunks on the loud takes. Even
+   −6 dB costs a quarter. Music-only gives it nothing left to remove. So
+   the charter's step 1 is measured **insufficient**, and in fact harmful.
+4. **The charter's step 2 (mic–reference coherence per chunk) is ruled
+   out by the same fact.** Loud music is coherent with the reference
+   whether or not someone talks over it, so it would refuse speech under
+   loud music by construction. After cancellation, the residual music is
+   the part the reference *doesn't* linearly predict, so residual
+   coherence is low for speech and music alike. Not run: both arguments
+   follow from measured quantities (certification at the C-level, the
+   ~7–11 dB linear ceiling).
+
+**What it means for M12-03 (proposed; the founder's call).** On this
+evidence, the cancellation in M12-02 already does M12-03's job for one
+person reading at 32/66/76 % over three tracks. Building a gate now
+would trade measured-zero false certification for measured speech loss.
+Proposed: don't build a gate; carry M12-03's open question (several
+people talking over vocal music, which these takes don't have) into
+M12-05's pre-registered decision rule. Gate (a) has no reference-free
+part to replay: the 09-30 recording has no reference, and the
+reference-free features were measured ineffective (D3 survey). So its
+table equals the "before" table, as reproduced by
+`scripts/m12_partf_replay.py --gate none`.
+
 ## 2026-10-09 (late evening, offline) — M12-02 first canceller on the ladder captures: the rap stops certifying, the blinded reading comes back
 
 **Setup.** Offline, on JPad, branch `milestone-12-hear-the-room` @
