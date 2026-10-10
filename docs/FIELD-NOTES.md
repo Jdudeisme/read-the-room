@@ -161,6 +161,8 @@ both stay as they are.
   volumes; transport within one hop): met, with the steps in 5 as the
   open item.
 
+**Founder decisions, same evening.** `RTR_MUSIC_AWARE_ENABLED` **stays on** while M12-06 is built (the outcome C question), at the measured cost above. The reference-capture diff (`75d94ab`) is approved.
+
 **Caveats.** One speaker (the founder), reading aloud except C3. One mic
 position (centre of room). Atmos "Dynamic" was not reconfirmed after
 take 18. C4 was softer than C1, within the drift tolerance.
