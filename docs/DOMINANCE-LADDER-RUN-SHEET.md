@@ -1,6 +1,7 @@
 # Dominance ladder on JPad — run sheet
 
-**Status.** Written 2026-09-30, not yet run. **Extended 2026-10-09 for
+**Status.** Written 2026-09-30. **Run 2026-10-09 (17:49–~19:30): outcome C,
+no knots change** (FIELD-NOTES 2026-10-09, evening). **Extended 2026-10-09 for
 M12-01** (docs/M12-PROPOSAL.md, decision D4): every take also records the
 laptop's playback reference (`--reference`), the 66 % level gets mix
 takes, and two takes are added (`P1` transport, and Block X's Atmos-off

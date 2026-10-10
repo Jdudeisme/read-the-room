@@ -5,6 +5,166 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-09 (evening, 17:49–~19:30) — dominance ladder + M12-01 probe on JPad: outcome C, the proxy can't separate; the loopback is post-Atmos and pre-volume; rap certifies with nobody talking
+
+**Setup.** Founder alone, run under `docs/DOMINANCE-LADDER-RUN-SHEET.md`
+as extended for M12-01 (decision D4) and signed 2026-10-09 (tolerances
+0.05 / 0.10; `MX66` added; B split into B66 / B76). JPad, branch
+`milestone-12-hear-the-room`. Every take used `capture_room_wav.py
+--reference`, so there was one mic stream through `MicSource` and the
+WASAPI loopback beside it in the same process. No dashboard was running.
+Claude checked each take's files before the next. Captures are in
+`data/captures/ladder-20261009-*` (uncommitted): `.wav`, `.ref.wav` and
+`.json` for each take, plus `-result.json` (dominance) and
+`-reference.json`.
+
+Fixed conditions (founder, before C1):
+
+| setting | value |
+|---|---|
+| Mic Audio enhancements | off |
+| Lenovo Vantage mic noise cancelling | off |
+| Voice Clarity / Studio Effects | not reported |
+| Mic input volume | 34 % |
+| Dolby Atmos for Speakers | **on**, mode **Dynamic** (off only for take 18, then back on; "Dynamic" afterwards not reconfirmed) |
+| Speaker audio effects | device default effects |
+| Spotify | equalizer flat; Normalize volume on, level Normal; volume 100 %; repeat-one |
+| Power | plugged in; Windows power mode Best performance |
+| Do Not Disturb | on (required by the sheet) |
+| Positions | N = 0.6 m, F = 1.5 m, laptop centre of room |
+
+Tracks: T1 *Welcome To New York (Taylor's Version)* (212.6 s); T2
+*Georgia On My Mind*, Oscar Peterson Trio (224.0 s); T3 *Surround Sound*,
+JID ft. 21 Savage & Baby Tate (229.9 s). Exact URIs are in the run sheet.
+
+**Deviations.** T2-MX32 was first read at F by mistake (founder caught
+it). That take is kept as `T2-MX32-atF` with its sidecar annotated, and
+the take was redone at N. C4 came out 4–5 dB quieter than C1 at every
+percentile, with a similar pause share: a softer or more distant voice
+after ~70 min. The founder kept C4 as is, and the rule's drift clause
+covers it (below).
+
+**Part 1 — the dominance ladder** (`analyze_dominance_wav.py`, eligible
+windows: speech ratio ≥ 0.2 at the 0.75 playback threshold):
+
+| take | eligible / windows | p50 | p95 |
+|---|---|---|---|
+| C1 speech N | 88 / 88 | 0.0138 | 0.0225 |
+| C2 speech F | 88 / 88 | 0.0071 | 0.0135 |
+| C3 animated N | 88 / 88 | 0.0200 | **0.0278** |
+| C4 speech N (repeat) | 88 / 88 | 0.0139 | 0.0195 |
+| T1-MX32 / MX66 / MX76 | 111 / 109 / 84 | 0.0179 / 0.0269 / 0.0241 | 0.0253 / 0.0462 / 0.0385 |
+| T2-MX32 / MX66 / MX76 | 115 / 100 / **19** | 0.0140 / 0.0123 / 0.0147 | 0.0232 / 0.0324 / 0.0694 |
+| T3-MX32 / MX66 / MX76 | 118 / 113 / 113 | 0.0232 / 0.0418 / 0.0445 | 0.0335 / 0.0620 / 0.0655 |
+| T1 / T2 / T3 music-only, 32 % | 0 / 0 / **61** of 111 / 115 / 118 | — / — / 0.0405 | — / — / 0.0646 |
+
+Music-only high-band share at the mic, all windows (not just eligible):
+T2 0.008, T1 0.027, T3 0.042 (median). So the three picks span mellow
+to bright as intended.
+
+**The rule, worked.** LO\* = worst control p95 = **0.0278** (C3). HI\* =
+pooled p50 of the `MX76` mix windows = **0.0316**.
+
+- HI\* > LO\*: yes, by 0.0038.
+- Controls at (LO\*, HI\*): bankable C1 0 / C2 0 / C3 0.034 / C4 0, all
+  ≤ 0.05. ✓
+- **A** needs every `MX32`/`MX66`/`MX76` take clean ≤ 0.10. At (LO\*,
+  HI\*) the `MX32` takes are clean 1.000 / 0.991 / 0.771. ✗
+- **B** needs every `MX76` take clean ≤ 0.10. They are clean 0.667 /
+  0.789 / 0.150. ✗ (so neither B66 nor B76)
+- **C**: no scored pair keeps the controls ≤ 0.05 bankable while
+  keeping every `MX76` take clean ≤ 0.10. The config defaults
+  (0.05 / 0.30) put `MX76` clean at 1.000 / 0.947 / 0.991. The knots in
+  force (0.022 / 0.050) put it at 0.524 / 0.789 / 0.106, with C3
+  bankable 0.034. (LO\*, HI\*) is as above. **True.**
+- Drift clause: C1 p95 0.0225 vs C4 0.0195, a difference of 0.003,
+  against a C1–C3 spread of 0.0143. **Not drifting**, so the verdict
+  needs no exclusions.
+
+**Outcome C. Change no knots.** On this mic, the high-band *share*
+cannot separate speech from speech over music. Even the bright track at
+76 % leaves 15 % of mix windows reading as clean, and the mellow track
+reads clean almost everywhere. This is 2026-09-06 finding 1's structural
+prediction (speech dilutes the ratio), now measured across three tracks
+and three volumes. `.env`'s provisional knots and `config.py`'s defaults
+both stay as they are.
+
+**Part 2 — M12-01 probe** (`analyze_reference.py`):
+
+1. **The loopback is tapped after Dolby Atmos.** Atmos off vs on
+   (T1, 32 %): the reference fell **10–15 dB in every octave**, more in
+   the bass (63 Hz −15.6, 125 Hz −14.2, 4 kHz −11.1 dB). The reference
+   is what the speakers are fed, Atmos included, so the canceller need
+   not learn Atmos.
+2. **Atmos is a first-order capture variable.** With it off, the music
+   reached the mic **9 dB quieter** (−52.2 vs −43.1 dBFS), and its
+   high-band share rose **4×** (0.096 vs 0.023). Every signature and
+   knot measured with Atmos on belongs to that capture path. That
+   confirms the "Atmos stays on" doctrine.
+3. **The loopback is before the Windows volume slider.** Reference level
+   was −11.9 dBFS for T1 at 32, 66 and 76 % alike (T2 −17.2, T3 −11.8 at
+   every level). The reference says *what* plays, not *how loud* the room
+   hears it, so gain must be estimated from the mic.
+4. **JPad's output tops out between 66 % and 76 %.** Mic level in the
+   pauses between sentences (p10 of 0.5 s windows), 66 → 76 %: T1 −35.4
+   → −35.1, T2 −41.1 → −40.8, T3 −38.3 → −37.5 dBFS, so under 1 dB.
+   From 32 → 66 % it rose 2–6 dB. The founder confirmed the slider read
+   76 %. With Atmos Dynamic, **76 % is not louder than 66 % on this
+   laptop.** That bears on the 66 % / 76 % room-size levels.
+5. **No clock drift; occasional alignment steps.** Within a take, the
+   GCC-PHAT delay held to an IQR ≤ 0.4 ms in 12 of 16 music takes over
+   2–4 min. Four (T2-MX76, T3-MO32, T3-MX66, P1) show discrete steps of
+   15–30 ms between steady plateaus. In T2-MX76, the steps coincide with
+   irregular loopback block arrivals (~44 s, ~67 s); the 1 s log can't
+   prove which stream slipped. Per-take median delays (−74 to −217 ms)
+   mostly reflect each take's stream-start offset, so a cross-take
+   "session drift" is not measurable from them. The arrival-time clock
+   logs give −300 to +240 ppm, which contradicts the sub-ms within-take
+   stability. They measure delivery jitter, not sample clocks, so don't
+   use them for drift. **M12-02 must track alignment continuously**; a
+   fixed delay will not hold.
+6. **Transport (P1): the reference follows Spotify within 1.4 s.** Play,
+   pause, play, skip, pause were pressed at 10 / 40 / 55 / 85 / 130 s.
+   The reference changed at 11.4 / 41.1 / 55.4 / 85.9 / 131.4 s,
+   including human reaction and Spotify's fades. That is inside one 2 s
+   hop, and far quicker than the controller's 5 s playback poll.
+7. **Silence is exact zeros.** Every control's reference read
+   −120 dBFS (digital zero), consistent with the earlier silent
+   self-test.
+
+**Part 3 — M12 certification evidence, from the ladder's own counts.**
+
+- **Rap certifies as speech with nobody talking.** T3 music-only at
+  32 %: **61 of 118 windows eligible** (speech ratio ≥ 0.2 at the 0.75
+  threshold), against **0** for T1 and **0** for T2. That is the
+  2026-09-30 mechanism on a second vocal hip-hop track.
+- **Loud piano blinds certification.** T2 at 76 % with the founder
+  reading: **19 of 116** windows eligible, against 115 at 32 % and 100 at
+  66 %. That is the over-gating failure M12-03's risk notes name (M5,
+  "blindness, not phantoms"), here caused by the music masking the
+  voice, not by a gate.
+
+**What this decides.**
+
+- **Knots: none change** (outcome C). Per the rule: file a REQUIRES-REVIEW
+  item to replace the proxy. Filed as **ROADMAP M12-06**, because the
+  reference measured here is the natural replacement: playback level is
+  known from the mic-vs-reference relationship, not guessed from a
+  spectral share.
+- **Still the founder's decision (rule, outcome C):** whether
+  `RTR_MUSIC_AWARE_ENABLED` stays on meanwhile. Measured cost of the
+  knots in force: speech-only controls bank pull samples in 3.4 % of C3's
+  animated windows (0 % for C1, C2, C4). In mix, they bank on 0–84 %
+  of windows depending on track and level, so the correction engages
+  mostly on bright music at 66 %+.
+- **M12-01 acceptance** (delay, drift and reference level at both
+  volumes; transport within one hop): met, with the steps in 5 as the
+  open item.
+
+**Caveats.** One speaker (the founder), reading aloud except C3. One mic
+position (centre of room). Atmos "Dynamic" was not reconfirmed after
+take 18. C4 was softer than C1, within the drift tolerance.
+
 ## 2026-10-09 (evening, offline) — M12 starts: no loopback in the current audio stack; the 09-30 replay is now reproducible from the repo; cheap reference-free features detect music, not the record's vocals
 
 **Setup.** No mic and nobody in the room: device listing and offline

@@ -560,6 +560,38 @@ with their measurements.
   decision rule's outcome.
 - **Effort:** M
 
+### M12-06 — Replace the high-band dominance proxy with a reference-based dominance — REQUIRES-REVIEW
+
+- **Problem:** The dominance ladder (FIELD-NOTES 2026-10-09, evening)
+  came out **outcome C**: on JPad's built-in array, the high-band *share*
+  can't separate speech from speech over music. No knot pair keeps
+  speech-only controls ≤ 5 % bankable while keeping every 76 % mix take
+  ≤ 10 % clean. The mellow track reads clean almost everywhere, and
+  Atmos alone moves the share 4×. The signed rule requires filing this
+  item.
+- **Why it matters:** `dominance()` scales the M6 correction and decides
+  clean-vs-mixed for the clean baseline. A proxy that can't tell the two
+  apart corrects too little on mellow music and banks pull samples from
+  the wrong windows.
+- **Scope:** Once M12-01c (`ReferenceSource`) exists, estimate playback
+  dominance per window from the mic and the reference, for example
+  coherence, or the energy fraction a fitted reference explains, in place
+  of `spectral_balance.high`. It feeds the same `dominance` input of the
+  music-aware corrector (`src/sensing/music_aware.py`), so M6's estimator
+  is unchanged. Without a reference (feature off), behavior is today's.
+  **Out of scope:** retuning `LO`/`HI` (outcome C forbids it), and the M6
+  estimator itself.
+- **Acceptance criteria:** Rerun the ladder's analysis
+  (`scripts/analyze_dominance_wav.py`, extended to the new estimator) on
+  the 2026-10-09 captures, which carry references, and apply the same
+  signed decision rule. Record the outcome in FIELD-NOTES. No target
+  numbers.
+- **Risk notes:** The reference is pre-volume (FIELD-NOTES 2026-10-09):
+  level must come from the mic-vs-reference fit, not the reference
+  alone. Alignment steps of 15–30 ms occur; estimate per window, not
+  with a fixed delay.
+- **Effort:** M
+
 ---
 
 ## M9 — Stage-ready: the live-performance demo
