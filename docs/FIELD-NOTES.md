@@ -5,6 +5,87 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-09 (late evening, offline) — M12-02 first canceller on the ladder captures: the rap stops certifying, the blinded reading comes back
+
+**Setup.** Offline, on JPad, branch `milestone-12-hear-the-room` @
+`fcead9d`: `src/sensing/aec.py` (DelayTracker + numpy MDF; constants
+as committed) driven by `scripts/m12_aec_eval.py` over every
+2026-10-09 ladder take. Raw = the mic WAV. Clean = the canceller's
+output, causal, with the reference from the take's `.ref.wav`.
+"Eligible" = 5 s windows with speech ratio ≥ 0.2 at the 0.75 playback
+threshold, the engine's certification during playback. ECAPA
+similarity is the cosine between a take's mean speaker embedding and the
+founder's C1 embedding. Results are in `data/m12-replay/aec-eval-1.json`
+(uncommitted).
+
+| take | ERLE, music-only (dB) | eligible raw → clean | ECAPA to C1 raw → clean | relocks / divergence resets | echo tail (ms) |
+|---|---|---|---|---|---|
+| C1, C4 (no playback) | — | 89 → 89, **bit-identical** | — | 0 / 0 | — |
+| T1-MO32 | **7.3** (ceiling 7.0–7.2) | 0 → 0 | — | 4 / 2 | 176 |
+| T2-MO32 | 6.8 (ceiling 8.5–10.7) | 0 → 0 | — | 1 / 0 | 192 |
+| T3-MO32 (rap, nobody talking) | 4.2 (ceiling ~7) | **62 → 0** | — | 4 / 0 | 173 |
+| P1 (transport) | 7.8 | 0 → 0 | — | 2 / 0 | 151 |
+| X Atmos off | 2.9 | 0 → 0 | — | 3 / 2 | 167 |
+| T1-MX32 / MX66 / MX76 | pause 3.6–5.6 at 66/76 | 111→111 / 108→111 / **84→111** | 0.84→0.85 / 0.76→0.79 / 0.70→0.75 | 1 / 3–4 | 181–203 |
+| T2-MX32 | never locked (piano under speech, coherence < 0.3) | 116 → 116 | 0.87 → 0.87 | 0 / 0 | — |
+| T2-MX66 / MX76 | pause 6.5 / 4.0 | 98→116 / **19→113** | 0.68→0.73 / 0.67→0.69 | 1–3 / 1 | 176–200 |
+| T3-MX32 / MX66 / MX76 | pause — / 2.1 / 6.5 | 119→119 / 114→112 / 114→119 | **0.60→0.74 / 0.24→0.62 / 0.13→0.63** | 1 / 9 / 1 | 163–195 |
+
+CPU: 0.066–0.100 s per audio second on one core (7–10 % of real time).
+
+**Findings.**
+
+1. **The rap alone stops certifying as speech:** T3-MO32 drops from 62
+   eligible windows to **0**. That is the 2026-09-30 failure (vocal music
+   passes the playback gate and becomes a voice), removed by cancellation
+   alone, with no gate change. This happens at an ERLE of only 4.2 dB, so
+   the VAD's belief in the rap is fragile once the record is partly
+   subtracted.
+2. **The blinded reading comes back:** T2-MX76 (founder reading over the
+   loud piano) rises from 19 eligible windows to **113** of 116, and
+   T1-MX76 from 84 to 111. This is the over-gating failure from the ladder
+   entry, undone. RTR could hear the room under loud music again.
+3. **The speaker model hears the founder more like himself on every mix
+   take.** Under the bright track the raw embedding was barely the same
+   person (0.13 at 76 %, 0.24 at 66 %), and clean brings it to 0.62–0.63.
+   This is the headcount side of the 2026-09-30 and 2026-10-08 collapses:
+   music-contaminated segments scatter or merge as "voices".
+4. **ERLE sits at or below the linear ceiling, as predicted.** T1 7.3 dB
+   meets its ceiling; T2 (6.8 vs 8.5–10.7) and T3 (4.2 vs ~7) fall short.
+   T3 had 4 re-locks through its alignment steps. In mix takes, the few
+   speech pauses give 2–6.5 dB at 66/76 %. So the canceller removes a
+   few dB of music, and that turns out to be enough for findings 1–3.
+5. **Silence is untouched:** C1 and C4 come out bit-identical, as
+   designed.
+6. **The tracker is the weak part.**
+   - T3-MX66 re-locked 9 times and ended on a wrong lag (−117 ms; that
+     take's other estimates sat near −172 / −190). Under heavy double talk
+     with alignment steps, coherence-scored candidates flap.
+   - Divergence resets fired 1–4 times on most loud mix takes and on two
+     music-only takes. The guard worked, but each reset costs
+     re-convergence.
+   - T2-MX32 never locked: soft piano under speech, coherence < 0.3. That
+     is the right call (there was little to cancel, and the raw take was
+     already fine).
+7. **Echo tail 151–203 ms**, against a span of 208 ms. The fitted tails
+   reach the end of the filter, so the room's tail may be longer than the
+   span. A longer span is a measured option, not a given.
+
+**Caveats.** One speaker; the founder reading aloud (C3's animated style
+wasn't run with music). One room position. Eligibility counts
+certification, not correctness: "clean" isn't proven to certify only the
+founder, though ECAPA moving toward C1 says the certified audio is more
+him. No live run: the engine still reads raw.
+
+**What it decides (proposed; founder's call):**
+- The numpy MDF is worth integrating; no library evidence event is
+  needed yet.
+- The residual suppressor is not needed for the certification payoff.
+- The tracker needs a robustness pass, against flapping and resets,
+  before or as part of engine integration (step 4).
+- The 12-minute top-up is not needed now. M12-05's live session will
+  measure cancellation on and off at 66/76 % anyway.
+
 ## 2026-10-09 (evening, 17:49–~19:30) — dominance ladder + M12-01 probe on JPad: outcome C, the proxy can't separate; the loopback is post-Atmos and pre-volume; rap certifies with nobody talking
 
 **Setup.** Founder alone, run under `docs/DOMINANCE-LADDER-RUN-SHEET.md`
