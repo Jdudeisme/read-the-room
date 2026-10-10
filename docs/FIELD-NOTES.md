@@ -77,6 +77,8 @@ certification, not correctness: "clean" isn't proven to certify only the
 founder, though ECAPA moving toward C1 says more of the certified audio
 is the founder's voice. No live run: the engine still reads raw.
 
+**Founder decisions (2026-10-09, after this entry):** all four below are approved, and the ReferenceSource diff (`1bd14e6`) is approved.
+
 **What it decides (proposed; founder's call):**
 - The numpy MDF is worth integrating; no library evidence event is
   needed yet.
