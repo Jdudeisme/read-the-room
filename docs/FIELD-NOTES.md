@@ -5,6 +5,103 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-11 (offline) — M12-04 survey: certification carried most of the music in energy, and M12-02 already cleans it
+
+**Setup.** Offline, on JPad, `scripts/m12_energy_survey.py` over the
+2026-10-09 ladder takes. Each take is replayed on the engine's energy path
+and schedule: 5 s windows every 2 s, EMA tau 6 s, `TrendTracker` at
+60 s / 0.10 per min. It runs three ways:
+- **raw**: cancellation off, today's default.
+- **hybrid**: cancellation on, today's code. DSP runs on raw, certification on clean.
+- **clean**: the M12-04 proposal. DSP and certification both run on clean (`aec.cancel`).
+
+Arousal is left out (emotion already reads clean audio and is M6-corrected),
+so energy is the three-term renormalised `energy_score(..., None)`. Music
+takes count from the canceller's first lock. Results are in
+`data/m12-replay/energy-survey-1.json` and `energy-step-1.json`
+(uncommitted).
+
+**Ladder takes** (medians; L = loudness dBFS, S = certified speech
+ratio, E = energy, "moving" = share of ticks where the trend is not
+`stable`):
+
+| take | lock | raw L / S / E / moving | hybrid L / S / E / moving | clean L / S / E / moving |
+|---|---|---|---|---|
+| C1 / C4 (reading, no music) | — | −38.7 / 0.84 / 0.566 / 0.06 · −43.2 / 0.88 / 0.555 / 0.01 | same | same (bit-identical) |
+| T1-MO32 music only | 8 s | −44.5 / 0.00 / 0.253 / 0.03 | same | −51.6 / 0.00 / 0.192 / 0.08 |
+| T2-MO32 | 8 s | −42.5 / 0.00 / 0.259 / 0.14 | same | −51.4 / 0.00 / 0.183 / 0.23 |
+| T3-MO32 (rap) | 8 s | −45.9 / **0.23** / 0.339 / 0.36 | −45.9 / 0.00 / 0.252 / 0.00 | −50.2 / 0.00 / 0.216 / 0.12 |
+| T1-MX32 / T2-MX32 | never | (unlocked: clean = raw) | | |
+| T1-MX66 / MX76 | 8 / 10 s | −32.7 −33.0 / 0.77 0.57 / 0.593 0.521 / 0.04 **0.59** | raw L / 0.82 0.83 / 0.616 0.618 / 0.00 0.00 | −35.8 −36.7 / same S / 0.575 0.578 / 0.00 0.00 |
+| T2-MX66 / MX76 (jazz) | 10 / 8 s | −35.4 −34.7 / 0.67 **0.00** / 0.527 **0.320** / 0.49 0.38 | raw L / 0.81 0.82 / 0.581 0.574 / 0.24 0.22 | −39.4 −39.6 / same S / 0.548 0.557 / 0.24 0.27 |
+| T3-MX32 / 66 / 76 (rap) | 30 / 8 / 8 s | −40.1 −35.2 −34.4 / 0.95 0.97 0.98 / 0.614 0.633 0.645 / 0.00 0.23 0.42 | raw L / 0.80 0.86 0.84 / 0.560 0.605 0.611 / 0.06 0.20 0.05 | −41.1 −37.1 −38.3 / same S / 0.544 0.592 0.593 / 0.15 0.20 0.04 |
+
+Mix-take energy minus the reading controls' mean (0.560):
+- raw: −0.240 to +0.085;
+- hybrid: 0.000 to +0.057;
+- clean: −0.016 to +0.035.
+
+The two reading controls differ from each other by 0.011, and by
+4.5 dB in loudness.
+
+**Synthetic volume step** (`--step`). A reading control (C1 or C4,
+constant talk) plus a music-only take's mic (the echo alone), with that
+echo's gain stepped +4 or +8 dB at 90 s, cancelled against the take's
+own reference. +8 dB is roughly the 32 → 66 % move. Medians over the
+60 s after the step, minus the 60 s before:
+
+| step | loudness step raw / clean | energy step raw / hybrid / clean | trend `rising` after the step, any mode |
+|---|---|---|---|
+| +4 dB (6 trials) | +1.2…+1.8 / −0.2…+1.1 dB | −0.078…+0.031 / −0.027…+0.024 / −0.048…+0.023 | 0.00 in all 18 mode-trials |
+| +8 dB (6 trials) | +3.0…+4.9 / +0.6…+2.4 dB | −0.128…+0.045 / −0.106…+0.022 / −0.141…+0.003 | 0.00, except raw T3 0.17 (2 trials) |
+
+**Findings.**
+
+1. **Most of the music's effect on energy came through `speech_ratio`,
+   and M12-02 already removes it.** Raw certification swings that term
+   both ways: jazz at 76 % blinds it (0.00, energy −0.24), and rap
+   certifies (0.23 with nobody talking; 0.95–0.98 under reading). Hybrid,
+   which is today's code with cancellation on, already reads it on the clean
+   stream. The charter's "`speech_ratio` term from M12-03's
+   certification" is therefore in place via M12-02, because M12-03 is
+   deferred.
+2. **What M12-04 still removes is a loudness bias.** In mix takes at
+   66/76 %, clean loudness sits 1.9–4.9 dB under raw. In music-only
+   takes the gap is 4.3–8.9 dB (2.7 dB with Atmos off). On a volume step,
+   clean keeps 15–50 % of raw's loudness step. Through the 0.30 weight
+   (0.40 renormalised), 4 dB is ≈ 0.03 energy.
+3. **On its own, that bias does not move the trend.** No volume step up to
+   +8 dB made the trend read `rising` once raw certification was out of
+   it. A step of h in energy reaches the 0.10/min threshold over the 60 s
+   horizon only when h ≳ 0.07, which is ≈ 9 dB of loudness alone. The raw
+   T3 cases that did rise were rap certification. On this evidence, the
+   DJ-feedback loop the charter names ran through certification. With
+   cancellation on, the loudness path alone is below the trend's
+   threshold for volume moves up to 32 → 66 %.
+4. **Onset activity barely discriminates.** It reads 1.4–2.1 onsets/s on
+   speech, music, mix and the Atmos-off music, raw or clean. The
+   adaptive threshold (flux mean + 1.5 σ per window) makes it
+   level-invariant. Clean versus raw changes it by ≤ 0.3. This is a
+   finding about the `energy_score` term itself, and reweighting it is
+   out of scope by M12-04's charter (a calibration event).
+5. **The trend moves in clean too.** In T2 mix takes it is moving
+   0.24–0.27 of the time, equal to hybrid, so this isn't loudness. The
+   ladder isn't a matched-talk design: each take is a different
+   reading, and the reader's level varies 4.5 dB between C1 and C4. So
+   trend attribution waits for M12-05.
+6. **The cost is one more `dsp.analyze` per tick:** 3.9 ms on a 5 s window,
+   on a 2 s hop. The heartbeat bench still has to show it.
+
+**Limits.** The volume step is linear by construction: speaker
+non-linearity at 66/76 % is in the real takes but not in the synthetic
+step. At 32 % under talk, T1/T2 never lock (the accepted B66 envelope), so
+clean = raw there. Arousal is excluded throughout.
+
+**Founder decisions (2026-10-11):** the M12-04 plan (`docs/M12-04-PLAN.md`)
+is approved, with D1–D3 as recommended. Clean fields are `None` when
+cancellation is off; the corpus schema is bumped; M12-05 adds a
+volume-step phase.
+
 ## 2026-10-09 (night, offline) — M12-06: reference-based dominance turns the ladder from outcome C into B66
 
 **Setup.** Offline, on JPad, `scripts/m12_dominance_reference.py` over
