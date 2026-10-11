@@ -121,6 +121,8 @@ annotations v2 and overrides v3, and the mapper still reads raw `trend`.
   exactly as the old records counted twice.
 - 426 tests pass.
 
+**Founder decision (2026-10-11):** the M12-04 diff (`44e1b26`) is approved.
+
 ## 2026-10-09 (night, offline) — M12-06: reference-based dominance turns the ladder from outcome C into B66
 
 **Setup.** Offline, on JPad, `scripts/m12_dominance_reference.py` over

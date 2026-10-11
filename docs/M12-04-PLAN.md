@@ -1,4 +1,4 @@
-# M12-04 plan — playback-clean energy (APPROVED 2026-10-11; diff built, awaiting founder review)
+# M12-04 plan — playback-clean energy (APPROVED 2026-10-11; diff `44e1b26` approved 2026-10-11)
 
 The charter is ROADMAP M12-04, adopted verbatim. This plan says how,
 grounded in the offline survey (FIELD-NOTES 2026-10-11). The item is
