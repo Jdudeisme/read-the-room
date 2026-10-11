@@ -1,9 +1,10 @@
 # M12-05 — paired live session on JPad — run sheet
 
-**Status.** DRAFT, written 2026-10-11. On 2026-10-11 the founder chose
-**Rule 2's harm-required variant**, added **Rule 1c** (phantom count,
-FIELD-NOTES 2026-10-11, later), and picked track I. The rule is
-otherwise PROPOSED, not signed. The
+**Status.** **APPROVED and the rule SIGNED, 2026-10-11.** On 2026-10-11 the
+founder chose **Rule 2's harm-required variant**, added **Rule 1c**
+(phantom count, FIELD-NOTES 2026-10-11, later), confirmed track I on
+Spotify, and signed. Block G is planned with **4 people**. The day's
+schedule and the take-by-take commands are in `docs/M12-TEST-PLAN.md`. The
 founder signs it, together with the track I pick, **before** the session. After the data is in,
 nothing in the rule moves. Human-run on JPad by the founder, with ≥ 3
 people for Block G. It is never started by an agent (CLAUDE.md). It changes no
@@ -34,8 +35,8 @@ Spotify is driven by hand.
 
 1. **Approve this sheet and sign the rule (section G).** It is
    pre-registered: tolerances can change now, not afterwards.
-2. **Track I**: decided 2026-10-11, *Rhymes Like Dimes (Instrumental)*.
-   Confirm it plays on Spotify before Block S, and record the URI.
+2. **Track I**: decided 2026-10-11, *Rhymes Like Dimes (Instrumental)*,
+   `spotify:track:7y8Xkh3XqYDzBEyAofu6Qi`. Confirmed on Spotify.
 3. **Consent.** This session **records the guests' voices to disk**: a
    new capture of room-derived data. Tell every guest before Block G
    starts, and get their agreement (the script is in section D). Without
@@ -105,7 +106,7 @@ over the music on purpose, and don't hold back for it either.
 | id | track | why | Spotify URI |
 |---|---|---|---|
 | H | "Surround Sound", JID ft. 21 Savage & Baby Tate (ladder T3) | vocal hip-hop: the 09-30 mechanism, and the M12-03 question | `spotify:track:1udwFobQ1JoOdWPQrp2b6u` |
-| I | **"Rhymes Like Dimes (Instrumental)", MF DOOM** (founder's pick, 2026-10-11) | instrumental hip-hop, no vocals: the control for H, and continuity with 09-30 (the instrumental the room recovered under). Its drums are boom-bap, not H's trap, so H vs I differs in more than vocals: say so when reading 1b | note the URI at the session (the instrumental isn't confirmed on Spotify; if it isn't there, stop and pick again before Block S) |
+| I | **"Rhymes Like Dimes (Instrumental)", MF DOOM** (founder's pick, 2026-10-11) | instrumental hip-hop, no vocals: the control for H, and continuity with 09-30 (the instrumental the room recovered under). Its drums are boom-bap, not H's trap, so H vs I differs in more than vocals: say so when reading 1b `spotify:track:7y8Xkh3XqYDzBEyAofu6Qi` (founder confirmed it plays, 2026-10-11) |
 | J | "Georgia On My Mind", Oscar Peterson Trio (ladder T2) | jazz: the 09-30 case where headcount recovered | `spotify:track:2fOx7wWR2sOBIWyveecAGX` |
 
 **Volumes:** Windows 32 / 66 / 76 % (founder D2, 2026-10-09, in place of the
@@ -278,7 +279,10 @@ outcome that changes when either control is dropped prints as
 each test's inputs and the outcomes. Changing a constant after the
 session voids the rule.
 
-Signed: __________ (founder). Date: __________. Variant for 2: **harm-required** (chosen 2026-10-11).
+Signed: Jordan Smith (founder), on the founder's instruction to Claude ("I
+sign the rule"). Date: 2026-10-11. Variant for 2: **harm-required**. Rules
+1a, 1b, 1c, 2a and 2b, the drift check, and the constants in
+`scripts/m12_session_replay.py` are now fixed.
 
 ## H. Afterwards
 

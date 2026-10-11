@@ -72,7 +72,9 @@ R2A_RISING_MARGIN = 0.20  # trend minus clean_trend, rising share after the step
 R2B_TOLERANCE = 0.01  # clean_energy may be at most this much farther from controls
 STEP_SPAN_S = 60.0  # the before/after windows around a volume step
 DEFAULT_STEP_AT_S = 180.0  # run sheet E: the slider moves at 3:00
-SESSION_ID = re.compile(r"^(?P<block>[SG])-(?:(?P<ctl>C\d)|(?P<kind>MO|MX)-(?P<track>[HIJ])(?P<vol>32|66|76)|VS-(?P<vtrack>[HIJ]))$")
+# A trailing "b" is a re-take of a gated take (M12-TEST-PLAN): gate the
+# original with --gate and the re-take stands in for it.
+SESSION_ID = re.compile(r"^(?P<block>[SG])-(?:(?P<ctl>C\d)|(?P<kind>MO|MX)-(?P<track>[HIJ])(?P<vol>32|66|76)|VS-(?P<vtrack>[HIJ]))b?$")
 
 
 @dataclass
