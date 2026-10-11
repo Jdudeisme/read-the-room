@@ -1,8 +1,8 @@
 # M12-05 — paired live session on JPad — run sheet
 
 **Status.** DRAFT, written 2026-10-11. On 2026-10-11 the founder chose
-**Rule 2's harm-required variant** and asked for a 32 % provision, which
-is now in Rule 1b. The rule is otherwise PROPOSED, not signed. The
+**Rule 2's harm-required variant**. The rule is otherwise PROPOSED, not
+signed. The
 founder signs it, together with the track I pick, **before** the session. After the data is in,
 nothing in the rule moves. Human-run on JPad by the founder, with ≥ 3
 people for Block G. It is never started by an agent (CLAUDE.md). It changes no
@@ -209,17 +209,9 @@ occupancy count for the headcount tests. Block S counts for the rest.
   exceeds the mean of G-C1/G-C2 by more than 0.15.** That is the 09-30
   failure: a room of 3 read `solo` under vocal hip-hop and recovered
   under other music.
-- **The 32 % provision** (added 2026-10-11 at the founder's request).
-  At 32 %, faint music under talk may never lock the canceller. That is
-  the accepted B66 envelope. Then H's 32 % take is effectively
-  *uncancelled*, and 1b is measuring the raw path, which is where 09-30
-  failed. The tolerance stays **0.15 at 32 %** too: loosening it there
-  would blind the rule to the very case that motivated it. Instead, a
-  1b firing at 32 % **on an unlocked H take** routes differently. The
-  first remedy is the canceller's lock threshold (`MIN_LOCK_COHERENCE`,
-  an M12-02 measured change); the classifier (M12-03 step 3) comes only
-  if lowering the threshold isn't enough. A firing on a locked take, or
-  at 66/76 %, reopens M12-03 directly.
+  The tolerance is the same at every volume. Whether H's take locked is
+  reported beside each comparison: an unlocked take at 32 % is
+  uncancelled (the accepted B66 envelope), and the entry says so.
 - **Outcome:** if neither fires, M12-03 **stays deferred**, with this
   session as the evidence. If either fires, M12-03 reopens at step 3 (the
   classifier), as its deferral note says. The FIELD-NOTES entry records

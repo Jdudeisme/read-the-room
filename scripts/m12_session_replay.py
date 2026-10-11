@@ -266,12 +266,10 @@ def apply_rule(results: list[dict]) -> dict:
         c_mean = float(np.mean(ctl_solo))
         fires = (on(h)["solo"] - on(i)["solo"] > R1B_SOLO_MARGIN
                  and on(h)["solo"] - c_mean > R1B_SOLO_MARGIN)
+        # H_locked is reported, not ruled on: an unlocked H take is
+        # uncancelled (the B66 envelope), which the entry should say.
         b[vol] = {"H": on(h)["solo"], "I": on(i)["solo"], "controls": round(c_mean, 3),
-                  "H_locked": h["locked"], "fires": fires,
-                  # Run sheet G, the 32 % provision: under the accepted B66
-                  # envelope an unlocked H take is uncancelled. A firing there
-                  # routes to the canceller's lock first (M12-02), then M12-03.
-                  "route": None if not fires else ("lock-first" if not h["locked"] else "M12-03")}
+                  "H_locked": h["locked"], "fires": fires}
     rule["1b"] = b
 
     # 2a: the feedback loop on a volume step.
@@ -309,8 +307,7 @@ def apply_rule(results: list[dict]) -> dict:
     fired_1a = rule["1a"] != "n/a" and bool(rule["1a"]["fires"])
     fired_1b = [v for v in b.values() if isinstance(v, dict) and v["fires"]]
     if fired_1a or fired_1b:
-        lock_only = not fired_1a and all(v["route"] == "lock-first" for v in fired_1b)
-        rule["outcome_1"] = "REOPEN (unlocked 32 % only: lock threshold first)" if lock_only else "REOPEN M12-03 at step 3"
+        rule["outcome_1"] = "REOPEN M12-03 at step 3"
     elif rule["1a"] == "n/a" and all(v == "n/a" for v in b.values()):
         rule["outcome_1"] = "n/a"
     else:

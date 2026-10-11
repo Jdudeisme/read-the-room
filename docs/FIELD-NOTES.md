@@ -59,6 +59,12 @@ again, but its rule has no headcount test for Block S. **Founder
 decision:** add a Rule 1c (e.g. Block S `solo` share at 66/76 % against
 the controls) before signing, or leave it as a recorded observation.
 
+**Correction (founder, 2026-10-11, after this entry):** the "32 %
+provision" in Rule 1b came from a misread instruction, and the founder
+withdrew it. Rule 1b is 0.15 at every volume with no special routing.
+H's lock state is reported, not ruled on. 32 % stays in the protocol, and
+2b's 32 % exclusion (above) stands on its own evidence.
+
 ## 2026-10-11 (offline) — M12-04 survey: certification carried most of the music in energy, and M12-02 already cleans it
 
 **Setup.** Offline, on JPad, `scripts/m12_energy_survey.py` over the
