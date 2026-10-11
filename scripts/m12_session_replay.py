@@ -67,6 +67,7 @@ from sensing.vad import VadGate  # noqa: E402
 # Changing any of these after the session voids the rule.
 R1A_MAX_ELIGIBLE = 0.05  # music-only takes: eligible share of locked windows
 R1B_SOLO_MARGIN = 0.15  # H over I, and H over the controls, solo share
+R1C_SOLO_MARGIN = 0.15  # Block S: a locked mix take's solo share under the controls'
 R2A_RISING_MARGIN = 0.20  # trend minus clean_trend, rising share after the step
 R2B_TOLERANCE = 0.01  # clean_energy may be at most this much farther from controls
 STEP_SPAN_S = 60.0  # the before/after windows around a volume step
@@ -272,6 +273,20 @@ def apply_rule(results: list[dict]) -> dict:
                   "H_locked": h["locked"], "fires": fires}
     rule["1b"] = b
 
+    # 1c: phantom count over our own playback, cancellation on. Block S is
+    # one person, so every non-solo update is a phantom. Locked takes only:
+    # unlocked, the take is uncancelled and 1c's question doesn't apply.
+    s_ctl = [on(r)["solo"] for r in controls(usable, "S") if on(r)["solo"] is not None]
+    c = {}
+    if s_ctl:
+        s_mean = float(np.mean(s_ctl))
+        for r in usable:
+            if r["block"] != "S" or r["kind"] != "MX" or not r["locked"] or on(r)["solo"] is None:
+                continue
+            c[r["id"]] = {"solo": on(r)["solo"], "controls": round(s_mean, 3),
+                          "fires": s_mean - on(r)["solo"] > R1C_SOLO_MARGIN}
+    rule["1c"] = c or "n/a"
+
     # 2a: the feedback loop on a volume step.
     vs = [r for r in usable if r["kind"] == "VS"]
     a = {}
@@ -312,6 +327,11 @@ def apply_rule(results: list[dict]) -> dict:
         rule["outcome_1"] = "n/a"
     else:
         rule["outcome_1"] = "STAYS DEFERRED"
+    if rule["1c"] == "n/a":
+        rule["outcome_1c"] = "n/a"
+    else:
+        fired = [k for k, v in rule["1c"].items() if v["fires"]]
+        rule["outcome_1c"] = f"FILE phantom-count finding ({', '.join(fired)})" if fired else "CLEAR"
     holds_2a = isinstance(rule["2a"], dict) and any(v["holds"] for v in rule["2a"].values())
     holds_2b = isinstance(rule["2b"], dict) and all(v["holds"] for v in rule["2b"].values())
     if rule["2b"] == "n/a":
@@ -350,10 +370,10 @@ def apply_rule_with_drift(results: list[dict]) -> dict:
         ctl = controls([r for r in results if not r["gated"]], block)
         for drop in (ctl[0]["id"], ctl[-1]["id"]):
             alt = apply_rule([dict(r, gated=r["gated"] or r["id"] == drop) for r in results])
-            robust[f"without {drop}"] = {k: alt[k] for k in ("outcome_1", "outcome_2")}
+            robust[f"without {drop}"] = {k: alt[k] for k in ("outcome_1", "outcome_1c", "outcome_2")}
     if robust:
         rule["drift_robust"] = robust
-        for k in ("outcome_1", "outcome_2"):
+        for k in ("outcome_1", "outcome_1c", "outcome_2"):
             if any(v[k] != rule[k] for v in robust.values()):
                 rule[k] = f"NOT ROBUST TO DRIFT (all controls: {rule[k]})"
     return rule

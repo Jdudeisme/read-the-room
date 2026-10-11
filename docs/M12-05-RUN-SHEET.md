@@ -1,8 +1,9 @@
 # M12-05 — paired live session on JPad — run sheet
 
 **Status.** DRAFT, written 2026-10-11. On 2026-10-11 the founder chose
-**Rule 2's harm-required variant**. The rule is otherwise PROPOSED, not
-signed. The
+**Rule 2's harm-required variant**, added **Rule 1c** (phantom count,
+FIELD-NOTES 2026-10-11, later), and picked track I. The rule is
+otherwise PROPOSED, not signed. The
 founder signs it, together with the track I pick, **before** the session. After the data is in,
 nothing in the rule moves. Human-run on JPad by the founder, with ≥ 3
 people for Block G. It is never started by an agent (CLAUDE.md). It changes no
@@ -33,11 +34,8 @@ Spotify is driven by hand.
 
 1. **Approve this sheet and sign the rule (section G).** It is
    pre-registered: tolerances can change now, not afterwards.
-2. **Track I, the instrumental hip-hop pick.** It's the one track not
-   fixed below. Pick a beat with no vocals, a strong kick and hats, and
-   no long intro. The 09-30 instrumental (*Rhymes Like Dimes*,
-   instrumental) is the continuity choice if it's on Spotify. Record its
-   URI in the tracks table.
+2. **Track I**: decided 2026-10-11, *Rhymes Like Dimes (Instrumental)*.
+   Confirm it plays on Spotify before Block S, and record the URI.
 3. **Consent.** This session **records the guests' voices to disk**: a
    new capture of room-derived data. Tell every guest before Block G
    starts, and get their agreement (the script is in section D). Without
@@ -107,7 +105,7 @@ over the music on purpose, and don't hold back for it either.
 | id | track | why | Spotify URI |
 |---|---|---|---|
 | H | "Surround Sound", JID ft. 21 Savage & Baby Tate (ladder T3) | vocal hip-hop: the 09-30 mechanism, and the M12-03 question | `spotify:track:1udwFobQ1JoOdWPQrp2b6u` |
-| I | founder's pick (section A2) | instrumental hip-hop: same genre, no vocals, the control for H | |
+| I | **"Rhymes Like Dimes (Instrumental)", MF DOOM** (founder's pick, 2026-10-11) | instrumental hip-hop, no vocals: the control for H, and continuity with 09-30 (the instrumental the room recovered under). Its drums are boom-bap, not H's trap, so H vs I differs in more than vocals: say so when reading 1b | note the URI at the session (the instrumental isn't confirmed on Spotify; if it isn't there, stop and pick again before Block S) |
 | J | "Georgia On My Mind", Oscar Peterson Trio (ladder T2) | jazz: the 09-30 case where headcount recovered | `spotify:track:2fOx7wWR2sOBIWyveecAGX` |
 
 **Volumes:** Windows 32 / 66 / 76 % (founder D2, 2026-10-09, in place of the
@@ -217,6 +215,24 @@ occupancy count for the headcount tests. Block S counts for the rest.
   classifier), as its deferral note says. The FIELD-NOTES entry records
   which test fired and on which takes.
 
+### Rule 1c — does a lone voice over our own music phantom-count? (added 2026-10-11)
+
+Block S is one person, so every non-`solo` headcount update there is a
+phantom. On the ladder, with cancellation on, a lone reader at 66/76 %
+read `solo` only 0.20–0.45, against 1.00 for the speech-only controls
+(FIELD-NOTES 2026-10-11, later).
+
+- For each Block S mix take **where the canceller locked** (any volume;
+  unlocked, the take is uncancelled and 1c's question doesn't apply),
+  compare the `solo` share with the mean of S-C1/S-C2.
+- **Fires if any take's `solo` share is more than 0.15 below the
+  controls'** (the same margin as 1b).
+- **Outcome:** **FILE** a REQUIRES-REVIEW finding, "phantom count over
+  RTR's own playback with cancellation on", with the takes and shares.
+  The remedy isn't pre-decided: M12-03's classifier refuses music-only
+  chunks, while here the music sits under real speech. If nothing fires:
+  **CLEAR**.
+
 ### Rule 2 — does the mapper's trend move to `clean_trend`?
 
 - **2a, the feedback loop is observed.** In S-VS-I or G-VS-I, `trend`
@@ -258,7 +274,7 @@ outcome that changes when either control is dropped prints as
 
 **Implemented in code** before the session (run sheet B3):
 `scripts/m12_session_replay.py`, constants `R1A_MAX_ELIGIBLE`,
-`R1B_SOLO_MARGIN`, `R2A_RISING_MARGIN`, `R2B_TOLERANCE`. The script prints
+`R1B_SOLO_MARGIN`, `R1C_SOLO_MARGIN`, `R2A_RISING_MARGIN`, `R2B_TOLERANCE`. The script prints
 each test's inputs and the outcomes. Changing a constant after the
 session voids the rule.
 

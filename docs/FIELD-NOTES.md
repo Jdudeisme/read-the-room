@@ -65,6 +65,11 @@ withdrew it. Rule 1b is 0.15 at every volume with no special routing.
 H's lock state is reported, not ruled on. 32 % stays in the protocol, and
 2b's 32 % exclusion (above) stands on its own evidence.
 
+**Founder decisions (2026-10-11, later still):** the M12-05 rule gains
+**Rule 1c**. In Block S, a locked mix take whose `solo` share is more than
+0.15 below the controls' files a phantom-count finding. Track I is MF DOOM,
+*Rhymes Like Dimes (Instrumental)*.
+
 ## 2026-10-11 (offline) — M12-04 survey: certification carried most of the music in energy, and M12-02 already cleans it
 
 **Setup.** Offline, on JPad, `scripts/m12_energy_survey.py` over the
