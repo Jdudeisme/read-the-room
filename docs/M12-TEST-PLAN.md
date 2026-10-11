@@ -32,13 +32,13 @@ and who does what. Where they disagree, the run sheet wins.
 
 | step | who | when | time |
 |---|---|---|---|
-| 1. Gate (c) tooling: `bench_headcount.py --cancel` (the canceller running beside the workers) | CLAUDE | any time before step 7 | ~1 h, plus your diff review |
+| 1. Gate (c) tooling: `bench_headcount.py --cancel` (the canceller running beside the workers) | CLAUDE | **done 2026-10-11** | |
 | 2. Preflight (run sheet B) | CLAUDE | the session day, before you start | ~20 min |
 | 3. Fixed conditions + Block S, alone | FOUNDER | the session day | **~1 h 40 min** |
 | 4. Break; guests arrive; consent | FOUNDER | | ~15 min |
 | 5. Block G, **you + 3 guests (4 people)** | FOUNDER | | **~1 h**; guests needed ~1 h 10 min in total |
 | 6. Analysis + FIELD-NOTES entry + rule outcomes | CLAUDE | after the session | ~1.5 h of compute, then the write-up |
-| 7. Gate (c) bench rows | CLAUDE | after step 1 | ~20 min |
+| 7. Gate (c) bench rows | CLAUDE | **done 2026-10-11: PASS** (FIELD-NOTES 2026-10-11, afternoon) | |
 | 8. Gates (a), (b), (c) recorded in the README gate table | CLAUDE | after 6–7 | ~30 min |
 | 9. Decisions on the rule's outcomes, then the merge to `main` | FOUNDER | after 8 | your call |
 
@@ -201,6 +201,9 @@ The rule is applied by the signed code: Rule 1 (1a, 1b), Rule 1c, Rule 2
   mapper *switch / hold / file*.
 
 ## Part (c) — the budget with the M12 path on [CLAUDE]
+
+**Status: PASSED 2026-10-11** (FIELD-NOTES 2026-10-11, afternoon; README
+M12 gate section). The text below is how it was run.
 
 `bench_headcount.py --fallback` times the workers directly. Today it never
 runs the canceller, so it can't see M12's extra CPU. Step 1 adds a

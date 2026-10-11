@@ -5,6 +5,59 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-11 (afternoon, offline) — M12 gate (c): the budget holds with the playback canceller running
+
+**Setup.** JPad, branch `milestone-12-hear-the-room`, `.env` as it stands
+(`RTR_TORCH_THREADS=0`), mains power, nothing else running. Gate (c) is
+"a `bench_headcount.py --fallback` row on the reference machine with the
+M12 path enabled, inside the ~1.66 s headcount budget, with the DSP
+heartbeat still never blocking."
+
+`bench_headcount.py` times the workers directly, so until now it never ran
+the canceller. **New option `--cancel TAKE`.** Before timing, it replays a
+take's mic and reference in real time through the real `CleanSource`, using
+the file sources of `bench_cancel_heartbeat.py`. It waits for the
+canceller to lock (locked blocks are the costly ones), then times as
+before while the canceller keeps running on its own thread. Take:
+`ladder-20261009-T3-MX66`, dense rap at 66 %, where the canceller works
+hardest. It locked at 8.3 s in every run and stayed locked: 0 resyncs, no
+errors. M8 convention: three `--fallback --cancel` runs alternated with
+three plain `--fallback` runs, default 20 hops each, 14:37–14:40.
+
+| | headcount mean | headcount p95 | emotion overall mean | emotion overall p95 |
+|---|---|---|---|---|
+| `--fallback` (plain) | 0.25–0.28 s | 0.25–0.29 s | 0.34–0.41 s | 0.41–0.45 s |
+| `--fallback --cancel` | 0.24–0.30 s | 0.28–0.35 s | 0.35–0.44 s | 0.38–0.53 s |
+| budget | | **< 1.66 s** | | **< 1.2 s absolute** |
+
+**Heartbeat** (`bench_cancel_heartbeat.py`, the same take, 90 s per mode,
+real emotion and headcount workers, 14:40–14:43). Raw: tick interval
+p50 / p95 / max 2.000 / 2.031 / 2.031 s, worst tick 31 ms late. Cancelling:
+2.000 / 2.016 / 2.032 s, **32 ms late**, every frame `clean`, 0 resyncs.
+
+**Findings.**
+
+1. **Gate (c) passes.** With the canceller running, headcount p95 is at
+   most 0.35 s against 1.66 s, and emotion p95 at most 0.53 s against 1.2 s.
+2. **The canceller's cost is within run-to-run variance.** Its ranges
+   overlap the plain runs'. Its worst run (headcount p95 0.35 s, emotion
+   0.53 s) sits about 0.06 / 0.08 s above the plain worst. Run 3 with
+   cancellation was faster than run 2 without it.
+3. **The heartbeat never blocks with cancellation on.** It's the third
+   measurement: p95 2.016 s and 32 ms late here, 2.032 s / 32 ms earlier
+   today, 2.032 s / 63 ms at M12-02 step 4. The worst tick in any of them
+   is ≤ 3 % of a hop.
+4. Today's plain numbers sit a little above the M8 row (headcount p95
+   0.25–0.28 s, emotion 0.37–0.40 s on 2026-10-09). That's day-to-day
+   variance, and the alternation is what controls for it. Both are far
+   inside budget.
+
+**Bounds of this measurement.** One take, the hardest available.
+`bench_headcount` times the workers, not the tick (its standing
+limitation, README M8 gate). The tick is what the heartbeat bench covers.
+If anything compute-bearing changes before the merge (for example the
+canceller's lock threshold), gate (c) is re-run.
+
 ## 2026-10-11 (offline, later) — M12-05 preflight B3: the session analysis is fixed in code and tested on the ladder
 
 **What was tested.** `scripts/m12_session_replay.py`, the analysis the

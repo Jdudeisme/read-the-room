@@ -653,6 +653,28 @@ orchestration refactor by construction; tick cost is not benchmarked.
 The script still prints the Mac's 1.37 s budget (FIELD-NOTES 2026-10-09);
 the JPad budget above is the README's 1.66 s.
 
+### Milestone 12 gate (Windows laptop `JPad`) — in progress
+
+**Not yet passed.** Part (c) is recorded. Part (a) is measured and
+awaits its re-run. Part (b), the M12-05 live session, has not been run.
+See [docs/M12-TEST-PLAN.md](docs/M12-TEST-PLAN.md).
+
+**Part (c), budget with the M12 path on (2026-10-11): PASS.**
+`bench_headcount.py --fallback --cancel` runs the playback canceller
+(`CleanSource`, locked, on the ladder's T3-MX66 rap take) in real time
+beside the timed workers. There were three runs, alternated with three plain
+`--fallback` runs (plain: headcount 0.25–0.28 / 0.25–0.29 s, emotion
+0.34–0.41 / 0.41–0.45 s), 14:37–14:40.
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback --cancel` | headcount, contended hops | 0.24–0.30 s | 0.28–0.35 s | < 1.66 s | PASS |
+| `bench_headcount.py --fallback --cancel` | emotion, overall | 0.35–0.44 s | 0.38–0.53 s | < 1.2 s absolute | PASS |
+| `bench_cancel_heartbeat.py` | tick interval, cancelling | p50 2.000 s | 2.016 s (max 2.032 s) | never blocks | PASS (worst tick 32 ms late) |
+
+The canceller held its lock with 0 resyncs throughout. See FIELD-NOTES
+2026-10-11 (afternoon).
+
 ## Tests
 
 ```bash
