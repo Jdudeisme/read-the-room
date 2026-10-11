@@ -5,6 +5,11 @@ tap time (sent by the client), not whatever is latest server-side — the
 annotation labels what the human saw. `recommendation.matched_cell` and
 `recommendation.boundaries_snapshot` make every verdict attributable to a
 specific rulebook cell under specific boundary values.
+
+Schema v2 (M12-04, founder D2 2026-10-11): the stamped state can carry the
+playback-clean heartbeat (`clean_loudness_dbfs`, `clean_activity_density`,
+`clean_spectral_balance`, `clean_energy`, `clean_trend`). They are None when
+cancellation was off. Additive: a v1 record is a v2 record without them.
 """
 
 from __future__ import annotations
@@ -13,7 +18,7 @@ import json
 import time
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 VERDICTS = ("good", "wrong")
 

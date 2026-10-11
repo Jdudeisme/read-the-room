@@ -181,7 +181,8 @@ class TestPlayedThroughSink:
     def test_occupied_completion_stamped_schema_v2(self, tmp_path):
         frame = {"type": "state", "headcount_staleness_s": 4.0, "valence": 0.5}
         record = self._run_sink(tmp_path, frame, PresenceGate())
-        assert record["schema_version"] == 2
+        # presence arrived in v2 (M5); v3 adds clean_* state fields (M12-04)
+        assert record["schema_version"] == 3
         assert record["action"] == "played_through"
         assert record["presence"]["occupied"] is True
         assert record["presence"]["basis"] == "fresh"

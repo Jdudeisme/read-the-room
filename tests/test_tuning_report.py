@@ -451,3 +451,65 @@ class TestScript:
         assert (d / "2026-07-10.jsonl").read_text(encoding="utf-8").count(
             "played_through"
         ) == 2
+
+
+class TestSchemaAudit:
+    """M12-04 (founder D2, 2026-10-11): annotations v2 and overrides v3 add
+    the clean_* state fields. The report must read a corpus where they
+    appear, as values or as None, exactly as it reads the same corpus
+    without them (invariant 9: additive only, audited here)."""
+
+    CLEAN = {
+        "clean_loudness_dbfs": -41.2,
+        "clean_activity_density": 1.8,
+        "clean_spectral_balance": {"low": 0.2, "mid": 0.6, "high": 0.2},
+        "clean_energy": 0.55,
+        "clean_trend": "stable",
+    }
+
+    def _report(self, tmp_path, monkeypatch, capsys, annotations, overrides):
+        tmp_path.mkdir()
+        monkeypatch.chdir(tmp_path)
+        for name, recs in (("annotations", annotations), ("overrides", overrides)):
+            d = tmp_path / name
+            d.mkdir()
+            (d / "2026-10-11.jsonl").write_text(
+                "".join(json.dumps(r) + "\n" for r in recs), encoding="utf-8"
+            )
+        exit_code = tuning_report.main([
+            str(tmp_path / "annotations" / "*.jsonl"),
+            "--overrides", str(tmp_path / "overrides" / "*.jsonl"),
+        ])
+        assert exit_code == 0
+        return capsys.readouterr().out.replace(str(tmp_path), "<tmp>")
+
+    def _bump(self, r, version, clean):
+        r = json.loads(json.dumps(r))
+        r["schema_version"] = version
+        r["state"].update(clean)
+        return r
+
+    def test_new_schema_reads_the_same_as_the_old(self, tmp_path, monkeypatch, capsys):
+        from dashboard.annotations import SCHEMA_VERSION as ANN_V
+        from dashboard.overrides import SCHEMA_VERSION as OVR_V
+
+        assert (ANN_V, OVR_V) == (2, 3)
+        ann = [record("wrong", 0.28, 0.4) for _ in range(3)] + [
+            record("good", 0.6, 0.5), guard_record()]
+        ovr = [override_record("skip", valence=0.28) for _ in range(2)] + [
+            override_record("played_through"),
+            override_record("manual", target_arousal=0.0,
+                            chosen={"genre": "Jazz", "tier": "high"})]
+        absent = {k: None for k in self.CLEAN}
+        new_ann = [self._bump(r, ANN_V, self.CLEAN if i % 2 else absent)
+                   for i, r in enumerate(ann)]
+        new_ovr = [self._bump(r, OVR_V, self.CLEAN if i % 2 else absent)
+                   for i, r in enumerate(ovr)]
+        # Mixed corpus: old records beside new ones, as the day files will
+        # be. It must report exactly as the old records counted twice.
+        mixed = self._report(tmp_path / "mixed", monkeypatch, capsys,
+                             ann + new_ann, ovr + new_ovr)
+        doubled = self._report(tmp_path / "doubled", monkeypatch, capsys,
+                               ann + ann, ovr + ovr)
+        assert "TUNING REPORT" in mixed and "OVERRIDES" in mixed
+        assert mixed == doubled

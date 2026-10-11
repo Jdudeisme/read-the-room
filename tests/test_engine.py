@@ -41,7 +41,7 @@ from sensing.emotion import EmotionReading
 from sensing.engine import Engine
 from sensing.headcount import HeadcountReading
 from sensing.music import dominance
-from sensing.state import HeadcountBucket
+from sensing.state import HeadcountBucket, energy_score
 
 SR = 16_000
 TRACK_A = "spotify:track:A"
@@ -790,3 +790,76 @@ def test_dominance_stays_spectral_on_raw_and_none_without_playback():
     rig.stop_playback()
     off = rig.tick(ratio=0.6)
     assert off.emotion_music_dominance is None and off.emotion_dominance_source is None
+
+
+# -- M12-04: the clean heartbeat beside the raw one ---------------------------------
+
+
+def test_clean_heartbeat_is_absent_without_cancellation():
+    state = Rig().tick(ratio=0.6)
+    assert state.analysis_stream == "raw"
+    assert state.clean_loudness_dbfs is None and state.clean_activity_density is None
+    assert state.clean_spectral_balance is None and state.clean_energy is None
+    assert state.clean_trend is None
+
+
+def test_clean_heartbeat_measures_the_clean_ring_and_raw_fields_stay_raw():
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    _prime(rig, clean)
+    rig.reading(0.2, 0.4)
+    rig.vad.ratio = 0.6
+    raw_only = Rig()
+    raw_only.reading(0.2, 0.4)
+    state = _feed_both(rig, clean)
+    ref_state = raw_only.tick(ratio=0.6)
+    # The existing fields are the raw signal's, exactly as without cancellation...
+    assert state.loudness_dbfs == ref_state.loudness_dbfs
+    assert state.activity_density == ref_state.activity_density
+    assert state.spectral_balance == ref_state.spectral_balance
+    assert state.energy == ref_state.energy
+    # ...and the clean_* fields are the clean ring's: half amplitude is -6.02 dB.
+    assert state.clean_loudness_dbfs == pytest.approx(state.loudness_dbfs - 6.0, abs=0.11)
+    window = clean.ring.read_last(int(rig.config.window_s * SR))
+    assert state.clean_spectral_balance == dsp.analyze(window, SR).spectral_balance
+    # Same weights, the frame's own (clean-certified) speech ratio and arousal.
+    expected = energy_score(
+        state.clean_loudness_dbfs, state.clean_activity_density,
+        state.speech_ratio, state.arousal,
+    )
+    assert state.clean_energy == pytest.approx(expected, abs=2e-3)
+    assert state.clean_energy < state.energy
+    assert state.clean_trend == "stable"
+
+
+def test_bit_identical_clean_stream_reads_the_same_as_raw():
+    """Nothing playing: the canceller passes the mic through bit-identical,
+    so the clean heartbeat must equal the raw one, trend included."""
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    rig.set_signal(0.0, amp=0.01)
+    clean.ring.write(_signal(rig.high, rig.config.window_s, rig.amp))
+    rig.vad.ratio = 0.6
+    for i in range(12):  # ~+2 dB a tick, so the trend has to move
+        rig.now += 2.0
+        x = _signal(rig.high, 2.0, rig.amp * 1.25**i)
+        rig.source.ring.write(x)
+        clean.ring.write(x)
+        clean.echo_ring.write(np.zeros_like(x))
+        state = rig.engine._tick(now=rig.now, wall=1.79e9 + rig.now)
+    assert state.clean_loudness_dbfs == state.loudness_dbfs
+    assert state.clean_activity_density == state.activity_density
+    assert state.clean_spectral_balance == state.spectral_balance
+    assert state.clean_energy == state.energy
+    assert state.clean_trend == state.trend == "rising"
+
+
+def test_clean_heartbeat_goes_absent_when_cancellation_falls_back():
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    _prime(rig, clean)
+    assert _feed_both(rig, clean).clean_energy is not None
+    clean.status, clean.error = "failed", "boom"
+    state = _feed_both(rig, clean)
+    assert state.analysis_stream == "raw" and state.clean_energy is None
+    assert state.clean_loudness_dbfs is None and state.clean_trend is None

@@ -263,7 +263,7 @@ class TestAnnotations:
         files = list((tmp_path / "annotations").glob("*.jsonl"))
         assert len(files) == 1
         record = json.loads(files[0].read_text(encoding="utf-8"))
-        assert record["schema_version"] == 1
+        assert record["schema_version"] == 2  # v2: clean_* state fields (M12-04)
         assert record["verdict"] == "good"
         # the log holds EXACTLY what was displayed
         assert record["state"] == displayed_state
@@ -309,7 +309,7 @@ class TestAnnotations:
         record = build_record("wrong", {"valence": 0.1}, {"matched_cell": ["4"]}, ts=5.0)
         parsed = json.loads(json.dumps(record))
         assert parsed == record
-        assert parsed["schema_version"] == 1
+        assert parsed["schema_version"] == 2
         assert parsed["ts"] == 5.0
 
 
@@ -457,7 +457,7 @@ class TestOverridesEndpoint:
         files = list((tmp_path / "overrides").glob("*.jsonl"))
         assert len(files) == 1
         record = json.loads(files[0].read_text(encoding="utf-8"))
-        assert record["schema_version"] == 2
+        assert record["schema_version"] == 3  # v3: clean_* state fields (M12-04)
         assert record["action"] == "skip"
         assert record["now_playing"]["track"]["id"] == "t1"
         assert record["recommendation"]["matched_cell"] == ["4", "high", "high"]

@@ -163,6 +163,14 @@ class Engine:
             else None
         )
         self._trend = TrendTracker(config.trend_horizon_s, config.trend_slope_threshold)
+        # M12-04: the same heartbeat measures on the clean stream, with their
+        # own EMAs and trend at the same constants (reweighting is out of
+        # scope). Fed only while cancellation runs.
+        self._ema_clean_loudness = Ema(config.smooth_tau_dsp_s)
+        self._ema_clean_activity = Ema(config.smooth_tau_dsp_s)
+        self._clean_trend = TrendTracker(
+            config.trend_horizon_s, config.trend_slope_threshold
+        )
         self._vad_position = 0
         self._running = False
         # Idempotent shutdown (M8-07, AUDIT finding 5). run()'s finally and
@@ -304,13 +312,27 @@ class Engine:
         analysis = self._analysis_source()
         raw_window = self.source.ring.read_last(n_window)
         # M12-02: certification, emotion and headcount read `window` (clean
-        # when cancellation runs); the DSP heartbeat reads raw (M12-04/06).
+        # when cancellation runs); the DSP heartbeat reads raw (M12-06), and
+        # M12-04 measures the clean window beside it.
         window = raw_window if analysis is self.source else analysis.ring.read_last(n_window)
 
         # Layer 1: DSP heartbeat.
         measured = dsp.analyze(raw_window, self.config.sample_rate)
         loudness = self._ema_loudness.update(measured.rms_dbfs, now)
         activity = self._ema_activity.update(measured.onset_density, now)
+        # M12-04: while cancellation runs, the heartbeat measures again on
+        # the clean window and publishes them as clean_* fields. The raw
+        # fields stay raw: the blind detector (dashboard/bridge.py) must
+        # see the music, and the noise floor includes it by design. The
+        # 2026-10-11 survey: clean loudness sits 1.9-4.9 dB under raw at
+        # 66/76 % (FIELD-NOTES 2026-10-11; docs/M12-04-PLAN.md).
+        clean_measured = clean_loudness = clean_activity = None
+        if analysis is not self.source:
+            clean_measured = dsp.analyze(window, self.config.sample_rate)
+            clean_loudness = self._ema_clean_loudness.update(clean_measured.rms_dbfs, now)
+            clean_activity = self._ema_clean_activity.update(
+                clean_measured.onset_density, now
+            )
 
         # Playback awareness (M4): a cached read, never provider I/O. A
         # broken source must not take down the sensing heartbeat. Read
@@ -416,6 +438,14 @@ class Engine:
                 hc_confidence = hc_reading.confidence
 
         energy = energy_score(loudness, activity, speech_ratio, arousal)
+        clean = None
+        if clean_measured is not None:
+            # speech_ratio is already the clean stream's certification
+            # (M12-02), and arousal reads clean audio, M6-corrected.
+            clean = (
+                clean_loudness, clean_activity, clean_measured,
+                energy_score(clean_loudness, clean_activity, speech_ratio, arousal),
+            )
         return self._publish(
             wall, loudness, activity, measured, speech_ratio, valence, arousal,
             confidence, staleness, hc_bucket, hc_confidence, hc_staleness,
@@ -423,6 +453,7 @@ class Engine:
             music_dominance, emotion_correction,
             analysis_stream="raw" if analysis is self.source else "clean",
             dominance_source=dominance_source,
+            clean=clean,
         )
 
     def _publish(
@@ -430,8 +461,21 @@ class Engine:
         arousal, confidence, staleness, hc_bucket, hc_confidence,
         hc_staleness, energy, now, playback_active, playback_track_id,
         music_dominance, emotion_correction, analysis_stream="raw",
-        dominance_source=None,
+        dominance_source=None, clean=None,
     ) -> RoomState:
+        """`clean` is (loudness, activity, DspResult, energy) on the clean
+        stream while cancellation runs, else None: the clean_* fields are
+        then None (honest absence; nothing was cleaned)."""
+        clean_fields = {}
+        if clean is not None:
+            c_loud, c_act, c_measured, c_energy = clean
+            clean_fields = dict(
+                clean_loudness_dbfs=round(c_loud, 1),
+                clean_activity_density=round(c_act, 2),
+                clean_spectral_balance=c_measured.spectral_balance,
+                clean_energy=round(c_energy, 3),
+                clean_trend=self._clean_trend.update(c_energy, now),
+            )
         mood = None
         if (
             valence is not None
@@ -470,4 +514,5 @@ class Engine:
             emotion_correction=emotion_correction,
             analysis_stream=analysis_stream,
             emotion_dominance_source=dominance_source,
+            **clean_fields,
         )

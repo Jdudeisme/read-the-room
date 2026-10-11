@@ -146,8 +146,9 @@ class RoomState:
     # Playback cancellation (M12-02): the mic stream this frame's
     # certification, emotion and headcount read. "raw", or "clean" (RTR's
     # own playback cancelled; sensing/audio.py CleanSource). Loudness,
-    # activity, spectral balance and dominance are always raw. Additive: a
-    # frame without it is a raw frame.
+    # activity, spectral balance and dominance are always raw (the clean
+    # heartbeat is the clean_* fields, M12-04). Additive: a frame without
+    # it is a raw frame.
     analysis_stream: str = "raw"
     # M12-06: which measure produced `emotion_music_dominance`: "spectral"
     # (the high-band share, sensing/music.py) or "reference" (the energy
@@ -155,6 +156,21 @@ class RoomState:
     # reference_dominance; only while cancellation runs). None when there
     # is no dominance (playback off). Additive.
     emotion_dominance_source: str | None = None
+
+    # Playback-clean heartbeat (M12-04): loudness, activity, spectral
+    # balance, energy and trend measured on the clean stream, while
+    # cancellation runs (analysis_stream == "clean"). The fields above stay
+    # raw. clean_energy uses the same energy_score weights, the
+    # frame's speech_ratio (already the clean certification) and arousal.
+    # None when cancellation isn't running: nothing was cleaned (founder
+    # D1, 2026-10-11). The mapper reads `trend`, not `clean_trend`, until
+    # M12-05's pre-registered rule says otherwise. Additive, with
+    # the corpus schema bumped (annotations v2, overrides v3).
+    clean_loudness_dbfs: float | None = None
+    clean_activity_density: float | None = None
+    clean_spectral_balance: dict[str, float] | None = None
+    clean_energy: float | None = None
+    clean_trend: Trend | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)

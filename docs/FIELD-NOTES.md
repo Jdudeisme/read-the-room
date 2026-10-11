@@ -102,6 +102,25 @@ is approved, with D1–D3 as recommended. Clean fields are `None` when
 cancellation is off; the corpus schema is bumped; M12-05 adds a
 volume-step phase.
 
+**The diff, built.** Five additive RoomState fields (`clean_loudness_dbfs`,
+`clean_activity_density`, `clean_spectral_balance`, `clean_energy`,
+`clean_trend`), measured on the clean window while cancellation runs and
+`None` otherwise. Every existing field is unchanged. The schema moves to
+annotations v2 and overrides v3, and the mapper still reads raw `trend`.
+
+- **Heartbeat** (`scripts/bench_cancel_heartbeat.py`, T3-MX66, 90 s per
+  mode, the same protocol as M12-02 step 4). Raw: 2.000 / 2.031 /
+  2.031 s, 31 ms late. Cancelling, with the clean heartbeat: 2.000 /
+  2.032 / 2.032 s, **32 ms late** (step 4: 2.032 / 2.063 s, 63 ms). Every
+  frame was `clean`, with 0 resyncs. That is within run-to-run variance:
+  the extra `dsp.analyze` doesn't show.
+- **`tuning_report.py` audit.** The report on the real corpus
+  (`data/annotations`, `data/overrides`) is byte-identical before and
+  after the diff. A new test feeds a mixed v1/v2 annotation and v2/v3
+  override corpus, with clean fields as values and as `None`. It reports
+  exactly as the old records counted twice.
+- 426 tests pass.
+
 ## 2026-10-09 (night, offline) — M12-06: reference-based dominance turns the ladder from outcome C into B66
 
 **Setup.** Offline, on JPad, `scripts/m12_dominance_reference.py` over
