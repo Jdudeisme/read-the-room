@@ -5,6 +5,49 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-11 (afternoon, offline) — M12 gate (a): the 2026-09-30 replay reproduces, and "after" equals "before" by decision
+
+**Gate (a)** (ROADMAP § M12): "the 2026-09-30 recording replayed through
+the M12-03 gate, with the per-segment table compared against the 'before'
+table in FIELD-NOTES 2026-09-30 (night) … The recording has no reference
+channel, so this exercises only the reference-free part of M12-03."
+
+**There is no reference-free gate to put in the replay.** Two decisions
+and one measurement settled that:
+- The D3 survey found the cheap reference-free features detect music, not
+  the record's vocals (FIELD-NOTES 2026-10-09).
+- M12-03 is deferred (founder, 2026-10-09). Cancellation does its job
+  wherever a reference exists, and M12-05's signed rule is what reopens it.
+- So the "after" replay is `--gate none`, and its table is the "before"
+  table, by decision. The checkable claim is that the harness still
+  reproduces 09-30.
+
+**Run.** JPad, branch `milestone-12-hear-the-room` @ `617ccbc`,
+14:47–14:51: `scripts/m12_partf_replay.py
+data/captures/m7-partf-2026-09-30-16k.wav … --gate none`. The config it
+mirrors is the 09-30 session's, as its docstring states.
+
+**Result.** 830 / 830 rows; **15,480 fields compared, 0 differing**
+against `data/partf-replay/faithful.jsonl`. The per-segment table:
+
+| segment | buckets | certified ratio | frag |
+|---|---|---|---|
+| vocal hip-hop (*Tick, Tock*) | solo 117 / pair 23 / `3` 3 | 0.79 | 0.80 |
+| instrumental hip-hop (*Rhymes Like Dimes*) | solo 43 / pair 10 | 0.45 | 0.89 |
+| big band | pair 40 / solo 2 | 0.46 | 0.81 |
+| no music (skip gap) | solo 22 | 0.77 | 0.78 |
+| manual Hip-Hop/mid | solo 66 / pair 50 | 0.80 | 0.80 |
+| jazz | pair 152 / `3` 108 / `4` 23 / solo 59 | 0.55 | 0.62 |
+
+This is identical to FIELD-NOTES 2026-09-30 (night), "faithful", on every
+row.
+
+**Gate (a) is recorded as run.** The 09-30 failure isn't fixed by a
+reference-free gate: no recording without a reference can show M12's
+fix. What fixes it is cancellation (M12-02), and gate (b) is where that is
+measured live, against this table's mechanism. Its instrumental control
+is the same *Rhymes Like Dimes* instrumental.
+
 ## 2026-10-11 (afternoon, offline) — M12 gate (c): the budget holds with the playback canceller running
 
 **Setup.** JPad, branch `milestone-12-hear-the-room`, `.env` as it stands

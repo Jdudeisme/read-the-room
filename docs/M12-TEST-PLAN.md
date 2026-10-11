@@ -39,7 +39,7 @@ and who does what. Where they disagree, the run sheet wins.
 | 5. Block G, **you + 3 guests (4 people)** | FOUNDER | | **~1 h**; guests needed ~1 h 10 min in total |
 | 6. Analysis + FIELD-NOTES entry + rule outcomes | CLAUDE | after the session | ~1.5 h of compute, then the write-up |
 | 7. Gate (c) bench rows | CLAUDE | **done 2026-10-11: PASS** (FIELD-NOTES 2026-10-11, afternoon) | |
-| 8. Gates (a), (b), (c) recorded in the README gate table | CLAUDE | after 6–7 | ~30 min |
+| 8. Gates recorded in the README gate table | CLAUDE | (a) and (c) **done 2026-10-11**; (b) after step 6 | ~15 min |
 | 9. Decisions on the rule's outcomes, then the merge to `main` | FOUNDER | after 8 | your call |
 
 **Session day, in total:** about **3 h 15 min**, with Block S in the
@@ -49,7 +49,8 @@ bracketing controls exist to catch drift within a day, not across days.
 
 ## Part (a) — offline replay of 2026-09-30 [CLAUDE]
 
-**Status: the measurement is done. It needs only recording.** M12-03
+**Status: RUN and recorded 2026-10-11** (FIELD-NOTES 2026-10-11,
+afternoon: 830 rows, 15,480 fields, 0 differing). The reasoning: M12-03
 is deferred (founder, 2026-10-09), and the reference-free features were
 measured ineffective (D3 survey, FIELD-NOTES 2026-10-09). So there is no
 reference-free gate to put in the replay. `scripts/m12_partf_replay.py

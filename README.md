@@ -655,9 +655,16 @@ the JPad budget above is the README's 1.66 s.
 
 ### Milestone 12 gate (Windows laptop `JPad`) — in progress
 
-**Not yet passed.** Part (c) is recorded. Part (a) is measured and
-awaits its re-run. Part (b), the M12-05 live session, has not been run.
-See [docs/M12-TEST-PLAN.md](docs/M12-TEST-PLAN.md).
+**Not yet passed.** Parts (a) and (c) are recorded. Part (b), the M12-05
+live session, has not been run. See
+[docs/M12-TEST-PLAN.md](docs/M12-TEST-PLAN.md).
+
+**Part (a), the offline 2026-09-30 replay (2026-10-11): RUN.** There is no
+reference-free gate to replay: the D3 survey found the features
+ineffective, and M12-03 is deferred. So "after" equals "before" by
+decision. `scripts/m12_partf_replay.py --gate none` reproduces the
+09-30 "before" table exactly (830 rows, 15,480 fields, 0 differing). See
+FIELD-NOTES 2026-10-11 (afternoon).
 
 **Part (c), budget with the M12 path on (2026-10-11): PASS.**
 `bench_headcount.py --fallback --cancel` runs the playback canceller
