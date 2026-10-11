@@ -5,6 +5,60 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-11 (offline, later) — M12-05 preflight B3: the session analysis is fixed in code and tested on the ladder
+
+**What was tested.** `scripts/m12_session_replay.py`, the analysis the
+M12-05 run sheet (section F) specifies. It must exist before the session
+so the pre-registered rule is applied by code written before the data.
+Two runs:
+
+1. **`--ladder --no-headcount`** on the 2026-10-09 ladder. All **48 of 48**
+   energy medians (raw, published-with-cancellation, clean, across 16 takes)
+   are identical to `m12_energy_survey.py`'s (FIELD-NOTES 2026-10-11).
+2. **A fake session** (scratchpad, deleted after): ladder takes copied
+   under the session's names (`S-*`, `G-*`). Two synthetic volume-step
+   takes were made as in the survey's `--step` (a reading control plus
+   T1's music-only echo, +8 dB at 90 s). The full replay with ECAPA
+   headcount ran end to end. Every rule test (1a, 1b with lock routing,
+   2a, 2b), the outcomes, and the drift check evaluate. On ladder audio:
+   Rule 1 STAYS DEFERRED, Rule 2 HOLD (both volume steps: `rising` 0.00 in
+   `trend` and in `clean_trend`). The fake G block's mismatched
+   "controls" (C3 conversation, C2 far) were correctly flagged as drift:
+   2b flips when C2 is dropped, and the script prints
+   `NOT ROBUST TO DRIFT`.
+
+**A run sheet change the test forced: Rule 2b excludes 32 %.** I had
+added locked 32 % takes to 2b. On the ladder, the one locked 32 % take
+(T3-MX32) failed it by 0.006: published energy sat 0.000 from the
+controls, clean 0.016. At 32 % the music's loudness bias is about zero,
+so the gap measures take-to-take talk (the two reading controls alone
+differ by 0.011). 2b is back to 66/76 % only, with this as the reason. The
+founder's 32 % provision is in Rule 1b instead. There, a firing on an
+unlocked H take (the B66 envelope) routes to the canceller's lock
+threshold first, then to the classifier.
+
+**Finding (open; no rule covers it): a lone reader over loud music
+phantom-counts, even with cancellation on.** Block S of the fake session
+is the real ladder audio, so the truth is **1** (the founder reading).
+Headcount `solo` share, with cancellation off → on:
+
+| take | 32 % | 66 % | 76 % |
+|---|---|---|---|
+| T3 (vocal hip-hop) | 0.93 → 0.50 (locked 30 s) | 0.81 → 0.45 | 0.25 → 0.20 |
+| T1 (pop) | 0.41 → 0.41 (never locks) | 0.25 → 0.31 | 0.17 → 0.25 |
+| T2 (jazz) | 0.87 → 0.87 (never locks) | 0.23 → 0.29 | 0.32 → 0.21 |
+| speech-only controls C1/C4 | 1.00 | | |
+
+The rest of each row is mostly `pair`, with some `3` and `4`. So at
+66/76 % the residual music, or the voice as heard through it, splits into
+a second cluster. Cancellation removes the rap's own certification (T3
+music-only eligible 0.535 → 0.000) but not this. It is the opposite of
+09-30's failure (undercounting a room of 3 as `solo`), and CLAUDE.md
+ranks phantom crowds as the worse error. M12-05's Block S will measure it
+again, but its rule has no headcount test for Block S. **Founder
+decision:** add a Rule 1c (e.g. Block S `solo` share at 66/76 % against
+the controls) before signing, or leave it as a recorded observation.
+
 ## 2026-10-11 (offline) — M12-04 survey: certification carried most of the music in energy, and M12-02 already cleans it
 
 **Setup.** Offline, on JPad, `scripts/m12_energy_survey.py` over the

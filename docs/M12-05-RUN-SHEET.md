@@ -1,8 +1,9 @@
 # M12-05 — paired live session on JPad — run sheet
 
-**Status.** DRAFT, written 2026-10-11. **The decision rule below is
-PROPOSED, not signed.** The founder approves the sheet and signs the rule
-(or changes its tolerances) **before** the session. After the data is in,
+**Status.** DRAFT, written 2026-10-11. On 2026-10-11 the founder chose
+**Rule 2's harm-required variant** and asked for a 32 % provision, which
+is now in Rule 1b. The rule is otherwise PROPOSED, not signed. The
+founder signs it, together with the track I pick, **before** the session. After the data is in,
 nothing in the rule moves. Human-run on JPad by the founder, with ≥ 3
 people for Block G. It is never started by an agent (CLAUDE.md). It changes no
 constant, threshold or default. Its output is a FIELD-NOTES entry, the
@@ -56,8 +57,8 @@ Offline, about 15 minutes. **Stop and diagnose** on any failure.
    cancellation and reference flags don't matter here, because capture
    runs through `capture_room_wav.py`, not the engine.
 3. **The analysis tooling exists and is tested before the session.**
-   `scripts/m12_session_replay.py` (to be written; see section F) is run
-   once on the 2026-10-09 ladder takes. It must reproduce
+   `scripts/m12_session_replay.py --ladder` is run once on the
+   2026-10-09 ladder takes. It must reproduce
    `m12_energy_survey.py`'s numbers for those takes, so the rule's
    analysis is fixed in code before the data exists.
 4. `.venv\Scripts\python.exe scripts\capture_room_wav.py --list-devices`
@@ -159,8 +160,8 @@ difference, not as an effect.
 
 ## F. Analysis — offline, after the session
 
-`scripts/m12_session_replay.py` is to be written and tested before the
-session (section B3). It is `m12_energy_survey.py`'s replay, extended with
+`scripts/m12_session_replay.py` (written 2026-10-11; tested on the
+ladder, section B3). It is `m12_energy_survey.py`'s replay, extended with
 headcount, on the engine's schedule. Per take, it runs **cancellation off
 and cancellation on** (`aec.cancel`, causal, the live path bit for bit),
 and reports from the canceller's first lock on. Takes that never lock are
@@ -208,6 +209,17 @@ occupancy count for the headcount tests. Block S counts for the rest.
   exceeds the mean of G-C1/G-C2 by more than 0.15.** That is the 09-30
   failure: a room of 3 read `solo` under vocal hip-hop and recovered
   under other music.
+- **The 32 % provision** (added 2026-10-11 at the founder's request).
+  At 32 %, faint music under talk may never lock the canceller. That is
+  the accepted B66 envelope. Then H's 32 % take is effectively
+  *uncancelled*, and 1b is measuring the raw path, which is where 09-30
+  failed. The tolerance stays **0.15 at 32 %** too: loosening it there
+  would blind the rule to the very case that motivated it. Instead, a
+  1b firing at 32 % **on an unlocked H take** routes differently. The
+  first remedy is the canceller's lock threshold (`MIN_LOCK_COHERENCE`,
+  an M12-02 measured change); the classifier (M12-03 step 3) comes only
+  if lowering the threshold isn't enough. A firing on a locked take, or
+  at 66/76 %, reopens M12-03 directly.
 - **Outcome:** if neither fires, M12-03 **stays deferred**, with this
   session as the evidence. If either fires, M12-03 reopens at step 3 (the
   classifier), as its deferral note says. The FIELD-NOTES entry records
@@ -220,7 +232,13 @@ occupancy count for the headcount tests. Block S counts for the rest.
   `clean_trend` does.
 - **2b, clean is no worse.** In every 66/76 % mix take (S and G), the
   distance of `clean_energy` from the bracketing controls is no greater
-  than the distance of `energy`, within **0.01**.
+  than the distance of `energy`, within **0.01**. **Not at 32 %.** The
+  pre-session ladder test (B3) showed why. At 32 % the music's loudness
+  bias is about zero, and the gap is set by take-to-take talk variation
+  (the two ladder reading controls differ by 0.011). The one locked 32 %
+  ladder take, T3-MX32, failed by 0.006 on talk alone (published energy
+  0.000 from the controls, clean 0.016). A looser 32 % tolerance would
+  only be guessing at that variation, so 32 % is out of 2b.
 - **Outcome:**
   - **SWITCH:** both 2a and 2b hold. The mapper reads `clean_trend` when
     it is present and `trend` otherwise. That is a mapper-only,
@@ -236,16 +254,23 @@ occupancy count for the headcount tests. Block S counts for the rest.
 a cost: it is a published behavior change in the DJ. The 2026-10-11
 survey found no case where the loudness path alone moved the trend. Evidence
 over cleverness says to switch on an observed loop, not on a
-plausible one. **Alternative for the founder:** switch on 2b alone ("clean
-is never worse"). That's a lower bar, defensible because the clean values
-are closer to the room by construction. Pick one when signing.
+plausible one. **Chosen by the founder, 2026-10-11** over the
+alternative of switching on 2b alone.
 
 **Drift check (both rules).** If a block's C1 and C2 differ by more than
 the spread among that block's mix takes at 32 %, on certified share or
 energy, record the block as drifting. Each outcome then stands only if it
-holds with C1 excluded and with C2 excluded.
+holds with C1 excluded and with C2 excluded. The script does this itself. An
+outcome that changes when either control is dropped prints as
+`NOT ROBUST TO DRIFT`, and the session then decides nothing on that rule.
 
-Signed: __________ (founder). Date: __________. Variant for 2: harm-required / no-harm.
+**Implemented in code** before the session (run sheet B3):
+`scripts/m12_session_replay.py`, constants `R1A_MAX_ELIGIBLE`,
+`R1B_SOLO_MARGIN`, `R2A_RISING_MARGIN`, `R2B_TOLERANCE`. The script prints
+each test's inputs and the outcomes. Changing a constant after the
+session voids the rule.
+
+Signed: __________ (founder). Date: __________. Variant for 2: **harm-required** (chosen 2026-10-11).
 
 ## H. Afterwards
 
