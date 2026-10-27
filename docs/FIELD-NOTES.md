@@ -5,6 +5,162 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-10-26 (evening, live, founder alone) — M12-05 Block S as a reference run; NOT gate (b)
+
+**This is not gate (b), and gate (b) stays open.** Block G didn't run: one
+of the three guests cancelled during the session, and the rest of the group
+then had to leave. The run sheet allows Block G with ≥ 3 people (4 was the
+plan), but no group was left. **The founder will retest the full gate (b) on
+a future day: a complete Block S and a complete Block G, run on the same
+day.** Today's Block S does not count toward it. The same-day rule (M12
+test plan) holds: both blocks share one fixed-conditions table, and the
+bracketing controls catch drift within a day, not across days. What today
+gives is a full Block S as **reference data**. When the gate day reruns
+Block S, the two days can be compared, which measures day-to-day
+repeatability for the first time. Nothing here was tuned, and nothing
+changes because of it.
+
+**Preflight B (Claude, before the first take).** Branch `milestone-12-hear-the-room`
+@ `7371112`, clean, 426 tests pass. `.env`: the rescue flag is unset
+(default off), and all nine `RTR_HEADCOUNT_*` values equal the `config.py`
+defaults. `--list-devices` names `Microphone Array on SoundWire D` (the
+default). The dashboard is not running (the only "dashboard" process is
+Cirrus Logic's audio utility). B3: `m12_session_replay.py --ladder`
+(now with ECAPA headcount) gives **48 / 48 energy medians identical** to a
+fresh `m12_energy_survey.py` run, and Rule 1c's solo shares match FIELD-NOTES
+2026-10-11 (later) on all 7 locked takes. B4: the founder ran two 10 s
+`--reference` test takes (music only, then speaking over music), and both
+were deleted. Claude started no capture.
+
+**Fixed conditions.**
+
+| setting | value |
+|---|---|
+| Room | Columbia work room, about 5 m × 5 m |
+| Laptop position | on the desk, about **0.6 m** in front of the founder (estimated, not taped) |
+| Talk position | **seated**, the same spot for every take, at about **0.6 m, estimated by eye** (founder's estimate: within ±0.05 m), not tape-measured. The session page said "standing at mark N"; the founder sat throughout. The gate day tapes 0.6 m and sits |
+| Mic input volume | 34 % |
+| Mic "Audio enhancements" | off |
+| Dolby Atmos for Speakers | ON (Dolby mode not recorded) |
+| Spotify volume / Normalize / EQ | 100 % / **on** / flat |
+| Repeat-one | on |
+| Do Not Disturb | on (one notification still got through: S-C1) |
+| Power | plugged in |
+| Dashboard | not running |
+| First capture | 18:31:42; last (S-C2) 20:47:05 |
+
+**Take log.** Prefix `m12s-20261026`, 23 captures in `data/captures/`
+(local, never committed). All takes are 200 s (S-VS-I 360 s), continuity
+0.999–0.9996, and no reference errors.
+
+- **S-C1, gated.** A notification chime sounded at 180–182 s; the
+  reference channel caught it exactly and is digital silence everywhere
+  else. The founder started reading ~26 s in, and read ~1.5 m from the
+  0.6 m spot (founder's estimate).
+- **S-C1b, first attempt: also off the mark** (~1.5 m). Claude renamed its
+  three files to `m12s-20261026-S-C1b-far.*` so the replay skips it
+  (`skipping unrecognised take 'S-C1b-far'`). It is kept, not deleted. The
+  JSON's `wav` fields still carry the old name.
+- **S-C1b at ~0.6 m (18:47:23) is the opening control.** Mic speech median
+  −33 dBFS, against −37/−38 dBFS for the two off-mark takes.
+- **S-MO-H/I/J × 32/66/76 %**, silent. At the mic, music rises **6.0–6.5 dB
+  from 32 to 66 %, then 0.8–1.2 dB to 76 %** on all three tracks. The
+  reference is flat across volumes (H −11.4, I −14.9, J −18.0 dBFS). This
+  repeats the 2026-10-09 finding that JPad's output tops out between 66
+  and 76 %.
+- **S-MX-H/I/J × 32/66/76 %**, reading. Speech adds +1.3 to +5.0 dB over
+  the same music alone. **S-MX-J32's music started 2.4 s after the
+  capture** (the reference is silent for 0–2.4 s). The analysis counts
+  from the canceller's lock, so that stretch is excluded.
+- **Track I has a 1.23 s digital silence about 2:08 into the track.** It
+  appears in all four I references (127.5–130.0 s). It's in the recording,
+  not a dropout, and the mic goes quiet with it.
+- **S-VS-I: the step is at 180 s.** The founder moved the slider at 180 s
+  and tapped the page ~10 s late (192 s). The mic, against the reference,
+  rises ~4 dB within 180–184 s. The slider briefly overshot to 68 % before
+  settling at 66 %. At the output ceiling that's under 1 dB, and it isn't
+  visible in the audio. The analysis used `--step-at S-VS-I=180`.
+- **S-C2 (20:47:05): Windows muted, Spotify still playing.** The founder
+  muted the slider instead of pausing. The reference therefore carries
+  track I at −15 dBFS for the whole take: it records before the Windows
+  volume. The room heard nothing: the mic's floor between words (p2 / p5
+  −52.6 / −50.9 dBFS) equals S-C1b's (−52.0 / −50.5). With I at 32 %, that
+  floor sits near −35 dBFS. The canceller never locked on it, and its on and
+  off results are identical. It is a valid speech-only control.
+  **Lesson for the gate day: pause Spotify for the controls, don't mute
+  Windows.**
+
+**Analysis.** `scripts/m12_session_replay.py data/captures/m12s-20261026
+--step-at S-VS-I=180 --gate S-C1`, 20:56–21:39 (the lid was briefly
+closed; the run continued). The config it mirrors is `Config()` defaults
+as on JPad's `.env` (headcount interval 2.0 s), per run sheet F. The output
+is kept locally in `data/analysis/m12s-20261026-replay.{json,txt}`. Every
+music take **locked within 8–14 s, including all three at 32 %.**
+
+The signed rule, cancellation on (Block S tests only. Rule 1b needs Block G
+and reads n/a):
+
+| test | result |
+|---|---|
+| 1a: music-only eligible > 0.05 | **does not fire.** Max 0.011 (H66, H76). Without cancellation, H was 0.84–0.90 and I/J were 0.000 |
+| 1c: locked mix take solo share more than 0.15 below the controls (1.0) | **fires on 8 of 9.** Only S-MX-I32 does not (solo 1.00) |
+| 2a: `trend` rising after the step, minus `clean_trend` rising, ≥ 0.20 | **does not hold.** 0.167 − 0.000 |
+| 2b: clean energy no farther from the controls than published (66/76 %) | **holds on all 6** |
+| Outcomes | Rule 1 STAYS DEFERRED; 1c FILE (phantom count); Rule 2 HOLD |
+
+Headcount solo share, cancellation off → on (truth: 1, the founder):
+
+| track | 32 % | 66 % | 76 % |
+|---|---|---|---|
+| H (vocal hip-hop) | 0.79 → 0.82 | 0.76 → **0.21** | 0.45 → 0.82 |
+| I (instrumental) | 0.46 → 1.00 | 0.04 → 0.84 | 0.05 → 0.79 |
+| J (jazz) | 0.63 → 0.74 | 0.62 → 0.77 | none eligible → 0.59 |
+| controls S-C1b / S-C2 | 1.00 / 1.00 | | |
+| volume step S-VS-I | 0.03 → 0.81 | | |
+
+Energy, published vs clean, minus the controls' mean (66/76 %): H +0.063
+/ +0.066 → +0.049 / +0.050; I +0.105 / +0.128 → +0.033 / +0.035; J +0.051
+/ +0.062 → +0.036 / +0.036.
+
+**Drift check.** The controls' energy differs by 0.026 (S-C1b 0.637, S-C2
+0.663). That's above the 32 % takes' spread (0.012), so the script flags
+`S.energy` as drifting. Every outcome is unchanged with either control
+dropped. Certification doesn't drift (controls gap 0.000).
+
+**Findings (reference only, not gate (b)).**
+
+1. **Cancellation removes the music's own certification.** The music-only
+   rap goes from 84–90 % eligible to ≤ 1.1 %, which replicates M12-02 on a
+   new day, in a new room and seat.
+2. **Cancellation rescues blinded reading.** The reader's speech went from
+   ineligible to eligible: J76 0.000 → 0.989, I76 0.237 → 1.000. This
+   matches 2026-10-09 ("blinded reading 19 → 109").
+3. **The phantom-count finding reproduces, but milder.** With cancellation
+   on, a lone reader is `solo` in 0.59–0.84 of hops on 7 of 8 firing takes,
+   against 0.20–0.50 on the 10-09 ladder (stood at a taped 0.6 m mark N). The rest is
+   mostly `pair`. **H at 66 % is the outlier** (0.21, mostly `pair`), and
+   I at 32 % is the one clean take. Rule 1c's finding is FILED by the
+   signed rule. It is the same finding as FIELD-NOTES 2026-10-11 (later);
+   today adds a second day of evidence and does not open a new item. The
+   milder shares aren't attributed to anything: today's room, seated
+   posture and untaped (estimated) 0.6 m all differ from the ladder.
+4. **Faint 32 % music locked on every track today.** On the ladder, T1 and
+   T2 at 32 % never locked (the B66 envelope). The setup differed (seated,
+   0.6 m by eye rather than taped, a different room, laptop on a desk),
+   so this is an observation. It
+   doesn't revise the envelope.
+5. **The volume step barely moves the raw trend** (rising 0.167 after the
+   step), so Rule 2 reads HOLD: the mapper keeps `trend`. One reading take
+   at one step is thin, and the gate day repeats it with Block G's
+   conversation.
+
+**What this doesn't show.** Anything about a group: Rule 1b, the H-vs-I
+headcount question, and the 09-30 mechanism with real conversation are
+all Block G. Those, and the rule's outcomes, are decided only by the
+full gate (b) day. On that day, the founder runs a complete Block S
+(seated at a **tape-measured** 0.6 m, Spotify paused for the controls) and a complete Block G
+(≥ 3 people), both on one day.
+
 ## 2026-10-11 (afternoon, offline) — M12 gate (a): the 2026-09-30 replay reproduces, and "after" equals "before" by decision
 
 **Gate (a)** (ROADMAP § M12): "the 2026-09-30 recording replayed through
