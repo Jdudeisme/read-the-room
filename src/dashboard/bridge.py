@@ -241,6 +241,7 @@ class DashboardBridge:
                 "playback_error": None,
                 "now_playing": None,
                 "queued_track": None,
+                "queued_state": None,
             }
         return self.playback.snapshot()
 

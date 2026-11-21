@@ -343,7 +343,11 @@ function updatePlayback(f) {
     $("nowplaying").textContent =
       `${t.title} — ${t.artist}` +
       (t.playlist_id ? ` · ${t.playlist_id}` : "") +
-      (f.queued_track ? ` · next: ${f.queued_track.title}` : "");
+      (f.queued_track
+        ? ` · next: ${f.queued_track.title}` +
+          (f.queued_state === "pushed" ? " (queued in Spotify)"
+            : f.queued_state === "held" ? " (held)" : "")
+        : "");
   } else {
     displayedNowPlaying = null;
     $("nowplaying").textContent = "";
