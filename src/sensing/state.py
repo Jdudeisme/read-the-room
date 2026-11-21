@@ -163,8 +163,9 @@ class RoomState:
     # raw. clean_energy uses the same energy_score weights, the
     # frame's speech_ratio (already the clean certification) and arousal.
     # None when cancellation isn't running: nothing was cleaned (founder
-    # D1, 2026-10-11). The mapper reads `trend`, not `clean_trend`, until
-    # M12-05's pre-registered rule says otherwise. Additive, with
+    # D1, 2026-10-11). The mapper's energy fallback reads `clean_trend` when
+    # present, `trend` otherwise (M12-05 Rule 2: SWITCH, FIELD-NOTES
+    # 2026-11-20; docs/M12-04-MAPPER-SWITCH-PLAN.md). Additive, with
     # the corpus schema bumped (annotations v2, overrides v3).
     clean_loudness_dbfs: float | None = None
     clean_activity_density: float | None = None

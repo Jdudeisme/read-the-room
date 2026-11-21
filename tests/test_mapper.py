@@ -125,6 +125,42 @@ class TestTrendToEnergyAction:
             )
         assert rec.energy_action == "raise"
 
+    # M12-05 Rule 2 SWITCH (FIELD-NOTES 2026-11-20): with flat arousal the
+    # energy fallback reads clean_trend when present. The test above, with
+    # no clean_trend, pins the raw fallback (cancellation off).
+    def _first_rec(self, **state_fields):
+        mapper = Mapper(quick_config())
+        rec = None
+        for i in range(25):
+            rec = rec or mapper.update(make_state(timestamp=i * 2.0, **state_fields))
+        return rec
+
+    def test_flat_arousal_reads_clean_trend_when_present(self):
+        rec = self._first_rec(arousal=0.5, trend="stable", clean_trend="rising")
+        assert rec.energy_action == "raise"
+
+    def test_clean_trend_overrides_music_driven_raw_trend(self):
+        # The loop Rule 2a measured: the raw trend rises with RTR's own
+        # music while the clean trend doesn't. The DJ must not chase it.
+        rec = self._first_rec(arousal=0.5, trend="rising", clean_trend="stable")
+        assert rec.energy_action == "hold"
+
+    def test_arousal_trend_still_wins_over_clean_trend(self):
+        mapper = Mapper(quick_config())
+        last = None
+        for i in range(25):
+            r = mapper.update(
+                make_state(
+                    timestamp=i * 2.0,
+                    valence=0.5,
+                    arousal=min(0.9, i * 0.02),
+                    trend="falling",
+                    clean_trend="falling",
+                )
+            )
+            last = r or last
+        assert last.energy_action == "raise"
+
     def test_target_lead_matches_direction(self):
         cfg = quick_config(target_lead=0.2)
         mapper = Mapper(cfg)
