@@ -5,6 +5,40 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-11-21 (offline) — M12-08: a re-lock across the whole filter now resets instead of crashing
+
+**What changed** (branch `m12-08-relock-shift-guard`, from `main` @
+`3e8dd85`, plan approved by the founder 2026-11-20 as in ROADMAP M12-08).
+In `src/sensing/aec.py`:
+- `_choose_on_relock` returns `"reset"` when the lag change is at least the
+  filter length (`P` × `B` = 3,328 taps, 208 ms). Nothing learned survives
+  that shift.
+- `MdfFilter._shift` zeroes the filter for `|taps|` ≥ its length instead of
+  raising.
+
+Every other path is untouched.
+
+**Evidence.**
+- **Synthetic:** a +250 ms and a −250 ms alignment step (`tests/test_aec.py`)
+  both raised `ValueError` before the fix. Now each re-locks at 18 s with
+  a reset, lands on the new lag and re-converges (ERLE > 15 dB in 28–32 s).
+  Of the 6 new tests, 4 fail on the old code; the 2 exactly-at-length shifts
+  were already safe.
+- **The reproduction take:** `m12s-20261120-G-MX-I76-refglitch` (kept with
+  the founder's OK) now completes. Re-locks at 18, 26, 118, 126 and 148 s:
+  reset, shift, reset, shift, shift.
+- **No behavior change elsewhere:**
+  - the 2026-11-20 session replay (same command as that entry) gives all 35
+    takes and the rule's outcomes **identical** to the recorded JSON;
+  - gate (a)'s harness (`m12_partf_replay.py --gate none`) reproduces
+    `faithful.jsonl` (830 rows, 15,480 fields, 0 differing);
+  - the suite passes: 435 tests, offline.
+
+**What it doesn't fix.** The WASAPI "data discontinuity" dropouts
+themselves. They came with load on the laptop (G-MX-I76: 88 warnings; 0
+after closing other apps). With the fix, such a dropout costs a re-lock and
+a few seconds of re-convergence instead of the night's cancellation.
+
 ## 2026-11-20 (evening, live, founder + 3 guests) — M12 gate (b): the M12-05 session, Block S and Block G on one day
 
 **This is gate (b).** The M12-05 protocol was run once on JPad by the

@@ -106,6 +106,32 @@ def test_relocks_after_an_alignment_step_and_recovers():
     assert _erle_db(mic, res.clean, r, r + 2 * SR) > 15.0
 
 
+@pytest.mark.parametrize("start_lag, step", [(800, 4000), (4800, -4000)])
+def test_relock_across_more_than_the_filter_length_resets_instead_of_crashing(start_lag, step):
+    # M12-08 (FIELD-NOTES 2026-11-20): a ±250 ms alignment step, more than
+    # the filter's 13 × 256 taps (208 ms). Before the fix the re-lock raised
+    # ValueError in MdfFilter._shift, which ended cancellation for the
+    # session live. Now the re-lock starts over and re-converges.
+    ref = _music(32, seed=7)
+    h = _room()
+    mic = np.concatenate(
+        [_echo(ref, h, start_lag)[: 12 * SR], _echo(ref, h, start_lag + step)[12 * SR :]]
+    )
+    res = aec.cancel(mic, ref)
+    assert any(12.0 <= t <= 22.0 for t in res.relocks)
+    assert res.relock_choices[-1] == "reset"
+    assert abs(res.delays[-1][1] - (start_lag + step)) <= int(0.010 * SR)
+    assert _erle_db(mic, res.clean, 28 * SR, 32 * SR) > 15.0
+
+
+@pytest.mark.parametrize("taps", [3328, 5000, -3328, -5000])
+def test_shift_by_the_whole_filter_or_more_zeroes_it(taps):
+    filt = aec.MdfFilter()
+    filt.W = np.ones_like(filt.W)
+    filt._shift(taps)
+    assert not np.any(filt.impulse_response())
+
+
 def test_double_talk_keeps_the_speech():
     # The first lock is confirmed at ~8 s (MIN_FIRST_LOCK_S + one 2 s
     # update), so the speech starts after the filter has settled.
