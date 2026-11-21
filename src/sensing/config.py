@@ -90,6 +90,13 @@ class Config:
     # evening): rap-alone certified windows 62 -> 0, a reading blinded by
     # loud piano 19 -> 109.
     playback_cancel_enabled: bool = False
+    # M12-09 diagnostic clip (docs/M12-09-PLAN.md): when > 0, CleanSource
+    # writes this many seconds of raw mic, clean and reference (same sample
+    # positions) to data/captures/live-clip-*, once per session, starting
+    # 30 s after the canceller's first lock. 0 = off, and off by default:
+    # it is a new capture of room audio (CLAUDE.md), for founder-alone
+    # diagnostic sessions only. Not a calibration value.
+    debug_cancel_clip_s: float = 0.0
 
     # Rolling analysis window.
     window_s: float = 5.0
@@ -231,6 +238,9 @@ class Config:
             ),
             playback_cancel_enabled=_env_bool(
                 "RTR_PLAYBACK_CANCEL_ENABLED", cls.playback_cancel_enabled
+            ),
+            debug_cancel_clip_s=_env_float(
+                "RTR_DEBUG_CANCEL_CLIP_S", cls.debug_cancel_clip_s
             ),
             window_s=_env_float("RTR_WINDOW_S", cls.window_s),
             hop_s=_env_float("RTR_HOP_S", cls.hop_s),

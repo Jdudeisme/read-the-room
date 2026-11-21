@@ -242,3 +242,68 @@ def test_reference_dominance_is_zero_without_playback():
     x = np.random.default_rng(15).standard_normal(SR).astype(np.float32)
     assert aec.reference_dominance(x, np.zeros_like(x)) == 0.0
     assert aec.reference_dominance(np.zeros(SR, np.float32), np.zeros(SR, np.float32)) == 0.0
+
+
+# -- M12-09: CleanSource diagnostics (report + opt-in clip) ------------------------
+
+import json  # noqa: E402
+import wave  # noqa: E402
+
+
+def _run_clean_source(seconds, **kw):
+    """Feed synthetic linear echo through CleanSource in 30 ms lockstep
+    chunks on a fake clock (one chunk = 30 ms of clock)."""
+    ref = _music(seconds, seed=21)
+    mic = _echo(ref, _room(), 800)
+    m, r = _RingOnly(seconds + 5), _RingOnly(seconds + 5)
+    t = [0.0]
+    cs = CleanSource(m, r, seconds + 5.0, clock=lambda: t[0], **kw)
+    chunk = 480
+    m.ring.write(mic[:chunk])
+    r.ring.write(ref[:chunk])
+    assert cs.align()
+    for i in range(chunk, mic.size - chunk + 1, chunk):
+        m.ring.write(mic[i : i + chunk])
+        r.ring.write(ref[i : i + chunk])
+        t[0] += chunk / SR
+        cs.pump()
+    return cs, mic, ref
+
+
+def test_clean_source_reports_lock_and_live_reduction():
+    cs, _, _ = _run_clean_source(31)
+    rep = cs.last_report
+    assert rep is not None and rep["locked"]
+    assert abs(rep["lag"] - 800) <= int(0.010 * SR)
+    # The 20-30 s interval of converged synthetic linear echo.
+    assert rep["reduction_db"] > 15.0
+    assert rep["resyncs"] == 0 and rep["ref_lost_ms_new"] == 0.0
+    assert rep["relocks_new"] == []  # the first lock was reported in an earlier line
+
+
+def test_clean_source_writes_an_aligned_clip_only_when_enabled(tmp_path):
+    cs, mic, ref = _run_clean_source(14, clip_s=2.0, clip_dir=str(tmp_path), clip_after_lock_s=0.0)
+    assert cs.clip_path is not None
+    lens = {}
+    for kind in ("mic", "clean", "ref"):
+        with wave.open(f"{cs.clip_path}.{kind}.wav", "rb") as fh:
+            assert fh.getframerate() == SR and fh.getnchannels() == 1
+            lens[kind] = fh.getnframes()
+    assert len(set(lens.values())) == 1 and lens["mic"] >= 2 * SR
+    side = json.loads(open(f"{cs.clip_path}.json", encoding="utf-8").read())
+    assert side["seconds"] >= 2.0 and side["resyncs_during"] == 0
+    off, _, _ = _run_clean_source(14, clip_s=0.0, clip_dir=str(tmp_path / "off"))
+    assert off.clip_path is None and not (tmp_path / "off").exists()
+
+
+def test_debug_clip_is_off_by_default_and_documented(monkeypatch):
+    from pathlib import Path
+
+    from sensing.config import Config
+
+    monkeypatch.delenv("RTR_DEBUG_CANCEL_CLIP_S", raising=False)
+    assert Config().debug_cancel_clip_s == 0.0
+    monkeypatch.setenv("RTR_DEBUG_CANCEL_CLIP_S", "60")
+    assert Config.from_env().debug_cancel_clip_s == 60.0
+    env_example = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
+    assert "\nRTR_DEBUG_CANCEL_CLIP_S=0\n" in env_example
