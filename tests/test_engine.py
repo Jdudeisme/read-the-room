@@ -663,11 +663,17 @@ def test_reference_failure_never_stops_sensing():
     assert rig.engine.reference is None
 
 
-def test_reference_is_off_by_default(monkeypatch):
+def test_reference_and_cancellation_are_on_by_default(monkeypatch):
+    # Flipped deliberately on 2026-11-21 (docs/M12-CANCEL-DEFAULT-PLAN.md,
+    # founder direction 2026-11-20): both were off before M12's gate.
     monkeypatch.delenv("RTR_PLAYBACK_REFERENCE_ENABLED", raising=False)
-    assert Config().playback_reference_enabled is False
-    monkeypatch.setenv("RTR_PLAYBACK_REFERENCE_ENABLED", "1")
-    assert Config.from_env().playback_reference_enabled is True
+    monkeypatch.delenv("RTR_PLAYBACK_CANCEL_ENABLED", raising=False)
+    assert Config().playback_reference_enabled is True
+    assert Config().playback_cancel_enabled is True
+    monkeypatch.setenv("RTR_PLAYBACK_REFERENCE_ENABLED", "0")
+    monkeypatch.setenv("RTR_PLAYBACK_CANCEL_ENABLED", "0")
+    assert Config.from_env().playback_reference_enabled is False
+    assert Config.from_env().playback_cancel_enabled is False
 
 
 # -- M12-02 step 4: analysing the clean stream -------------------------------------
@@ -745,6 +751,22 @@ def test_failed_clean_stream_falls_back_to_raw_with_raw_signatures(tmp_path):
     assert rig.engine.clean is None and clean.stops == 1
     assert str(rig.engine._signatures.path).endswith("sigs.json")
     assert rig.engine._music_aware._signatures is rig.engine._signatures
+
+
+def test_reference_failing_mid_session_falls_back_to_raw(tmp_path):
+    # docs/M12-CANCEL-DEFAULT-PLAN.md D2: before, the frames kept saying
+    # "clean" while the canceller passed the raw mic through.
+    clean = _FakeClean()
+    rig = Rig(clean=clean, music_signatures_path=str(tmp_path / "sigs.json"))
+    ref = rig.engine.reference = _FakeReference()
+    ref.status, ref.error = "running", None
+    clean.ring.write(0.5 * _signal(0.0, rig.config.window_s, rig.amp))
+    assert _feed_both(rig, clean).analysis_stream == "clean"
+    ref.status, ref.error = "failed", "loopback lost"
+    state = _feed_both(rig, clean)
+    assert state.analysis_stream == "raw"
+    assert rig.engine.clean is None and clean.stops == 1
+    assert str(rig.engine._signatures.path).endswith("sigs.json")
 
 
 def test_no_reference_means_no_cancellation():

@@ -74,22 +74,32 @@ class Config:
     sample_rate: int = 16_000
     input_device: str | None = None
     # M12-01c playback reference: capture what the laptop plays (WASAPI
-    # loopback) into its own ring beside the mic's. Off by default for
-    # privacy, not from a measurement: the loopback holds every sound the
-    # laptop plays (calls, notifications). Nothing consumes it before
-    # M12-02/03/06. See sensing/audio.py ReferenceSource.
-    playback_reference_enabled: bool = False
+    # loopback) into its own ring beside the mic's, for the M12-02
+    # canceller and M12-06 dominance. It holds EVERY sound the laptop plays
+    # (RTR's music, but also calls, videos, notifications), in memory only:
+    # the engine and dashboard never write it to disk (only
+    # capture_room_wav.py --reference does, per take, opt-in). It was off
+    # by default for privacy, not from a measurement. ON by default since
+    # 2026-11-21 (founder direction 2026-11-20, docs/M12-CANCEL-DEFAULT-PLAN.md
+    # D1), because cancellation needs it. If it can't open, sensing carries
+    # on raw. See sensing/audio.py ReferenceSource.
+    playback_reference_enabled: bool = True
     # M12-02 step 4: analyse the mic with RTR's own playback cancelled
     # (sensing/audio.py CleanSource). Needs the reference. When on,
     # certification, emotion and headcount read the clean stream; loudness,
     # activity, spectral balance, dominance and the noise floor stay on raw
     # (M12-04 / M12-06 own those). Music-aware signatures are learned
     # separately for the clean path, because a signature is only valid for
-    # the capture path that measured it. Off by default: it changes
-    # published values. The offline evidence is FIELD-NOTES 2026-10-09 (late
-    # evening): rap-alone certified windows 62 -> 0, a reading blinded by
-    # loud piano 19 -> 109.
-    playback_cancel_enabled: bool = False
+    # the capture path that measured it. It changes published values, so it
+    # was off by default until M12's gate. ON by default since 2026-11-21
+    # (founder direction 2026-11-20, docs/M12-CANCEL-DEFAULT-PLAN.md). The
+    # evidence: music-only certification 0.84-0.96 -> 0.000 (FIELD-NOTES
+    # 2026-11-20, 9 takes at 32/66/76 %); a lone reader's solo share higher
+    # with it on in all 9 mix takes; gate (c) budget PASS with it running;
+    # M12-08 fixed (a big reference dropout costs a re-lock, not the
+    # session). Offline origin: FIELD-NOTES 2026-10-09 (late evening).
+    # Without a working reference it falls back to raw.
+    playback_cancel_enabled: bool = True
 
     # Rolling analysis window.
     window_s: float = 5.0

@@ -223,6 +223,18 @@ class Engine:
     def _analysis_source(self):
         if self.clean is not None and self.clean.status == "failed":
             self._fall_back_to_raw(f"clean source failed: {self.clean.error}")
+        elif (
+            self.clean is not None
+            and self.reference is not None
+            and getattr(self.reference, "status", None) == "failed"
+        ):
+            # A reference that dies mid-session stops its ring; the canceller
+            # then reads zeros and passes the mic through, so frames would
+            # say "clean" while carrying raw audio (invariant 5). Fall back
+            # honestly instead (docs/M12-CANCEL-DEFAULT-PLAN.md D2).
+            self._fall_back_to_raw(
+                f"playback reference failed: {getattr(self.reference, 'error', None)}"
+            )
         return self.clean if self.clean is not None else self.source
 
     @property
