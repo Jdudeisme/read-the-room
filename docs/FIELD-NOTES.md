@@ -5,6 +5,209 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-11-21 (night, live, founder + 4 people) — cancellation-default live check (D3): the plumbing passes, but live, the canceller doesn't remove the music
+
+**What this was.** The live check that `docs/M12-CANCEL-DEFAULT-PLAN.md`
+(on branch `cancel-on-by-default`, pushed; not merged)
+(D3) requires before `cancel-on-by-default` (`4a1903b`) can merge. The
+founder ran the dashboard in its own PowerShell window from that branch,
+with `.env` unchanged, so the new defaults applied: reference on,
+cancellation on. Claude confirmed that the process on :8000 was the one
+just started (created 01:20:57, from the repo's venv; FIELD-NOTES
+2026-09-06). Claude then read the dashboard's websocket frames,
+read-only. **Claude started nothing.** No audio was written to disk: the
+dashboard holds the reference in memory and writes no captures. The
+founder first launched at 01:17:33, then relaunched at 01:20:59. The
+session ran on past this write-up (the founder kept it going for the
+night). The frame numbers cover **01:21–01:40**, and the founder's pasted
+shell log covers **01:17:33–01:46:54**.
+
+**Conditions — not the protocol's.** The plan called for the founder
+alone. Instead **5 people** were present, all at **~1.5 m** from the
+laptop and **talking most of the time**. Windows volume **32 %**,
+Spotify at 100 % (as in the 2026-11-20 fixed conditions). **Room: the
+living-room alcove, laptop in the same spot as the M12 gate (b) session**
+(2.8 m × 3.35 m, on the TV stand; FIELD-NOTES 2026-11-20).
+
+**Song decisions** (from the shell log and `data/overrides/2026-11-21.jsonl`).
+RTR didn't start the music, because the founder started it first. While
+the models load, a recommendation is a guard, and a guard never starts
+playback (controller docstring). So "it didn't autostart" is the
+deliberate guard, not a regression: this branch doesn't touch the
+playback or mapper start path.
+- **The founder's genre picks**, made with the dashboard's genre-pick "play it" control.
+  It plays a track from RTR's own mapped playlist for the chosen genre and
+  tier, inside that playlist's context (`controller.manual_pick`, recorded
+  as an override, `action: "manual"`), so Spotify carries on through that
+  playlist afterwards:
+  - 01:19:35 (first launch) → *No. 1, Nimble Feet*;
+  - 01:22:06 → *Somebody Loves Me*;
+  - 01:25:53 (Pop / mid) → *Dai Dai*;
+  - 01:29:48 (Hip-Hop / mid), "to start playing songs that matched the
+    room" (founder) → *Red Button*. Spotify then continued that playlist
+    (*Who Told You*, *On BS*), not RTR's held picks (*All The Things You
+    Are*, *Tick, Tock*, *Girls Need Love*, *Doomsday* were held at those
+    boundaries).
+- **RTR's own picks:**
+  - *Morse* (01:22:06, `('pair','low','low')`, bootstrap play), replaced the
+    same second by the founder's manual pick;
+  - the **Mozart Clarinet Concerto, Rondo** (selected 01:23:40 for
+    `('3','mid','low')`, pushed inside the boundary window 01:24:58). This
+    is **the only RTR selection that played**;
+  - about 30 more next-up selections through 01:46 (mostly `solo` cells:
+    jazz, MF DOOM instrumentals, Michael Jackson). **None was pushed**: see
+    finding 2.
+
+**Checklist (plan D3).**
+1. Start-up log lines, from the founder's pasted shell log, at both
+   launches: "playback reference from 'Speakers (Cirrus Logic XU (with APO
+   Extensions))'" and "analysing 'Microphone Array on SoundWire D
+   (playback cancelled)'". **No "playback cancellation off" line** through
+   01:46:54. **Pass.** Each launch also printed `--- Logging error ---`
+   right after the torchaudio warning. Its traceback isn't in the paste,
+   and it is not yet explained.
+2. `analysis_stream` is `clean` on **every frame read (548)**, and the
+   `clean_*` fields are populated while music plays. **Pass.**
+3. `data/track_signatures-lenovo.clean.json` **was created during the
+   first launch**. The second loaded "2 track signature(s) measured on
+   … 'capture': 'CleanSource' …" at 01:20:59 (stamped 01:20:44), and the
+   file was last written at 01:32. **Pass.**
+4. Frames updating, music playing: `playback_status: active`, no
+   `playback_error`, and emotion and headcount `ready` from ~01:21. No
+   gap was seen in the frames. **Pass** on the frames; the founder's
+   window decides "no exceptions".
+5. The optional reference-failure test: not run.
+
+**The finding: the live canceller isn't removing RTR's music.** While
+music played, raw loudness minus clean loudness (each frame's
+`loudness_dbfs` − `clean_loudness_dbfs`) was:
+
+| window | frames with music | raw − clean, median (p10 / p90) | clean louder than raw | reference dominance, median |
+|---|---|---|---|---|
+| 01:21–01:29 | 227 | **0.1 dB** (— / 3.1) | some frames | 0.58 |
+| 01:30–01:40 | 299 | **0.5 dB** (−1.8 / 2.6) | **31 %** | 0.35 |
+
+The same measure, offline, on the 2026-11-20 Block G takes: 4 people at
+~1.5 m, 32 %, similar tracks, the same code (`aec.cancel`, per 5 s
+window from the canceller's lock + 10 s):
+
+| take | raw − clean, median (p10 / p90) | clean louder | dominance, median |
+|---|---|---|---|
+| G-MX-H32 | **3.4 dB** (1.7 / 5.3) | 0 % | 0.68 |
+| G-MX-I32b | **3.5 dB** (0.5 / 6.0) | 7 % | 0.73 |
+| G-MX-J32 | **2.3 dB** (0.3 / 5.0) | 0 % | 0.58 |
+| S-MX-H32 (one reader) | 2.2 dB | 0 % | 0.54 |
+| S-MO-H32 (music only) | 11.9 dB | 0 % | 0.96 |
+
+Reference dominance is E(echo estimate) / E(mic). Offline, an echo
+estimate of 58–73 % of the mic's energy removes 2–3.5 dB. Live, a similar
+or smaller estimate removes ~0, and in a third of frames the "clean"
+stream is **louder** than raw. That's what an echo estimate that doesn't
+match the real echo does: it adds energy instead of removing it. The
+frames carry no lock state, so this entry can't say whether the canceller
+locked on the wrong lag, diverged under constant five-way double talk, or
+was fed a misaligned reference by the live alignment. That alignment is
+`CleanSource.align`, which pairs the two rings by their write totals. The
+offline captures were recorded in sync by `capture_room_wav.py`. **The
+live streaming path has never been checked against real playback in a
+room before tonight.** Gate (c) ran `CleanSource` on files.
+
+**Headcount, five people** (all buckets, frames with each track playing):
+
+| track | buckets |
+|---|---|
+| *Somebody Loves Me* | pair 54, `3` 26, solo 14 |
+| No music | solo 15, pair 15 |
+| Clarinet Concerto (Rondo) | solo 19 |
+| *Dai Dai* (vocal) | **solo 114** |
+| *Red Button* (vocal hip-hop) | **solo 82** |
+| *Who Told You* (vocal) | **solo 104** |
+| *On BS* (vocal hip-hop) | **solo 113** |
+
+Under every vocal track, five talking people read `solo` in every frame.
+That's the 2026-09-30 mechanism, which M12 exists to remove. With the canceller
+not removing the music, that is what cancellation-on should be expected
+to show. It's not evidence about M12-07 (that's measured on locked,
+effective cancellation). The accepted undercount trade doesn't cover it
+either: this is music swamping the room, not similar voices merging.
+
+**Finding 1 — the reference dropped data constantly. This is now the
+leading hypothesis for the ineffective canceller.** The shell log carries
+**~35 "data discontinuity in recording" warnings in the first launch's ~3
+minutes** (most while the models loaded), and **~60 in the second launch,
+01:21–01:47**. They come in bursts of up to 6 (e.g. 01:25:04, 01:36:06,
+01:36:37). Compare the 2026-11-20 captures (`capture_room_wav.py`, no
+models running): 0–2 per take, except G-MX-I76, taken while other apps
+were loading the laptop (88). Each warning is lost loopback audio. The
+live reference ring never pads the gap, so each dropout permanently shifts
+the reference against the mic, and the canceller must re-lock (~6 s), then
+re-converge (~6 s). At ~2 per minute in bursts, it would spend much of its
+time misaligned. A misaligned filter is exactly what makes "clean" louder
+than raw. **Unconfirmed:** the frames carry no re-lock count. The
+dashboard's own model load is the likely driver of the dropouts.
+
+**Finding 2 (playback, not M12) — a substituted track ID jams the
+controller's queue slot.** Spotify played RTR's pushed Clarinet Concerto
+under a different ID (requested `…3cwGyOXYErgvc4XMRYdM9m`, played as
+`…0zhDLBmgNKFejGUkyqMsaQ`). The log already shows the client substituting
+IDs on plays ("started … but the provider reports id …", twice). The
+controller clears `_queued` only when the playing ID equals the queued ID
+(`took_over`). A genre pick doesn't clear it either: `_play_now` clears
+`_queued` only if the picked track is the queued one. So the slot stayed
+full, and `_observe` never pushed again: **one push all night, against ~30
+selections.** The dashboard hides this. Its "next up" (`queued_track`) is
+`_intent or _queued`, the held selection, which keeps changing every ~30 s
+and so looks like queuing to the operator (founder: "the dashboard seems to
+be queuing songs"). The same queued track
+then played a **second time**, after *Dai Dai* ended (~01:29:41; the
+override record shows it at 0:09 with the Clarinet Concerto still in
+`queued_track`). Not caused by this branch: `controller.py` is untouched
+since M8. It needs its own ROADMAP item.
+
+**Finding 2 confirmed live (01:47–02:00).** The frames show four song
+changes:
+
+| time | started | next-up shown just before |
+|---|---|---|
+| 01:47:39 | *Wick Man* | *Life Is Good* |
+| 01:50:41 | *STAYING ALIVE* | *Gypsy Melodies … Songs My Mother Taught Me* |
+| 01:53:39 | *Privileged Rappers* | Beethoven, *Cello Sonata No. 5*, III |
+| 01:56:23 | *Wants and Needs* | *Doomsday* |
+| 01:59:37 | *What's Next* | *Back in the Days (Skit)* |
+| 02:02:35 | *Stories About My Brother* | *Back in the Days (Skit)* |
+
+All six are the Hip-Hop playlist the 01:29:48 genre pick started, in
+order. The last two were watched live by Claude's frame monitor. A test was
+called in advance: next-up read *Chicago* (Pop, high) at 01:57:05 with
+*Wants and Needs* playing. RTR re-picked *Back in the Days (Skit)* before
+the boundary, and the founder watched the change.
+"It played another Drake song instead of Chicago." The founder had first
+read the dashboard as queuing properly. A next-up that changes every ~30 s
+over a playlist of similar tracks hides the mismatch, unless one named
+title is watched across a boundary.
+
+**Outcome.** The plumbing works: the defaults apply, the clean path runs,
+labels and fields are honest about what the engine *thinks* it's
+analysing, and nothing fell over. **But the check's purpose fails:**
+live, cancellation doesn't remove the music, so turning it on by default
+would publish `clean` frames that aren't clean. **`cancel-on-by-default`
+is not merged.** Next (proposed, for the founder's approval as a plan):
+1. a diagnostic that logs the live canceller's state every few seconds
+   (lock, lag, coherence, re-locks, and how much it removes), plus a count
+   of reference dropouts and how many samples each one lost, so finding 1
+   can be confirmed or ruled out;
+2. an opt-in, off-by-default way to save a short live clip of raw + clean
+   + reference, to compare with offline `cancel()` on the same audio;
+3. then a re-run of this check, first with the founder alone, so a clip
+   needs no guests' consent.
+
+The frames from tonight (and the rest of the night) say `analysis_stream:
+clean`. Anything they write to the corpus carries that label, so they
+can be gated later (invariant 9).
+
+**Filed:** finding 1 and the ineffective live canceller as ROADMAP
+**M12-09**; finding 2 as ROADMAP **M9-07**.
+
 ## 2026-11-21 (offline) — M12-08: a re-lock across the whole filter now resets instead of crashing
 
 **What changed** (branch `m12-08-relock-shift-guard`, from `main` @

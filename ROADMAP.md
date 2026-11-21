@@ -693,6 +693,46 @@ with their measurements.
   path that crashes today).
 - **Effort:** S
 
+
+### M12-09 — Live playback cancellation doesn't remove the music (blocks cancellation-by-default) — REQUIRES-REVIEW
+
+> **Filed 2026-11-21** from the cancellation-default live check (FIELD-NOTES 2026-11-21, night). It blocks
+> `cancel-on-by-default` (`4a1903b`, not merged), and is carried past M12 like M12-07/08.
+
+- **Problem:** In the live dashboard (`CleanSource` on the real mic and the
+  WASAPI loopback), the clean stream was only 0.1–0.5 dB quieter than raw
+  while music played (median), and **louder than raw in 31 % of frames**.
+  Offline `aec.cancel` on the 2026-11-20 Block G takes (same room and spot,
+  32 %, 4 people at ~1.5 m) removes 2.3–3.5 dB. The live reference logged
+  ~35 + ~60 "data discontinuity" warnings in two launches. The 2026-11-20
+  captures, with no models running, had 0–2 per take.
+- **Leading hypothesis (unconfirmed):** under the dashboard's model load,
+  the loopback drops audio. `ReferenceSource` writes only what it receives,
+  so every dropout permanently shifts the reference against the mic, and
+  the canceller spends much of its time re-locking and re-converging. A
+  misaligned filter adds energy instead of removing it.
+- **Why it matters:** Cancellation-by-default would publish `clean` frames
+  that aren't clean. Under vocal music, five people read `solo` in every
+  frame: the 2026-09-30 mechanism M12 exists to remove.
+- **Scope:** Diagnose first (`docs/M12-09-PLAN.md`), with no change to
+  published values:
+  - log the live canceller's state;
+  - estimate the reference's lost samples;
+  - an opt-in short clip of raw + clean + reference, to compare live with
+    offline `cancel()` on the same audio.
+
+  Then a fix proposal on the evidence, e.g. padding reference gaps to keep
+  the clock, re-aligning on drift, or reducing the load that causes the
+  dropouts.
+- **Acceptance criteria:** A founder-run live session with the diagnostics
+  either attributes the ineffectiveness (dropouts, misalignment, double
+  talk, or something else) or rules the hypothesis out, recorded in
+  FIELD-NOTES. Then any fix is re-checked by the D3 live-check protocol in
+  `docs/M12-CANCEL-DEFAULT-PLAN.md`, with an added criterion: raw − clean
+  during music within run-to-run variance of offline `cancel()` on a clip
+  of the same session. No target numbers.
+- **Effort:** M
+
 ---
 
 ## M9 — Stage-ready: the live-performance demo
@@ -925,6 +965,42 @@ only to RTR's own playback; live music still arrives with
   a runbook that reads like documentation won't be used mid-show. The
   degraded-Spotify path matters even though the musician performs live —
   pre/post-set ambient music is plausibly playing through RTR.
+- **Effort:** S
+
+### M9-07 — Controller: a substituted track ID jams the next-up slot for the rest of the session
+
+> **Filed 2026-11-21** (FIELD-NOTES 2026-11-21, night, finding 2). Found during the cancellation live check;
+> independent of M12.
+
+- **Problem:** `PlaybackController` holds one pushed track in `_queued` and
+  clears it only when the provider reports the **same ID** playing
+  (`took_over` in `_observe`), or when a play targets that exact track
+  (`_play_now`). The Spotify desktop client substitutes IDs (track
+  relinking; "started … but the provider reports id …" in the log). On
+  2026-11-21 the pushed Clarinet Concerto was requested as
+  `…3cwGyOXYErgvc4XMRYdM9m` and played as `…0zhDLBmgNKFejGUkyqMsaQ`, so
+  `_queued` never cleared, and `_observe` never pushed again: **one push in
+  the session, against ~30 selections.** The same track then played a
+  second time. Six out of six track changes from 01:47 to 02:03 ignored the
+  dashboard's next-up, and Spotify ran on through the founder's last genre
+  pick's playlist.
+- **Why it matters:** The DJ silently stops DJing after the first
+  substituted push. The dashboard's next-up (`_intent or _queued`) keeps
+  changing every ~30 s, so it **looks** healthy: the founder first read it
+  as "queuing properly". M9's demo depends on the DJ actually following the
+  room.
+- **Scope:** Treat the queued slot as crossed when the playing track
+  changes away from the track that was playing at push time, which is what
+  "the next-up crossed the boundary" means for an append-only queue. Or
+  match on substitution (title/duration) as `_play_now`'s start verification
+  already tolerates. Plus a backstop: clear a slot that has been
+  outstanding for more than one full track. The dashboard's next-up should
+  distinguish "held" from "pushed".
+- **Acceptance criteria:** An offline test (`httpx.MockTransport`, per
+  CLAUDE.md) where the provider reports a substituted ID for the pushed
+  track: the next selection is pushed at the following boundary. The
+  existing controller tests stay green. A live check, watching one named
+  next-up title across a boundary, records the match in FIELD-NOTES.
 - **Effort:** S
 
 ---
