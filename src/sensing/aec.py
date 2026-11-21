@@ -268,12 +268,15 @@ class MdfFilter:
         return int(np.argmax(env))
 
     def _shift(self, taps: int) -> None:
-        """Move the learned impulse response by `taps` (zero-filled)."""
+        """Move the learned impulse response by `taps` (zero-filled). A shift
+        of the whole filter length (P*B taps) or more keeps nothing, so the
+        filter comes out zeroed. M12-08: before, that case raised ValueError;
+        the 2026-11-20 G-MX-I76 reference (net +407 ms of dropouts) hit it."""
         ir = self.impulse_response()
         out = np.zeros_like(ir)
-        if taps >= 0:
+        if 0 <= taps < ir.size:
             out[taps:] = ir[: ir.size - taps]
-        else:
+        elif -ir.size < taps < 0:
             out[: ir.size + taps] = ir[-taps:]
         B = self.B
         self.W = np.array([
@@ -445,6 +448,13 @@ def _choose_on_relock(filt, mic_get, ref_get, start, old_lag, new_lag) -> str:
     before the re-lock, so neither keep nor shift is right a priori (the
     re-centring heuristic tried first failed on synthetic steps)."""
     if old_lag is None or not np.any(filt.W):
+        return "reset"
+    # A lag change of the whole filter length (P*B taps, 208 ms) or more
+    # leaves nothing of the learned path to keep or shift: start over.
+    # DelayTracker can re-lock anywhere within MAX_LAG_S (0.6 s), so this
+    # happens after a big reference dropout. Before M12-08 it raised in
+    # _shift and ended cancellation for the session (FIELD-NOTES 2026-11-20).
+    if abs(new_lag - old_lag) >= filt.P * filt.B:
         return "reset"
     n = RELOCK_TEST_BLOCKS
     first = start - n * BLOCK

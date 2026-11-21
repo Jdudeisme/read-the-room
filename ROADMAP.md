@@ -657,6 +657,10 @@ with their measurements.
 ### M12-08 — Canceller: a re-lock lag change ≥ the filter length crashes `MdfFilter._shift` — REQUIRES-REVIEW
 
 > **Carried past M12 (founder, 2026-11-20).** Found by the gate (b) analysis; it does not block M12's merge.
+>
+> **Fixed 2026-11-21** on `m12-08-relock-shift-guard` (FIELD-NOTES 2026-11-21): a re-lock across the whole
+> filter resets, and `_shift` is safe for any size. The acceptance criteria below are met: the new tests pass,
+> the reproduction take completes, and the 2026-11-20 replay and gate (a)'s harness are unchanged.
 
 - **Problem:** `aec.MdfFilter._shift(taps)` assumes `|taps|` is less than
   the filter length (`PARTITIONS` × `BLOCK` = 13 × 256 = 3,328 taps, 208 ms
