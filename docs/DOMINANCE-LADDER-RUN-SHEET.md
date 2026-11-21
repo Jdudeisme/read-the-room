@@ -1,6 +1,12 @@
 # Dominance ladder on JPad — run sheet
 
-**Status.** Written 2026-09-30, not yet run. Human-run on JPad (the only
+**Status.** Written 2026-09-30. **Run 2026-10-09 (17:49–~19:30): outcome C,
+no knots change** (FIELD-NOTES 2026-10-09, evening). **Extended 2026-10-09 for
+M12-01** (docs/M12-PROPOSAL.md, decision D4): every take also records the
+laptop's playback reference (`--reference`), the 66 % level gets mix
+takes, and two takes are added (`P1` transport, and Block X's Atmos-off
+take, now required). One sitting answers the ladder's question and the
+M12-01 probe's. Human-run on JPad (the only
 machine; the Mac was retired 2026-09-30), founder solo. It changes no
 constant, threshold, ramp or default. Its output is a FIELD-NOTES entry and
 one founder decision on the knots. Any knot change that follows is a
@@ -64,6 +70,7 @@ Fill this table in; it goes into the FIELD-NOTES entry verbatim.
 | Spotify "Normalize volume" + level | Spotify → Settings → Audio quality | |
 | Spotify Equalizer | Spotify → Settings → Playback | |
 | Spotify volume | Spotify app | 100 % |
+| **Do Not Disturb** | Windows Quick Settings | **ON, required.** The reference records every sound the laptop plays, notifications included |
 | Repeat-one | Spotify | **on** (2026-09-06: Spotify otherwise moves on to the next track) |
 | Power | plugged in? Windows power mode | |
 | Laptop position | | centre of the room, lid at the usual angle |
@@ -100,11 +107,62 @@ Also:
 | id | track | why | Spotify URI |
 |---|---|---|---|
 | T1 | "Welcome To New York (Taylor's Version)" | continuity with 2026-09-06 | `spotify:track:1hR8BSuEqPCCZfv93zzzz9` |
-| T2 | founder's pick: **mellow** (acoustic, soft top end) | the low-high-band end, where mix is most likely absorbed as clean | |
-| T3 | founder's pick: **bright** (dense hi-hats, EDM/hip-hop) | the high end; checks `HI` saturation | |
+| T2 | **"Georgia On My Mind", Oscar Peterson Trio** (*Night Train*, 3:44). Founder's mellow pick, 2026-10-09 | the low-high-band end, where mix is most likely absorbed as clean | `spotify:track:2fOx7wWR2sOBIWyveecAGX` |
+| T3 | **"Surround Sound", JID ft. 21 Savage & Baby Tate** (*The Forever Story (Extended Version)*, 3:50). Founder's bright pick, 2026-10-09, replacing *Good Life* the same day: a faster, stronger beat, denser drums and more rap | the high end; checks `HI` saturation; dense rap for M12 | `spotify:track:1udwFobQ1JoOdWPQrp2b6u` |
+
+Spotify lists several releases of both. Play these exact URIs, so every
+take is the same recording. If Spotify relinks one (as happened to
+*Giant Steps* on 2026-10-09), note the id it actually played.
 
 At least two tracks are required; T1 + T2 is the minimum. T3 is strongly
 recommended.
+
+### How to pick T2 and T3
+
+The ladder measures one thing about music: **how much of its energy is
+above 2 kHz** (the high-band share behind `dominance()`). Speech sits
+mostly below 2 kHz; sibilants, hi-hats, cymbals and bright synths sit
+above it. T2 and T3 are the two ends of that scale, so the knots are
+tested where they are most likely to fail.
+
+**T2, mellow: almost nothing above 2 kHz.** Listen for:
+- soft acoustic instruments: piano, nylon or fingerpicked guitar,
+  upright bass, strings, soft horns;
+- no hi-hats, cymbals, shakers or claps (brushes on a snare are fine);
+- a gentle, breathy or low vocal, not a belted or bright one;
+- slow tempo, warm production, not a loud modern master.
+
+Why it matters: if music this soft can't be told from speech (mix
+windows read as "clean"), the music-aware correction can't engage on
+this kind of music at small-room volume. That is the decision rule's
+outcome B. Examples of the type: a slow piano-trio ballad (Bill Evans,
+or an Oscar Peterson ballad the DJ already plays), Norah Jones *Don't
+Know Why*, a fingerpicked folk song.
+
+**T3, bright: a lot above 2 kHz, all the way through.** Listen for:
+- constant hi-hats, ideally fast 16th-note or rolling trap hats, with
+  cymbals, claps and shakers;
+- bright synth leads or distorted textures;
+- a loud, modern master that stays dense from start to finish, with no
+  long quiet intro;
+- vocals welcome: rap over trap hats is ideal for M12, because vocal
+  hip-hop is what passed certification on 2026-09-30.
+
+Why it matters: it checks that `HI` saturates (m reaches 1 when music
+dominates) and gives M12 a vocal track the VAD is likely to believe.
+Examples of the type: trap or modern hip-hop with rolling hats, or
+four-on-the-floor EDM or house.
+
+**For both:**
+- **On Spotify**, so the DJ path and the reference both see it.
+- **3–4 minutes**, because every mix and music take is one full play.
+  Avoid long intros, outros or quiet bridges: a take is only as good as
+  its least typical minute.
+- **No skips or ads.** Repeat-one on.
+
+The music-only take (`Tn-MO32`) measures each pick's real high-band share
+at the mic, so a pick that sounds wrong is caught in the data. Record
+the actual share in the FIELD-NOTES entry either way.
 
 ## Volume steps
 
@@ -117,12 +175,12 @@ follow how RTR is meant to be used, not the 09-06 ladder's 56/76:
 - **76 %: the large-room level** (10–15+ people). Here music unambiguously
   dominates the mic, so it anchors `HI`. It's also the level the
   provisional knots came from.
-- **56 %** is optional, in between.
 - **66 %: the 8-person small-room level** (founder, 2026-10-08). Eight
-  people in a small room, ~2 ft from the laptop, Spotify 100 %. It is a
-  recorded operating level, not yet a ladder step: no takes below use it.
-  The one session at this level read eight people as `solo` most of the
-  time (FIELD-NOTES 2026-10-08).
+  people in a small room, ~2 ft from the laptop, Spotify 100 %. The one
+  session at this level read eight people as `solo` most of the time
+  (FIELD-NOTES 2026-10-08). **Since 2026-10-09 it is a ladder step**: each
+  track gets an `MX66` take (M12 decision D2).
+- **56 %** is no longer used (replaced by 66 %).
 
 What the mic hears at 32 % is unmeasured. For scale: on 2026-09-24 the
 built-in array heard music at −46.1 dBFS at 16 % and −25.5 dBFS at 75 %.
@@ -137,8 +195,14 @@ command. `DATE` is the session date (`20261001` style). Names must be
 unique, because the capture script overwrites files of the same name.
 
 ```powershell
-.venv\Scripts\python.exe scripts\capture_room_wav.py --seconds <S> --name ladder-DATE-<ID> --note "<note>"
+.venv\Scripts\python.exe scripts\capture_room_wav.py --seconds <S> --name ladder-DATE-<ID> --note "<note>" --reference
 ```
+
+`--reference` (M12-01) also writes `ladder-DATE-<ID>.ref.wav`: what the
+laptop played during the take. It's on for **every** take, controls
+included, where it should record silence (a check in itself). Confirm the
+first lines name both `Microphone Array on SoundWire D` and the
+`reference: loopback of 'Speakers ...'`.
 
 - **Speech, all takes:** read aloud continuously from the same book or
   article at a natural level, unless the take says otherwise.
@@ -153,24 +217,30 @@ unique, because the capture script overwrites files of the same name.
 | 1 | C1 | speech | — | — | N, reading | 180 | control: the reference |
 | 2 | T1-MO32 | music | T1 | 32 % | silent | full track | mic-side music level at the operating volume |
 | 3 | T1-MX32 | mix | T1 | 32 % | N, reading | full track | **the operating condition** |
-| 4 | T1-MX76 | mix | T1 | 76 % | N, reading | full track | large-room; anchors HI |
-| 5 | C2 | speech | — | — | **F**, reading | 180 | control: distance |
-| 6 | T2-MO32 | music | T2 | 32 % | silent | full track | |
-| 7 | T2-MX32 | mix | T2 | 32 % | N, reading | full track | |
-| 8 | T2-MX76 | mix | T2 | 76 % | N, reading | full track | |
-| 9 | C3 | speech | — | — | N, **animated conversation** (not reading; laugh, vary pitch) | 180 | control: style |
-| 10 | T3-MO32 | music | T3 | 32 % | silent | full track | |
-| 11 | T3-MX32 | mix | T3 | 32 % | N, reading | full track | |
-| 12 | T3-MX76 | mix | T3 | 76 % | N, reading | full track | |
-| 13 | C4 | speech | — | — | N, reading | 180 | control: repeat of C1 (drift) |
+| 4 | T1-MX66 | mix | T1 | 66 % | N, reading | full track | 8-person small-room level |
+| 5 | T1-MX76 | mix | T1 | 76 % | N, reading | full track | large-room; anchors HI |
+| 6 | C2 | speech | — | — | **F**, reading | 180 | control: distance |
+| 7 | T2-MO32 | music | T2 | 32 % | silent | full track | |
+| 8 | T2-MX32 | mix | T2 | 32 % | N, reading | full track | |
+| 9 | T2-MX66 | mix | T2 | 66 % | N, reading | full track | |
+| 10 | T2-MX76 | mix | T2 | 76 % | N, reading | full track | |
+| 11 | C3 | speech | — | — | N, **animated conversation** (not reading; laugh, vary pitch) | 180 | control: style |
+| 12 | T3-MO32 | music | T3 | 32 % | silent | full track | |
+| 13 | T3-MX32 | mix | T3 | 32 % | N, reading | full track | |
+| 14 | T3-MX66 | mix | T3 | 66 % | N, reading | full track | |
+| 15 | T3-MX76 | mix | T3 | 76 % | N, reading | full track | |
+| 16 | C4 | speech | — | — | N, reading | 180 | control: repeat of C1 (drift) |
+| 17 | P1 | music | T1 | 32 % | silent | 150 | **M12-01 transport**: start the capture, play T1 at 0:10, pause at 0:40, play at 0:55, **skip** to the next song at 1:25, stop at 2:10. Note each clock time |
+| 18 | X-T1-MO32-atmosoff | music | T1 | 32 % | silent | 90 | **required now** (see Block X): answers M12's "is the loopback before or after Atmos?" |
 
-That's about 45–55 minutes of capture. 76 % is loud for a small room, so
-keep those takes together per track and short breaks between them are
-fine. C1 and C4 bracket the session, so drift shows up as a C1/C4
-difference rather than as a knot. Optional 56 % mix takes (`Tn-MX56`) fill
-in the middle if time allows.
+That's about 60–70 minutes of capture. 66 % and 76 % are loud for a
+small room, so keep each track's mix takes together, and short breaks
+between them are fine. C1 and C4 bracket the session, so drift shows up as
+a C1/C4 difference rather than as a knot, and the reference's delay
+across C1–C4's span measures M12-01's clock drift.
 
-**Optional Block X (only after take 13): one variable at a time.**
+**Block X (after take 17): one variable at a time.** The Atmos-off take
+is required since 2026-10-09; the enhancements take stays optional.
 Each is 90 s of T1 music-only at 32 %, then put the setting back and
 record that you did.
 - `X-T1-MO32-atmosoff`: **Dolby Atmos off**. Measures how much Atmos
@@ -182,6 +252,13 @@ record that you did.
 
 A big shift from either means that setting is part of the capture path
 and belongs in every calibration record.
+
+For M12, the Atmos-off take's **reference** is compared with
+`T1-MO32`'s (`analyze_reference.py --compare`, below). If the loopback
+changes when Atmos is toggled, the loopback is tapped after Atmos, and
+the canceller sees what the speakers are fed. If it doesn't change, the
+tap is before Atmos, and the canceller must also learn Atmos's
+processing.
 
 ## Analysis (offline, any time after)
 
@@ -195,7 +272,23 @@ $D = "data/captures/ladder-DATE"
   --hi-from MX76 --json "$D-result.json"
 ```
 
-It mirrors the engine: 5 s windows every 2 s, streaming Silero at the
+M12-01, the same takes' references (delay, drift, levels, transport,
+Atmos):
+
+```powershell
+.venv\Scripts\python.exe scripts\analyze_reference.py `
+  "$D-T1-MO32" "$D-T1-MX32" "$D-T1-MX66" "$D-T1-MX76" `
+  "$D-T2-MO32" "$D-T2-MX32" "$D-T2-MX66" "$D-T2-MX76" `
+  "$D-T3-MO32" "$D-T3-MX32" "$D-T3-MX66" "$D-T3-MX76" `
+  "$D-C1" "$D-C4" --json "$D-reference.json"
+.venv\Scripts\python.exe scripts\analyze_reference.py "$D-P1" --transport
+.venv\Scripts\python.exe scripts\analyze_reference.py "$D-T1-MO32" "$D-X-T1-MO32-atmosoff" --compare "$D-T1-MO32" "$D-X-T1-MO32-atmosoff"
+```
+
+Add `mix:Tn-MX66="$D-Tn-MX66.wav"` for each track to the dominance command
+above.
+
+The dominance analyzer mirrors the engine: 5 s windows every 2 s, streaming Silero at the
 playback certification threshold, the same `dsp.analyze` and
 `dominance()` functions, and only eligible windows (speech ratio ≥ 0.2)
 are scored. It scores the `config.py` defaults, the knots in force, and
@@ -206,11 +299,10 @@ it reports:
 - **bankable**: the fraction at m ≥ `pull_m_floor`, which bank a pull
   sample.
 
-## Decision rule — DRAFT, founder edits and signs before the session
+## Decision rule — SIGNED 2026-10-09
 
-The two tolerances below (0.05 and 0.10) are **proposals**. Change them
-before the session if you want different ones, then sign. They must not
-change after the data is in.
+The founder kept the proposed tolerances (0.05 and 0.10) and added the
+66 % mix takes (2026-10-09). They must not change after the data is in.
 
 Inputs, from the analyzer:
 - **LO\*** = the worst control's p95. The `rule inputs` line prints it,
@@ -230,20 +322,29 @@ is small (on 09-24, contamination scaled with level), so absorbing
 there costs less than banking speech as pull.
 
 - **A — separable at the operating level.** HI\* > LO\*, **every**
-  control has bankable ≤ 0.05, and **every** `MX32` and `MX76` take has
-  clean ≤ 0.10. → Propose (LO\*, HI\*) as the new knots. This is the
+  control has bankable ≤ 0.05, and **every** `MX32`, `MX66` and `MX76`
+  take has clean ≤ 0.10. → Propose (LO\*, HI\*) as the new knots. This is the
   second ladder on this machine, so it meets CLAUDE.md's "measured twice"
   bar. Promoting them to `config.py` defaults (replacing the Mac's) is a
   REQUIRES-REVIEW diff with this entry as its evidence. `.env` then drops
   its override.
-- **B — separable at large-room volume only.** As A, but some `MX32` take
-  has clean > 0.10, while every `MX76` take has clean ≤ 0.10. →
-  Same proposal, plus a written operating envelope: "the music-aware
-  correction engages in large rooms. At small-room volume (32 %),
-  speech over music mostly reads as clean speech, so it is left
-  uncorrected." Whether that's acceptable is a founder decision recorded
-  with it. It's likely to be, if the 32 % pull is small. Measuring that
-  pull is a separate question this session does not answer.
+- **B — separable only above small-room volume.** As A, but some
+  `MX32` take has clean > 0.10, while every `MX76` take has clean
+  ≤ 0.10. → Same proposal, plus a written operating envelope stating the
+  lowest level at which it engages. Pick the sub-case by the `MX66` takes:
+  - **B66: every `MX66` take has clean ≤ 0.10.** "The music-aware
+    correction engages from the 66 % level up (a small room of 8, and
+    larger). At 32 % (1–5 people), speech over music mostly reads as
+    clean speech, so it is left uncorrected."
+  - **B76: some `MX66` take has clean > 0.10.** "The music-aware
+    correction engages at the 76 % level only (10–15+ people). At 32 %
+    and 66 %, speech over music mostly reads as clean speech, so it is
+    left uncorrected." This is the weaker envelope. It would leave the
+    2026-10-08 eight-person room uncorrected.
+
+  Whether the envelope is acceptable is a founder decision recorded with
+  it. It's likely to be at 32 %, if the pull there is small. Measuring
+  that pull is a separate question this session does not answer.
 - **C — not separable.** HI\* ≤ LO\*, **or** no pair scored meets the
   control condition (bankable ≤ 0.05) while keeping `MX76` clean
   ≤ 0.10. → **Change no knots.** On this mic, high-band *share* cannot
@@ -258,7 +359,8 @@ C1 vs C4 is reported either way. If C4's p95 differs from C1's by more
 than the spread among C1–C3, record the session as drifting. The verdict
 then stands only if it holds with C4 excluded **and** with C1 excluded.
 
-Signed: ____________ Date: ________
+Signed: Jordan Smith (founder), on the founder's instruction to Claude
+("add the 66% takes to the rule and sign it"). Date: 2026-10-09
 
 ## Afterwards
 

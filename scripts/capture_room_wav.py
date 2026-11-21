@@ -26,6 +26,15 @@ applies. A cleaner capture would characterise a pipeline RTR does not have.
     python scripts/capture_room_wav.py --seconds 90 --note "center of room"
     python scripts/capture_room_wav.py --list-devices
 
+M12-01 (`--reference`, opt-in): also record the laptop's own playback
+through a WASAPI loopback (scripts/loopback_reference.py) in the same
+process, so the mic stays a single stream (two streams on this array changed
+embedding spread on 2026-09-06). Writes `<name>.ref.wav` (16 kHz mono,
+resampled with RTR's own Resampler) and a `reference` block in the sidecar
+with both streams' clock logs. The loopback is everything the laptop
+plays, including calls and notifications, so it is written only under
+this flag. Without the flag, this script and its sidecar are unchanged.
+
 Each run writes `<name>.wav` plus `<name>.json` carrying the provenance the
 WAV cannot: host, OS, device, capture rate, whether the resampler ran, the
 config constants in force, and your `--note`. A WAV without that sidecar is
@@ -47,7 +56,7 @@ from pathlib import Path
 import numpy as np
 
 from sensing import dsp
-from sensing.audio import MicSource, list_input_devices
+from sensing.audio import MicSource, Resampler, list_input_devices
 from sensing.config import Config
 
 # Below this the capture is almost certainly not hearing the room. Chosen
@@ -104,6 +113,13 @@ def main() -> int:
     parser.add_argument(
         "--list-devices", action="store_true", help="list input devices and exit"
     )
+    parser.add_argument(
+        "--reference",
+        action="store_true",
+        help="M12-01: also record the laptop's playback (WASAPI loopback) to "
+        "<name>.ref.wav. It holds everything the laptop plays, including "
+        "notifications: use Do Not Disturb, and only with consent",
+    )
     args = parser.parse_args()
 
     if args.list_devices:
@@ -121,6 +137,13 @@ def main() -> int:
         buffer_seconds=args.seconds + 5.0,
         device=device,
     )
+    reference = None
+    if args.reference:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from loopback_reference import LoopbackRecorder
+
+        reference = LoopbackRecorder()
+        print(f"reference: loopback of '{reference.start()}'")
     source.start()
 
     started_wall = dt.datetime.now().astimezone()
@@ -140,6 +163,7 @@ def main() -> int:
     chunks: list[np.ndarray] = []
     position = 0
     t0 = time.monotonic()
+    mic_clock: list[tuple[float, int]] = []  # (monotonic, samples so far), --reference only
     # A \r-updated counter is right at a terminal and wrong everywhere else:
     # piped or captured, every poll becomes its own line (~900 of them for a
     # 90 s take). Redraw only on a tty; otherwise report at intervals.
@@ -154,6 +178,8 @@ def main() -> int:
             new, position = source.ring.read_since(position)
             if new.size:
                 chunks.append(new)
+                if reference is not None:
+                    mic_clock.append((time.monotonic(), position))
             captured_s = sum(c.size for c in chunks) / config.sample_rate
             if live:
                 print(
@@ -164,10 +190,13 @@ def main() -> int:
                 next_report += PROGRESS_REPORT_S
     except KeyboardInterrupt:
         source.stop()
+        if reference is not None:
+            reference.stop()
         print("\naborted; nothing written.")
         return 130
     finally:
         source.stop()
+    ref_result = reference.stop() if reference is not None else None
 
     print()
     if not chunks:
@@ -222,6 +251,10 @@ def main() -> int:
             "headcount_min_cluster_frac": config.headcount_min_cluster_frac,
         },
     }
+    if ref_result is not None:
+        sidecar["reference"] = _write_reference(
+            out_dir / f"{name}.ref.wav", ref_result, t0, mic_clock, config.sample_rate
+        )
     json_path.write_text(json.dumps(sidecar, indent=2) + "\n", encoding="utf-8")
 
     print(f"wrote {wav_path}  ({sidecar['duration_s']:.1f} s, {measured.rms_dbfs:.1f} dBFS)")
@@ -249,6 +282,46 @@ def main() -> int:
         print("\ncapture looks healthy. Next:")
         print(f"  {sys.executable} scripts/analyze_headcount_wav.py {wav_path}")
     return 0
+
+
+def _thin(log: list[tuple[float, int]], t0: float, every_s: float = 1.0) -> list[list[float]]:
+    """Keep about one (seconds since t0, count) point per `every_s`."""
+    out: list[list[float]] = []
+    for t, n in log:
+        if not out or t - t0 - out[-1][0] >= every_s:
+            out.append([round(t - t0, 4), int(n)])
+    return out
+
+
+def _write_reference(path: Path, ref, t0: float, mic_clock, sample_rate: int) -> dict:
+    """Resample the loopback to the mic's rate, write it, and describe it.
+    The clock logs let scripts/analyze_reference.py measure drift."""
+    mono16 = Resampler(ref.native_rate, sample_rate).process(ref.mono) if ref.mono.size else ref.mono
+    _write_wav(path, mono16, sample_rate)
+    level = dsp.analyze(mono16, sample_rate).rms_dbfs if mono16.size else None
+    print(f"wrote {path}  ({mono16.size / sample_rate:.1f} s, "
+          f"{'no audio' if level is None else f'{level:.1f} dBFS'})")
+    if ref.error:
+        print(f"WARNING: reference capture error: {ref.error}")
+    return {
+        "wav": path.name,
+        "device_name": ref.device,
+        "native_rate": ref.native_rate,
+        "channels_downmixed": ref.channels,
+        "duration_s": round(mono16.size / sample_rate, 2),
+        "rms_dbfs": None if level is None else round(level, 2),
+        # Positive: the loopback's first block arrived after the mic poll
+        # loop started.
+        "first_block_after_mic_start_s": (
+            None if ref.started_at is None else round(ref.started_at - t0, 4)
+        ),
+        "max_block_gap_s": round(ref.max_gap_s, 3),
+        "error": ref.error,
+        # (seconds since mic start, cumulative frames). The mic counts
+        # 16 kHz samples; the reference counts native-rate frames.
+        "mic_clock": _thin(mic_clock, t0),
+        "ref_clock": _thin(ref.blocks, t0),
+    }
 
 
 def _write_wav(path: Path, audio: np.ndarray, sample_rate: int) -> None:

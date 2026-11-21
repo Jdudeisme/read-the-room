@@ -152,3 +152,89 @@ def test_synth_double_stop_is_safe():
     synth.stop()
     synth.stop()
     assert synth._thread is None
+
+
+# -- M12-01c: ReferenceSource (fake recorder; no WASAPI) -----------------------
+
+from sensing.audio import ReferenceSource  # noqa: E402
+
+
+class _FakeLoopback:
+    """Context manager standing in for soundcard's recorder: a 1 kHz sine,
+    stereo, at 48 kHz, delivered in real time."""
+
+    def __init__(self, fail_on_enter=False):
+        self.fail_on_enter = fail_on_enter
+        self.t = 0
+
+    def __enter__(self):
+        if self.fail_on_enter:
+            raise OSError("device busy")
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def record(self, numframes):
+        n = np.arange(self.t, self.t + numframes)
+        self.t += numframes
+        time.sleep(numframes / 48_000)
+        x = (0.25 * np.sin(2 * np.pi * 1000 * n / 48_000)).astype(np.float32)
+        return np.stack([x, x], axis=1)
+
+
+def _factory(fail=False):
+    return lambda rate, channels: ("Speakers (fake)", _FakeLoopback(fail_on_enter=fail))
+
+
+def test_reference_fills_its_ring_at_the_analysis_rate():
+    ref = ReferenceSource(16_000, 2.0, recorder_factory=_factory())
+    ref.start()
+    time.sleep(0.3)
+    ref.stop()
+    written = ref.ring.total_written
+    assert ref.device_name == "Speakers (fake)" and ref.blocks > 0
+    # ~16 kHz worth of samples for the blocks delivered (48k -> 16k)
+    assert abs(written - ref.blocks * 960 / 3) <= 2
+    tail = ref.ring.read_last(1600)
+    assert np.sqrt(np.mean(tail**2)) == pytest.approx(0.25 / np.sqrt(2), rel=0.05)
+    assert ref.status == "stopped"
+
+
+def test_reference_open_failure_raises_and_reports():
+    ref = ReferenceSource(16_000, 2.0, recorder_factory=_factory(fail=True))
+    with pytest.raises(RuntimeError, match="device busy"):
+        ref.start()
+    assert ref.status == "failed"
+    ref.stop()  # still safe
+
+
+def test_reference_concurrent_stop_is_safe():
+    ref = ReferenceSource(16_000, 2.0, recorder_factory=_factory())
+    ref.start()
+    barrier = threading.Barrier(2)
+
+    def stop():
+        barrier.wait()
+        ref.stop()
+
+    threads = [threading.Thread(target=stop) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert ref._thread is None and ref.status == "stopped"
+
+
+# -- RingBuffer.read_range (M12-02) --------------------------------------------
+
+from sensing.audio import RingBuffer  # noqa: E402
+
+
+def test_read_range_by_absolute_position_with_wrap_and_zero_fill():
+    rb = RingBuffer(10)
+    rb.write(np.arange(25, dtype=np.float32))  # holds 15..24 after wrapping
+    assert rb.read_range(18, 4).tolist() == [18, 19, 20, 21]
+    assert rb.read_range(13, 4).tolist() == [0, 0, 15, 16]  # 13, 14 overwritten
+    assert rb.read_range(23, 4).tolist() == [23, 24, 0, 0]  # 25, 26 not yet written
+    assert rb.read_range(-2, 3).tolist() == [0, 0, 0]

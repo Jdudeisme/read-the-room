@@ -5,6 +5,1232 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-11-20 (evening, live, founder + 3 guests) — M12 gate (b): the M12-05 session, Block S and Block G on one day
+
+**This is gate (b).** The M12-05 protocol was run once on JPad by the
+founder, with Block S (founder alone) and Block G (4 people) on the same
+day, under one fixed-conditions table. The signed rule (run sheet G) was
+then applied by `scripts/m12_session_replay.py`. **Outcomes: M12-03 STAYS
+DEFERRED; Rule 1c FILES the phantom-count finding (7 of 9); Rule 2
+SWITCHES the mapper to `clean_trend`.** All three are unchanged with either
+Block S control dropped. Nothing was tuned in-session. Claude started no
+capture: the founder typed every take with `!` in Claude Code's terminal, and
+Claude read each take's files after it finished, checking length, continuity,
+reference errors and, from S-MX-J32 on, that the reference matched the
+intended track.
+
+**Preflight B (Claude, before the first take).** Branch
+`milestone-12-hear-the-room` @ `20783a4`, clean, 426 tests pass. `.env`:
+the rescue flag is unset (default off), and all nine `RTR_HEADCOUNT_*`
+values equal the `config.py` defaults. `--list-devices` names
+`Microphone Array on SoundWire D` (the default). The dashboard is not
+running. B3: `m12_session_replay.py data/captures/ladder-20261009 --ladder
+--no-headcount` gives **48 / 48 energy medians identical** to a fresh
+`m12_energy_survey.py` run. (The survey's `X-T1-MO32-atmosoff` diagnostic
+is not a replay take, by design.) B4: the founder ran two 10 s
+`--reference` test takes (music only, then speaking over music). Both wrote
+a `.ref.wav`, and both were deleted.
+
+**Fixed conditions** (filled in at 17:41, before the first take).
+
+| setting | value |
+|---|---|
+| Room | founder's apartment, living-room alcove, **2.8 m × 3.35 m**, one side open to the rest of the apartment. A new room: 10-26 was the Columbia work room (~5 m × 5 m) |
+| Laptop position | on the TV stand, TV behind it (off all session), lid at ~90° |
+| Mic input volume | **34 %**. It was **found at 68 %** at the conditions check and set to 34 % before S-C1 (founder confirmed). The B4 test takes ran at 68 %. Cause unknown |
+| Mic "Audio enhancements" | off |
+| Windows Studio Effects | present (Quick Settings), **not enabled**; camera effects only |
+| Lenovo Vantage noise cancelling | no such setting on this laptop |
+| Dolby Atmos for Speakers | ON |
+| Spotify volume / Normalize / EQ | 100 % / on / flat |
+| Repeat-one | on, except S-VS-I (see the take log) |
+| Do Not Disturb | on; every no-music reference is digital silence, so no laptop sound got in |
+| Power | plugged in |
+| Dashboard | not running |
+| Solo talk position | **N, 0.6 m, tape-measured, seated**, the same spot for every Block S take |
+| Group seating | the 4 people in an arc around the laptop, each **~1.5 m** away |
+| Block G occupants | JS (founder), JG, BN, SF, the same four throughout. All three guests agreed to the run sheet D script at **21:04**, before G-C1 |
+| First / last capture | S-C1 17:48:59 / G-C2 22:16:56 |
+
+The 10-26 canceller check had left two open questions: Studio Effects and
+Vantage noise cancelling. **Neither processes the mic** on this laptop.
+
+**Take log.** Prefix `m12s-20261120`, 36 captures in `data/captures/`
+(local, never committed). Every take is 200 s (VS takes 360 s), with
+continuity 0.9989–0.9998 and no reference errors. Against 10-26, the
+music-only takes sit within ~1 dB at the mic (mic minus reference: H32
+−21.1 vs −19.9 dB, I66 −10.1 vs −10.0, J76 −6.5 vs −6.1). The 32 → 66 %
+step is 6.7–7.6 dB and 66 → 76 % is 0.7–1.2 dB, the same output ceiling as
+10-09 and 10-26. Reading over music adds 0.6–3.4 dB over the same music
+alone. The reader's speech is ~4 dB quieter at the mic than on 10-26
+(S-C1 −37.0 vs S-C1b −33.0 dBFS); the room and the seat differ, so this is
+not attributed.
+
+- **Track I is ~128 s long. The "1.23 s digital silence ~2:08 in" (10-26
+  entry) is the repeat-one loop gap**, not a gap inside the track: with
+  repeat-one on, every I take restarts I from 0:00 at ~128–129 s. Checked
+  by exact waveform match against S-MO-I32's reference (r ≥ 0.993).
+- **S-VS-I: GATED (repeat-one off).** At 128 s Spotify advanced to the next
+  track for ~6 s (128.6–134.8 s in the reference) before the founder went
+  back to I from 0:00. The founder caught it; the reference confirms it.
+  The step itself (founder's stopwatch 181 s, audio 180 s) sits in clean
+  I. **Re-take S-VS-Ib** (19:38) after S-C2, repeat-one checked: **step at
+  181 s** (the founder landed on 66 % at 181 s). For the record, the gated
+  take's 2a reading would have been `trend` 0.700 vs `clean_trend` 0.167;
+  it is not ruled on.
+- **S-VS-Ib's reference has one soundcard "data discontinuity": an 8 ms
+  dropout at 111 s** (the reference's offset to track I steps 336 → 328 ms
+  there). It falls inside the canceller's characterized 15–30 ms envelope.
+  Kept.
+- **G-MX-I32: GATED (wrong track).** The founder played the vocal "Rhymes
+  Like Dimes", not the instrumental. The founder reported it, and the
+  reference matches no take of H, I or J (best r 0.37–0.50 against I, the
+  same beat). **Re-taken immediately as G-MX-I32b** (21:26), with the URI
+  pasted into search, rather than at the end of the block, so the take
+  would exist even if a guest left early. The reference matches I (r 1.00
+  at five points).
+- **G-MX-I76: GATED (broken reference).** It printed **88** "data
+  discontinuity in recording" warnings. Tracked against track I, the
+  reference has **18 timing steps** of 11–101 ms, net +407 ms dropped.
+  Every other take checked this way has 0–2. The likely cause is load elsewhere on
+  the laptop; nothing of Claude's was running during the take. **Re-take
+  G-MX-I76b** (21:46), after the founder closed every app but Spotify and
+  the terminal: 0 warnings, 0 steps. **The gated take crashes the
+  canceller; see finding 4.** Its files were renamed by Claude to
+  `m12s-20261120-G-MX-I76-refglitch.*` so the replay skips it. They are
+  kept, not deleted, as the reproduction case; the JSON's `wav` fields
+  still carry the old name.
+- **G-MX-J66: 10 discontinuity warnings, 2 reference timing steps of ~27 ms
+  at 7 s and 17 s**, inside the characterized envelope and before or at the
+  canceller's lock (30 s). Kept.
+- **G-VS-I, first attempt: stopped at the founder's request** (volume not
+  at 32 % at the start), stopped by Claude a little over two minutes in. It
+  wrote no files, and the re-take reused the name.
+- **G-VS-I (22:09): step at 181 s** (founder's stopwatch; the audio's
+  mic-minus-reference jumps 5–6 dB at 181 s). **Its reference is 1.9 dB
+  louder than every other track-I take** (−13.0 vs −14.8 to −15.1 dBFS),
+  evenly across the take, on the same waveform (r = 1.00). That's a pure
+  gain before the loopback. Normalize was still on, and I started at 0:00;
+  the cause is unknown. Kept: 2a compares the take with itself across the
+  step, which a constant offset doesn't move, and the outcome doesn't
+  depend on it (below).
+- **Moving the Windows volume shifts the reference's timing**, in every VS
+  take: S-VS-I −8 ms at 180 s, S-VS-Ib −8 ms at 181 s, 10-26 S-VS-I +40 ms
+  at 183 s. Each lands on the second the slider moved, so it also
+  timestamps the step. The streaming canceller re-locks through steps of
+  this size (M12-02 robustness pass).
+- **G-MX-J32 locked late (116 s)**, faint jazz at 32 % under conversation.
+  S-MX-J32 locked at 48 s. Every other music take locked within 8–46 s.
+
+**Analysis.** `scripts/m12_session_replay.py data/captures/m12s-20261120
+--step-at S-VS-Ib=181 --step-at G-VS-I=181 --gate S-VS-I --gate G-MX-I32
+--json data/m12-replay/session-m12s-20261120.json`, finished 23:05. The
+config it mirrors is `Config()` defaults as on JPad's `.env` (headcount
+interval 2.0 s), per run sheet F. The output is kept locally (`.json` and
+`.txt` beside it). The first run (with `--gate G-MX-I76`) crashed on that
+take (finding 4). The rerun skips the renamed file, which changes nothing
+the rule reads, because a gated take never enters the rule.
+
+The signed rule, cancellation on:
+
+| test | result |
+|---|---|
+| 1a: music-only eligible > 0.05 | **does not fire.** 0.000 on all 9. Without cancellation, H was 0.915–0.957, and I and J 0.000 |
+| 1b: Block G, H solo share over I's and over the controls' (0.433), each by > 0.15 | **does not fire at any volume.** 32 %: H 0.435, I 0.000, but H is only 0.002 over the controls. 66 %: H 0.513 < I 0.637. 76 %: H 0.157 < I 0.553 |
+| 1c: locked Block S mix take, solo share more than 0.15 below the controls (1.0) | **fires on 7 of 9.** Not J32 (1.00) and not J76 (0.851, 0.149 under) |
+| 2a: `trend` rising after the step minus `clean_trend` rising, ≥ 0.20 | **holds on S-VS-Ib** (0.233 − 0.000 = 0.233). **Does not hold on G-VS-I** (0.767 − 0.700 = 0.067) |
+| 2b: clean energy no farther from the controls than published (66/76 %) | **holds on all 12** (6 per block) |
+| Outcomes | Rule 1 **STAYS DEFERRED**; 1c **FILE** (phantom count); Rule 2 **SWITCH** (2a holds on one VS take, 2b on all) |
+
+Headcount solo share, cancellation off → on. Block S truth is 1 (the
+founder).
+
+| track | 32 % | 66 % | 76 % |
+|---|---|---|---|
+| H (vocal hip-hop) | 0.70 → 0.84 | 0.09 → **0.28** | 0.05 → 0.42 |
+| I (instrumental) | 0.52 → 0.69 | 0.22 → 0.68 | 0.46 → 0.76 |
+| J (jazz) | 1.00 → 1.00 | 0.20 → 0.82 | 0.20 → 0.85 |
+| controls S-C1 / S-C2 | 1.00 / 1.00 | | |
+| volume step S-VS-Ib | 0.56 → 0.97 | | |
+
+Block G, truth 4. All bucket readings (`solo` / `pair` / `3` / `4`) are in
+the JSON.
+
+| track | 32 % | 66 % | 76 % |
+|---|---|---|---|
+| H | 0.79 → 0.44 | 0.09 → 0.51 | 0.09 → 0.16 (`4` read 8 times) |
+| I | 0.00 → 0.00 (I32b: mostly `pair`, `4` ×10) | 1.00 (2 hops) → 0.64 | 0.43 → 0.55 (I76b) |
+| J | 0.74 → 0.63 | none eligible → 0.61 | none eligible → 0.64 |
+| controls G-C1 / G-C2 | 0.245 (`pair` 74) / 0.622 (`solo` 61, `3` 20) | | |
+| volume step G-VS-I | 0.30 → 0.83 | | |
+
+Energy minus the controls' mean (66 / 76 %), published with cancellation →
+clean:
+
+| | H | I | J |
+|---|---|---|---|
+| Block S | +0.087 / +0.090 → +0.059 / +0.050 | +0.155 / +0.159 → +0.043 / +0.047 | +0.085 / +0.078 → +0.047 / +0.046 |
+| Block G | +0.090 / +0.029 → +0.030 / −0.023 | +0.134 / +0.135 → +0.047 / +0.048 | +0.097 / +0.094 → +0.023 / +0.010 |
+
+Volume steps, rising share before → after the step:
+
+| take | `trend` | `clean_trend` |
+|---|---|---|
+| S-VS-Ib | 0.000 → 0.233 (step +0.081) | 0.000 → 0.000 (step +0.033) |
+| G-VS-I | 0.000 → 0.767 (step +0.183) | 0.000 → 0.700 (step +0.135) |
+
+**Drift check.** Block S energy controls differ by 0.036 (S-C1 0.582,
+S-C2 0.618), above the 32 % takes' spread (0.018), so the script flags
+`S.energy` as drifting. The reader's voice was ~2 dB louder in S-C2 at the
+mic. **Every outcome is unchanged with either control dropped**
+(`drift_robust`). Block G doesn't drift (energy gap 0.007; certification
+gap 0.000 in both blocks).
+
+**What the outcomes mean.**
+
+1. **M12-03 stays deferred.** Cancellation keeps music-only certification
+   at 0.000 on all three tracks at all three volumes. On a second day, in a
+   second room, that replicates M12-02 and 10-26 (max 0.011). Vocal music
+   doesn't make the group read more `solo` than instrumental does.
+2. **Rule 1c files the phantom-count finding, for the third day running**
+   (ladder 10-11, 10-26 8 of 9, today 7 of 9). With cancellation on, a lone
+   reader reads `solo` in 0.28–0.84 of hops on the firing takes, mostly
+   `pair` otherwise (`3` on H76). Today's firing takes span 0.28–0.84,
+   overlapping both the ladder's (0.20–0.50) and 10-26's (0.59–0.84). **H at 66 % is again the worst take** (0.28; 10-26: 0.21),
+   and jazz at 32 % is clean again. Filed as ROADMAP **M12-07**. The
+   residual music after cancellation is the leading hypothesis (the
+   10-26 canceller check below: 2–6 dB under the voice at 66/76 %).
+   Unmeasured on today's takes.
+3. **Rule 2 switches the mapper to `clean_trend`.** The harm-required
+   variant needs evidence that the raw trend chases the music, and clean
+   energy no worse. S-VS-Ib gives the harm: on a lone reader, the raw trend
+   read `rising` for 23 % of the hops after the DJ turned the music up, and
+   clean never did. 2b holds on all 12 takes in both blocks: clean energy
+   sits 0.01–0.06 from the no-music controls, against 0.03–0.16 for
+   published. **The margin is thin**: 0.233 against a 0.20 threshold, on
+   one take. G-VS-I doesn't show it, because both trends rose (0.77 / 0.70).
+   With four people talking, a room that gets louder when the music goes up
+   is what the clean stream should report; the rule doesn't decide that,
+   and this entry doesn't either. G-VS-I's 1.9 dB reference offset is on the
+   non-holding take, so it can't have produced the SWITCH. Per the test plan,
+   SWITCH means a mapper-only diff (read `clean_trend` when present), which
+   lands before the merge, under its own review.
+4. **New finding: a large reference timing jump crashes the canceller.**
+   The first analysis run raised `ValueError: could not broadcast input
+   array from shape (2105,) into shape (0,)` in `aec.MdfFilter._shift`,
+   called from `_choose_on_relock` on G-MX-I76. `_shift(taps)` assumes
+   `|taps|` is less than the filter length (13 partitions × 256 = 3,328
+   taps, 208 ms). But a re-lock can move the lag by up to the tracker's
+   `MAX_LAG_S` = 0.6 s, and G-MX-I76's dropouts moved it further. Live,
+   `CleanSource._run` catches the exception, and the engine falls back to
+   raw for the rest of the session (`_fall_back_to_raw`). So it degrades
+   honestly, but **cancellation is lost for the night after one bad
+   reference glitch**. Filed as ROADMAP **M12-08**. Not fixed:
+   REQUIRES-REVIEW.
+5. **Block G undercounts four people** (not ruled on): with no music, G-C1
+   read mostly `pair` (solo 0.245) and G-C2 mostly `solo` (0.622), with
+   `3` and `4` rare. This is the accepted trade ("undercounting beats
+   phantom crowds"), here at ~1.5 m on JPad's built-in array. It doesn't
+   enter any M12 rule. It's relevant to M9's live-performance hazards and to
+   M11's far-field question.
+
+**Recorded here for the first time: the 2026-10-26 canceller check**
+(Claude, offline, run after the 10-26 entry was committed). Music-only echo
+reduction on the 10-26 takes was **10 dB (H), 12–13 dB (J), 14–15 dB (I)**.
+The same code and method on the ladder's MO32 takes give 4.6–7.6 dB, so
+the code didn't change; the recording did. On 10-26 the music at the mic was
+12–14 dB louder at 32 % than on the ladder (H −31.7 vs −45.9 dBFS), while
+speech was only ~6 dB louder. That leaves the residual music at 66/76 % only
+**2–6 dB under the voice**. There were 0 divergence resets on all 18 music
+takes. The suspected cause of the louder music, the laptop on a desk rather
+than mid-room, was not verified. Today's laptop sat on a TV stand, and its
+music-only levels match 10-26 within ~1 dB.
+
+**First day-to-day repeatability (Block S, 10-26 → today).** 1a: 0.011 →
+0.000 max. 1c: fires 8 → 7 of 9 (H66 the worst both days). 2b: holds 6 → 6.
+2a: 0.167 → 0.233. That straddles the 0.20 threshold, so **Rule 2's
+outcome on a lone reader is HOLD on one day and SWITCH on the other**:
+the margin is within day-to-day variation. Room, seat geometry and the
+reader's level all differed between the days.
+
+**What this doesn't show.** Venue loudspeakers or external arrays (M11).
+Live music that isn't RTR's playback (M9). Whether `clean_trend` drives
+better DJ decisions in a real session: the switch is decided on the
+signed proxy, not on outcomes. The WAVs stay on JPad until every decision
+above is recorded and any diff it triggered has merged, then they're deleted,
+as promised to the guests.
+
+## 2026-10-26 (evening, live, founder alone) — M12-05 Block S as a reference run; NOT gate (b)
+
+**This is not gate (b), and gate (b) stays open.** Block G didn't run: one
+of the three guests cancelled during the session, and the rest of the group
+then had to leave. The run sheet allows Block G with ≥ 3 people (4 was the
+plan), but no group was left. **The founder will retest the full gate (b) on
+a future day: a complete Block S and a complete Block G, run on the same
+day.** Today's Block S does not count toward it. The same-day rule (M12
+test plan) holds: both blocks share one fixed-conditions table, and the
+bracketing controls catch drift within a day, not across days. What today
+gives is a full Block S as **reference data**. When the gate day reruns
+Block S, the two days can be compared, which measures day-to-day
+repeatability for the first time. Nothing here was tuned, and nothing
+changes because of it.
+
+**Preflight B (Claude, before the first take).** Branch `milestone-12-hear-the-room`
+@ `7371112`, clean, 426 tests pass. `.env`: the rescue flag is unset
+(default off), and all nine `RTR_HEADCOUNT_*` values equal the `config.py`
+defaults. `--list-devices` names `Microphone Array on SoundWire D` (the
+default). The dashboard is not running (the only "dashboard" process is
+Cirrus Logic's audio utility). B3: `m12_session_replay.py --ladder`
+(now with ECAPA headcount) gives **48 / 48 energy medians identical** to a
+fresh `m12_energy_survey.py` run, and Rule 1c's solo shares match FIELD-NOTES
+2026-10-11 (later) on all 7 locked takes. B4: the founder ran two 10 s
+`--reference` test takes (music only, then speaking over music), and both
+were deleted. Claude started no capture.
+
+**Fixed conditions.**
+
+| setting | value |
+|---|---|
+| Room | Columbia work room, about 5 m × 5 m |
+| Laptop position | on the desk, about **0.6 m** in front of the founder (estimated, not taped) |
+| Talk position | **seated**, the same spot for every take, at about **0.6 m, estimated by eye** (founder's estimate: within ±0.05 m), not tape-measured. The session page said "standing at mark N"; the founder sat throughout. The gate day tapes 0.6 m and sits |
+| Mic input volume | 34 % |
+| Mic "Audio enhancements" | off |
+| Dolby Atmos for Speakers | ON (Dolby mode not recorded) |
+| Spotify volume / Normalize / EQ | 100 % / **on** / flat |
+| Repeat-one | on |
+| Do Not Disturb | on (one notification still got through: S-C1) |
+| Power | plugged in |
+| Dashboard | not running |
+| First capture | 18:31:42; last (S-C2) 20:47:05 |
+
+**Take log.** Prefix `m12s-20261026`, 23 captures in `data/captures/`
+(local, never committed). All takes are 200 s (S-VS-I 360 s), continuity
+0.999–0.9996, and no reference errors.
+
+- **S-C1, gated.** A notification chime sounded at 180–182 s; the
+  reference channel caught it exactly and is digital silence everywhere
+  else. The founder started reading ~26 s in, and read ~1.5 m from the
+  0.6 m spot (founder's estimate).
+- **S-C1b, first attempt: also off the mark** (~1.5 m). Claude renamed its
+  three files to `m12s-20261026-S-C1b-far.*` so the replay skips it
+  (`skipping unrecognised take 'S-C1b-far'`). It is kept, not deleted. The
+  JSON's `wav` fields still carry the old name.
+- **S-C1b at ~0.6 m (18:47:23) is the opening control.** Mic speech median
+  −33 dBFS, against −37/−38 dBFS for the two off-mark takes.
+- **S-MO-H/I/J × 32/66/76 %**, silent. At the mic, music rises **6.0–6.5 dB
+  from 32 to 66 %, then 0.8–1.2 dB to 76 %** on all three tracks. The
+  reference is flat across volumes (H −11.4, I −14.9, J −18.0 dBFS). This
+  repeats the 2026-10-09 finding that JPad's output tops out between 66
+  and 76 %.
+- **S-MX-H/I/J × 32/66/76 %**, reading. Speech adds +1.3 to +5.0 dB over
+  the same music alone. **S-MX-J32's music started 2.4 s after the
+  capture** (the reference is silent for 0–2.4 s). The analysis counts
+  from the canceller's lock, so that stretch is excluded.
+- **Track I has a 1.23 s digital silence about 2:08 into the track.** It
+  appears in all four I references (127.5–130.0 s). It's in the recording,
+  not a dropout, and the mic goes quiet with it.
+- **S-VS-I: the step is at 180 s.** The founder moved the slider at 180 s
+  and tapped the page ~10 s late (192 s). The mic, against the reference,
+  rises ~4 dB within 180–184 s. The slider briefly overshot to 68 % before
+  settling at 66 %. At the output ceiling that's under 1 dB, and it isn't
+  visible in the audio. The analysis used `--step-at S-VS-I=180`.
+- **S-C2 (20:47:05): Windows muted, Spotify still playing.** The founder
+  muted the slider instead of pausing. The reference therefore carries
+  track I at −15 dBFS for the whole take: it records before the Windows
+  volume. The room heard nothing: the mic's floor between words (p2 / p5
+  −52.6 / −50.9 dBFS) equals S-C1b's (−52.0 / −50.5). With I at 32 %, that
+  floor sits near −35 dBFS. The canceller never locked on it, and its on and
+  off results are identical. It is a valid speech-only control.
+  **Lesson for the gate day: pause Spotify for the controls, don't mute
+  Windows.**
+
+**Analysis.** `scripts/m12_session_replay.py data/captures/m12s-20261026
+--step-at S-VS-I=180 --gate S-C1`, 20:56–21:39 (the lid was briefly
+closed; the run continued). The config it mirrors is `Config()` defaults
+as on JPad's `.env` (headcount interval 2.0 s), per run sheet F. The output
+is kept locally in `data/analysis/m12s-20261026-replay.{json,txt}`. Every
+music take **locked within 8–14 s, including all three at 32 %.**
+
+The signed rule, cancellation on (Block S tests only. Rule 1b needs Block G
+and reads n/a):
+
+| test | result |
+|---|---|
+| 1a: music-only eligible > 0.05 | **does not fire.** Max 0.011 (H66, H76). Without cancellation, H was 0.84–0.90 and I/J were 0.000 |
+| 1c: locked mix take solo share more than 0.15 below the controls (1.0) | **fires on 8 of 9.** Only S-MX-I32 does not (solo 1.00) |
+| 2a: `trend` rising after the step, minus `clean_trend` rising, ≥ 0.20 | **does not hold.** 0.167 − 0.000 |
+| 2b: clean energy no farther from the controls than published (66/76 %) | **holds on all 6** |
+| Outcomes | Rule 1 STAYS DEFERRED; 1c FILE (phantom count); Rule 2 HOLD |
+
+Headcount solo share, cancellation off → on (truth: 1, the founder):
+
+| track | 32 % | 66 % | 76 % |
+|---|---|---|---|
+| H (vocal hip-hop) | 0.79 → 0.82 | 0.76 → **0.21** | 0.45 → 0.82 |
+| I (instrumental) | 0.46 → 1.00 | 0.04 → 0.84 | 0.05 → 0.79 |
+| J (jazz) | 0.63 → 0.74 | 0.62 → 0.77 | none eligible → 0.59 |
+| controls S-C1b / S-C2 | 1.00 / 1.00 | | |
+| volume step S-VS-I | 0.03 → 0.81 | | |
+
+Energy, published vs clean, minus the controls' mean (66/76 %): H +0.063
+/ +0.066 → +0.049 / +0.050; I +0.105 / +0.128 → +0.033 / +0.035; J +0.051
+/ +0.062 → +0.036 / +0.036.
+
+**Drift check.** The controls' energy differs by 0.026 (S-C1b 0.637, S-C2
+0.663). That's above the 32 % takes' spread (0.012), so the script flags
+`S.energy` as drifting. Every outcome is unchanged with either control
+dropped. Certification doesn't drift (controls gap 0.000).
+
+**Findings (reference only, not gate (b)).**
+
+1. **Cancellation removes the music's own certification.** The music-only
+   rap goes from 84–90 % eligible to ≤ 1.1 %, which replicates M12-02 on a
+   new day, in a new room and seat.
+2. **Cancellation rescues blinded reading.** The reader's speech went from
+   ineligible to eligible: J76 0.000 → 0.989, I76 0.237 → 1.000. This
+   matches 2026-10-09 ("blinded reading 19 → 109").
+3. **The phantom-count finding reproduces, but milder.** With cancellation
+   on, a lone reader is `solo` in 0.59–0.84 of hops on 7 of 8 firing takes,
+   against 0.20–0.50 on the 10-09 ladder (stood at a taped 0.6 m mark N). The rest is
+   mostly `pair`. **H at 66 % is the outlier** (0.21, mostly `pair`), and
+   I at 32 % is the one clean take. Rule 1c's finding is FILED by the
+   signed rule. It is the same finding as FIELD-NOTES 2026-10-11 (later);
+   today adds a second day of evidence and does not open a new item. The
+   milder shares aren't attributed to anything: today's room, seated
+   posture and untaped (estimated) 0.6 m all differ from the ladder.
+4. **Faint 32 % music locked on every track today.** On the ladder, T1 and
+   T2 at 32 % never locked (the B66 envelope). The setup differed (seated,
+   0.6 m by eye rather than taped, a different room, laptop on a desk),
+   so this is an observation. It
+   doesn't revise the envelope.
+5. **The volume step barely moves the raw trend** (rising 0.167 after the
+   step), so Rule 2 reads HOLD: the mapper keeps `trend`. One reading take
+   at one step is thin, and the gate day repeats it with Block G's
+   conversation.
+
+**What this doesn't show.** Anything about a group: Rule 1b, the H-vs-I
+headcount question, and the 09-30 mechanism with real conversation are
+all Block G. Those, and the rule's outcomes, are decided only by the
+full gate (b) day. On that day, the founder runs a complete Block S
+(seated at a **tape-measured** 0.6 m, Spotify paused for the controls) and a complete Block G
+(≥ 3 people), both on one day.
+
+## 2026-10-11 (afternoon, offline) — M12 gate (a): the 2026-09-30 replay reproduces, and "after" equals "before" by decision
+
+**Gate (a)** (ROADMAP § M12): "the 2026-09-30 recording replayed through
+the M12-03 gate, with the per-segment table compared against the 'before'
+table in FIELD-NOTES 2026-09-30 (night) … The recording has no reference
+channel, so this exercises only the reference-free part of M12-03."
+
+**There is no reference-free gate to put in the replay.** Two decisions
+and one measurement settled that:
+- The D3 survey found the cheap reference-free features detect music, not
+  the record's vocals (FIELD-NOTES 2026-10-09).
+- M12-03 is deferred (founder, 2026-10-09). Cancellation does its job
+  wherever a reference exists, and M12-05's signed rule is what reopens it.
+- So the "after" replay is `--gate none`, and its table is the "before"
+  table, by decision. The checkable claim is that the harness still
+  reproduces 09-30.
+
+**Run.** JPad, branch `milestone-12-hear-the-room` @ `617ccbc`,
+14:47–14:51: `scripts/m12_partf_replay.py
+data/captures/m7-partf-2026-09-30-16k.wav … --gate none`. The config it
+mirrors is the 09-30 session's, as its docstring states.
+
+**Result.** 830 / 830 rows; **15,480 fields compared, 0 differing**
+against `data/partf-replay/faithful.jsonl`. The per-segment table:
+
+| segment | buckets | certified ratio | frag |
+|---|---|---|---|
+| vocal hip-hop (*Tick, Tock*) | solo 117 / pair 23 / `3` 3 | 0.79 | 0.80 |
+| instrumental hip-hop (*Rhymes Like Dimes*) | solo 43 / pair 10 | 0.45 | 0.89 |
+| big band | pair 40 / solo 2 | 0.46 | 0.81 |
+| no music (skip gap) | solo 22 | 0.77 | 0.78 |
+| manual Hip-Hop/mid | solo 66 / pair 50 | 0.80 | 0.80 |
+| jazz | pair 152 / `3` 108 / `4` 23 / solo 59 | 0.55 | 0.62 |
+
+This is identical to FIELD-NOTES 2026-09-30 (night), "faithful", on every
+row.
+
+**Gate (a) is recorded as run.** The 09-30 failure isn't fixed by a
+reference-free gate: no recording without a reference can show M12's
+fix. What fixes it is cancellation (M12-02), and gate (b) is where that is
+measured live, against this table's mechanism. Its instrumental control
+is the same *Rhymes Like Dimes* instrumental.
+
+## 2026-10-11 (afternoon, offline) — M12 gate (c): the budget holds with the playback canceller running
+
+**Setup.** JPad, branch `milestone-12-hear-the-room`, `.env` as it stands
+(`RTR_TORCH_THREADS=0`), mains power, nothing else running. Gate (c) is
+"a `bench_headcount.py --fallback` row on the reference machine with the
+M12 path enabled, inside the ~1.66 s headcount budget, with the DSP
+heartbeat still never blocking."
+
+`bench_headcount.py` times the workers directly, so until now it never ran
+the canceller. **New option `--cancel TAKE`.** Before timing, it replays a
+take's mic and reference in real time through the real `CleanSource`, using
+the file sources of `bench_cancel_heartbeat.py`. It waits for the
+canceller to lock (locked blocks are the costly ones), then times as
+before while the canceller keeps running on its own thread. Take:
+`ladder-20261009-T3-MX66`, dense rap at 66 %, where the canceller works
+hardest. It locked at 8.3 s in every run and stayed locked: 0 resyncs, no
+errors. M8 convention: three `--fallback --cancel` runs alternated with
+three plain `--fallback` runs, default 20 hops each, 14:37–14:40.
+
+| | headcount mean | headcount p95 | emotion overall mean | emotion overall p95 |
+|---|---|---|---|---|
+| `--fallback` (plain) | 0.25–0.28 s | 0.25–0.29 s | 0.34–0.41 s | 0.41–0.45 s |
+| `--fallback --cancel` | 0.24–0.30 s | 0.28–0.35 s | 0.35–0.44 s | 0.38–0.53 s |
+| budget | | **< 1.66 s** | | **< 1.2 s absolute** |
+
+**Heartbeat** (`bench_cancel_heartbeat.py`, the same take, 90 s per mode,
+real emotion and headcount workers, 14:40–14:43). Raw: tick interval
+p50 / p95 / max 2.000 / 2.031 / 2.031 s, worst tick 31 ms late. Cancelling:
+2.000 / 2.016 / 2.032 s, **32 ms late**, every frame `clean`, 0 resyncs.
+
+**Findings.**
+
+1. **Gate (c) passes.** With the canceller running, headcount p95 is at
+   most 0.35 s against 1.66 s, and emotion p95 at most 0.53 s against 1.2 s.
+2. **The canceller's cost is within run-to-run variance.** Its ranges
+   overlap the plain runs'. Its worst run (headcount p95 0.35 s, emotion
+   0.53 s) sits about 0.06 / 0.08 s above the plain worst. Run 3 with
+   cancellation was faster than run 2 without it.
+3. **The heartbeat never blocks with cancellation on.** It's the third
+   measurement: p95 2.016 s and 32 ms late here, 2.032 s / 32 ms earlier
+   today, 2.032 s / 63 ms at M12-02 step 4. The worst tick in any of them
+   is ≤ 3 % of a hop.
+4. Today's plain numbers sit a little above the M8 row (headcount p95
+   0.25–0.28 s, emotion 0.37–0.40 s on 2026-10-09). That's day-to-day
+   variance, and the alternation is what controls for it. Both are far
+   inside budget.
+
+**Bounds of this measurement.** One take, the hardest available.
+`bench_headcount` times the workers, not the tick (its standing
+limitation, README M8 gate). The tick is what the heartbeat bench covers.
+If anything compute-bearing changes before the merge (for example the
+canceller's lock threshold), gate (c) is re-run.
+
+## 2026-10-11 (offline, later) — M12-05 preflight B3: the session analysis is fixed in code and tested on the ladder
+
+**What was tested.** `scripts/m12_session_replay.py`, the analysis the
+M12-05 run sheet (section F) specifies. It must exist before the session
+so the pre-registered rule is applied by code written before the data.
+Two runs:
+
+1. **`--ladder --no-headcount`** on the 2026-10-09 ladder. All **48 of 48**
+   energy medians (raw, published-with-cancellation, clean, across 16 takes)
+   are identical to `m12_energy_survey.py`'s (FIELD-NOTES 2026-10-11).
+2. **A fake session** (scratchpad, deleted after): ladder takes copied
+   under the session's names (`S-*`, `G-*`). Two synthetic volume-step
+   takes were made as in the survey's `--step` (a reading control plus
+   T1's music-only echo, +8 dB at 90 s). The full replay with ECAPA
+   headcount ran end to end. Every rule test (1a, 1b with lock routing,
+   2a, 2b), the outcomes, and the drift check evaluate. On ladder audio:
+   Rule 1 STAYS DEFERRED, Rule 2 HOLD (both volume steps: `rising` 0.00 in
+   `trend` and in `clean_trend`). The fake G block's mismatched
+   "controls" (C3 conversation, C2 far) were correctly flagged as drift:
+   2b flips when C2 is dropped, and the script prints
+   `NOT ROBUST TO DRIFT`.
+
+**A run sheet change the test forced: Rule 2b excludes 32 %.** I had
+added locked 32 % takes to 2b. On the ladder, the one locked 32 % take
+(T3-MX32) failed it by 0.006: published energy sat 0.000 from the
+controls, clean 0.016. At 32 % the music's loudness bias is about zero,
+so the gap measures take-to-take talk (the two reading controls alone
+differ by 0.011). 2b is back to 66/76 % only, with this as the reason. The
+founder's 32 % provision is in Rule 1b instead. There, a firing on an
+unlocked H take (the B66 envelope) routes to the canceller's lock
+threshold first, then to the classifier.
+
+**Finding (open; no rule covers it): a lone reader over loud music
+phantom-counts, even with cancellation on.** Block S of the fake session
+is the real ladder audio, so the truth is **1** (the founder reading).
+Headcount `solo` share, with cancellation off → on:
+
+| take | 32 % | 66 % | 76 % |
+|---|---|---|---|
+| T3 (vocal hip-hop) | 0.93 → 0.50 (locked 30 s) | 0.81 → 0.45 | 0.25 → 0.20 |
+| T1 (pop) | 0.41 → 0.41 (never locks) | 0.25 → 0.31 | 0.17 → 0.25 |
+| T2 (jazz) | 0.87 → 0.87 (never locks) | 0.23 → 0.29 | 0.32 → 0.21 |
+| speech-only controls C1/C4 | 1.00 | | |
+
+The rest of each row is mostly `pair`, with some `3` and `4`. So at
+66/76 % the residual music, or the voice as heard through it, splits into
+a second cluster. Cancellation removes the rap's own certification (T3
+music-only eligible 0.535 → 0.000) but not this. It is the opposite of
+09-30's failure (undercounting a room of 3 as `solo`), and CLAUDE.md
+ranks phantom crowds as the worse error. M12-05's Block S will measure it
+again, but its rule has no headcount test for Block S. **Founder
+decision:** add a Rule 1c (e.g. Block S `solo` share at 66/76 % against
+the controls) before signing, or leave it as a recorded observation.
+
+**Correction (founder, 2026-10-11, after this entry):** the "32 %
+provision" in Rule 1b came from a misread instruction, and the founder
+withdrew it. Rule 1b is 0.15 at every volume with no special routing.
+H's lock state is reported, not ruled on. 32 % stays in the protocol, and
+2b's 32 % exclusion (above) stands on its own evidence.
+
+**Founder decisions (2026-10-11, later still):** the M12-05 rule gains
+**Rule 1c**. In Block S, a locked mix take whose `solo` share is more than
+0.15 below the controls' files a phantom-count finding. Track I is MF DOOM,
+*Rhymes Like Dimes (Instrumental)*.
+
+## 2026-10-11 (offline) — M12-04 survey: certification carried most of the music in energy, and M12-02 already cleans it
+
+**Setup.** Offline, on JPad, `scripts/m12_energy_survey.py` over the
+2026-10-09 ladder takes. Each take is replayed on the engine's energy path
+and schedule: 5 s windows every 2 s, EMA tau 6 s, `TrendTracker` at
+60 s / 0.10 per min. It runs three ways:
+- **raw**: cancellation off, today's default.
+- **hybrid**: cancellation on, today's code. DSP runs on raw, certification on clean.
+- **clean**: the M12-04 proposal. DSP and certification both run on clean (`aec.cancel`).
+
+Arousal is left out (emotion already reads clean audio and is M6-corrected),
+so energy is the three-term renormalised `energy_score(..., None)`. Music
+takes count from the canceller's first lock. Results are in
+`data/m12-replay/energy-survey-1.json` and `energy-step-1.json`
+(uncommitted).
+
+**Ladder takes** (medians; L = loudness dBFS, S = certified speech
+ratio, E = energy, "moving" = share of ticks where the trend is not
+`stable`):
+
+| take | lock | raw L / S / E / moving | hybrid L / S / E / moving | clean L / S / E / moving |
+|---|---|---|---|---|
+| C1 / C4 (reading, no music) | — | −38.7 / 0.84 / 0.566 / 0.06 · −43.2 / 0.88 / 0.555 / 0.01 | same | same (bit-identical) |
+| T1-MO32 music only | 8 s | −44.5 / 0.00 / 0.253 / 0.03 | same | −51.6 / 0.00 / 0.192 / 0.08 |
+| T2-MO32 | 8 s | −42.5 / 0.00 / 0.259 / 0.14 | same | −51.4 / 0.00 / 0.183 / 0.23 |
+| T3-MO32 (rap) | 8 s | −45.9 / **0.23** / 0.339 / 0.36 | −45.9 / 0.00 / 0.252 / 0.00 | −50.2 / 0.00 / 0.216 / 0.12 |
+| T1-MX32 / T2-MX32 | never | (unlocked: clean = raw) | | |
+| T1-MX66 / MX76 | 8 / 10 s | −32.7 −33.0 / 0.77 0.57 / 0.593 0.521 / 0.04 **0.59** | raw L / 0.82 0.83 / 0.616 0.618 / 0.00 0.00 | −35.8 −36.7 / same S / 0.575 0.578 / 0.00 0.00 |
+| T2-MX66 / MX76 (jazz) | 10 / 8 s | −35.4 −34.7 / 0.67 **0.00** / 0.527 **0.320** / 0.49 0.38 | raw L / 0.81 0.82 / 0.581 0.574 / 0.24 0.22 | −39.4 −39.6 / same S / 0.548 0.557 / 0.24 0.27 |
+| T3-MX32 / 66 / 76 (rap) | 30 / 8 / 8 s | −40.1 −35.2 −34.4 / 0.95 0.97 0.98 / 0.614 0.633 0.645 / 0.00 0.23 0.42 | raw L / 0.80 0.86 0.84 / 0.560 0.605 0.611 / 0.06 0.20 0.05 | −41.1 −37.1 −38.3 / same S / 0.544 0.592 0.593 / 0.15 0.20 0.04 |
+
+Mix-take energy minus the reading controls' mean (0.560):
+- raw: −0.240 to +0.085;
+- hybrid: 0.000 to +0.057;
+- clean: −0.016 to +0.035.
+
+The two reading controls differ from each other by 0.011, and by
+4.5 dB in loudness.
+
+**Synthetic volume step** (`--step`). A reading control (C1 or C4,
+constant talk) plus a music-only take's mic (the echo alone), with that
+echo's gain stepped +4 or +8 dB at 90 s, cancelled against the take's
+own reference. +8 dB is roughly the 32 → 66 % move. Medians over the
+60 s after the step, minus the 60 s before:
+
+| step | loudness step raw / clean | energy step raw / hybrid / clean | trend `rising` after the step, any mode |
+|---|---|---|---|
+| +4 dB (6 trials) | +1.2…+1.8 / −0.2…+1.1 dB | −0.078…+0.031 / −0.027…+0.024 / −0.048…+0.023 | 0.00 in all 18 mode-trials |
+| +8 dB (6 trials) | +3.0…+4.9 / +0.6…+2.4 dB | −0.128…+0.045 / −0.106…+0.022 / −0.141…+0.003 | 0.00, except raw T3 0.17 (2 trials) |
+
+**Findings.**
+
+1. **Most of the music's effect on energy came through `speech_ratio`,
+   and M12-02 already removes it.** Raw certification swings that term
+   both ways: jazz at 76 % blinds it (0.00, energy −0.24), and rap
+   certifies (0.23 with nobody talking; 0.95–0.98 under reading). Hybrid,
+   which is today's code with cancellation on, already reads it on the clean
+   stream. The charter's "`speech_ratio` term from M12-03's
+   certification" is therefore in place via M12-02, because M12-03 is
+   deferred.
+2. **What M12-04 still removes is a loudness bias.** In mix takes at
+   66/76 %, clean loudness sits 1.9–4.9 dB under raw. In music-only
+   takes the gap is 4.3–8.9 dB (2.7 dB with Atmos off). On a volume step,
+   clean keeps 15–50 % of raw's loudness step. Through the 0.30 weight
+   (0.40 renormalised), 4 dB is ≈ 0.03 energy.
+3. **On its own, that bias does not move the trend.** No volume step up to
+   +8 dB made the trend read `rising` once raw certification was out of
+   it. A step of h in energy reaches the 0.10/min threshold over the 60 s
+   horizon only when h ≳ 0.07, which is ≈ 9 dB of loudness alone. The raw
+   T3 cases that did rise were rap certification. On this evidence, the
+   DJ-feedback loop the charter names ran through certification. With
+   cancellation on, the loudness path alone is below the trend's
+   threshold for volume moves up to 32 → 66 %.
+4. **Onset activity barely discriminates.** It reads 1.4–2.1 onsets/s on
+   speech, music, mix and the Atmos-off music, raw or clean. The
+   adaptive threshold (flux mean + 1.5 σ per window) makes it
+   level-invariant. Clean versus raw changes it by ≤ 0.3. This is a
+   finding about the `energy_score` term itself, and reweighting it is
+   out of scope by M12-04's charter (a calibration event).
+5. **The trend moves in clean too.** In T2 mix takes it is moving
+   0.24–0.27 of the time, equal to hybrid, so this isn't loudness. The
+   ladder isn't a matched-talk design: each take is a different
+   reading, and the reader's level varies 4.5 dB between C1 and C4. So
+   trend attribution waits for M12-05.
+6. **The cost is one more `dsp.analyze` per tick:** 3.9 ms on a 5 s window,
+   on a 2 s hop. The heartbeat bench still has to show it.
+
+**Limits.** The volume step is linear by construction: speaker
+non-linearity at 66/76 % is in the real takes but not in the synthetic
+step. At 32 % under talk, T1/T2 never lock (the accepted B66 envelope), so
+clean = raw there. Arousal is excluded throughout.
+
+**Founder decisions (2026-10-11):** the M12-04 plan (`docs/M12-04-PLAN.md`)
+is approved, with D1–D3 as recommended. Clean fields are `None` when
+cancellation is off; the corpus schema is bumped; M12-05 adds a
+volume-step phase.
+
+**The diff, built.** Five additive RoomState fields (`clean_loudness_dbfs`,
+`clean_activity_density`, `clean_spectral_balance`, `clean_energy`,
+`clean_trend`), measured on the clean window while cancellation runs and
+`None` otherwise. Every existing field is unchanged. The schema moves to
+annotations v2 and overrides v3, and the mapper still reads raw `trend`.
+
+- **Heartbeat** (`scripts/bench_cancel_heartbeat.py`, T3-MX66, 90 s per
+  mode, the same protocol as M12-02 step 4). Raw: 2.000 / 2.031 /
+  2.031 s, 31 ms late. Cancelling, with the clean heartbeat: 2.000 /
+  2.032 / 2.032 s, **32 ms late** (step 4: 2.032 / 2.063 s, 63 ms). Every
+  frame was `clean`, with 0 resyncs. That is within run-to-run variance:
+  the extra `dsp.analyze` doesn't show.
+- **`tuning_report.py` audit.** The report on the real corpus
+  (`data/annotations`, `data/overrides`) is byte-identical before and
+  after the diff. A new test feeds a mixed v1/v2 annotation and v2/v3
+  override corpus, with clean fields as values and as `None`. It reports
+  exactly as the old records counted twice.
+- 426 tests pass.
+
+**Founder decision (2026-10-11):** the M12-04 diff (`44e1b26`) is approved.
+
+## 2026-10-09 (night, offline) — M12-06: reference-based dominance turns the ladder from outcome C into B66
+
+**Setup.** Offline, on JPad, `scripts/m12_dominance_reference.py` over
+the 2026-10-09 ladder takes. Per engine window (5 s, 2 s hop):
+m = E(echo estimate) / E(mic), where echo estimate = mic − clean from
+`aec.cancel` (causal, as committed). That is the energy fraction RTR's own
+playback explains. No knots: m is already in [0, 1], and it is exactly
+0 with no playback. Eligibility is as in `analyze_dominance_wav.py`
+(Silero at 0.75, raw speech ratio ≥ 0.2). "Locked" excludes windows
+before the canceller's first lock: replaying each take from cold reads
+m = 0 until then, which a live session pays once, not per track. Results
+are in `data/m12-replay/dominance-ref-1.json` (uncommitted).
+
+| take | first lock | eligible (locked) | clean m ≤ 0.1 | bankable m ≥ 0.25 | m p10 / p50 / p90 |
+|---|---|---|---|---|---|
+| C1–C4 | — | 88 each | 1.000 | **0.000** | 0 / 0 / 0 |
+| T1-MX32 | never | 111 | **1.000** | 0.000 | 0 |
+| T1-MX66 / MX76 | 8 / 10 s | 105 / 79 | 0.010 / 0.013 | 0.990 / 0.987 | 0.52–0.58 / 0.63–0.67 / 0.70–0.77 |
+| T2-MX32 | never | 115 | **1.000** | 0.000 | 0 |
+| T2-MX66 / MX76 | 10 / 8 s | 100 / 19 | 0.000 / 0.000 | 1.000 / 0.947 | 0.66–0.68 / 0.85–0.96 / 1.0 |
+| T3-MX32 | 30 s | 103 | 0.000 | 0.942 | 0.27 / 0.37 / 0.53 |
+| T3-MX66 / MX76 | 8 / 8 s | 110 / 109 | 0.000 / 0.000 | 0.982 / 1.000 | 0.37–0.54 / 0.56–0.65 / 0.69–0.77 |
+
+**The signed rule, applied to the new estimator.** It has no knots, so
+LO\*/HI\* don't apply. The rule's tests read clean and bankable directly.
+
+- Controls bankable ≤ 0.05: **0.000** on all four, by construction. The
+  high-band share's failure (speech alone reaching the knots) can't
+  happen.
+- **A** needs every `MX32`/`MX66`/`MX76` take clean ≤ 0.10. T1-MX32 and
+  T2-MX32 are 1.000. ✗
+- **B66** needs every `MX66` and `MX76` take clean ≤ 0.10, with some
+  `MX32` above. Locked: 0.000–0.013; all windows, start-up included:
+  0.000–0.060. ✓
+- **Outcome B66.** The envelope: *the music-aware correction engages from
+  the 66 % level up. At 32 %, faint music under speech is not locked, so
+  it reads as clean and is left uncorrected.* Bright music at 32 % (T3)
+  does engage, once locked (30 s here). Whether this envelope is
+  acceptable is the founder's decision, recorded with it.
+
+**Founder decisions (2026-10-09):** the B66 envelope is **accepted**, and the M12-06 integration plan (reference dominance whenever cancellation runs; spectral otherwise; additive `emotion_dominance_source`) is approved.
+
+**Findings.**
+
+1. **The structural failure of the old proxy is gone.** Speech-only
+   windows have m = 0 exactly: no reference energy, no echo estimate.
+2. **At 66 % and up, mix windows are unambiguous.** 98–100 % bankable,
+   and m medians 0.56–0.96, against the high-band share's 15–79 % clean
+   at 76 % (FIELD-NOTES 2026-10-09, evening).
+3. **The 32 % gap is the canceller's lock threshold, not the measure.**
+   Faint music under speech never reaches `MIN_LOCK_COHERENCE` (0.3). So
+   with no lock there is no echo estimate, and m = 0. Lowering the
+   threshold would be a separate, measured change; it isn't proposed
+   here.
+4. **m's magnitude is probably inflated on the piano** (T2-MX66 median
+   0.85, where levels suggest ~0.5). The echo estimate and the residual
+   aren't uncorrelated during double talk. The M6 corrector uses the
+   same m to bank (÷ m) and to correct (× m), so a consistent scale error
+   cancels to first order. The rule's clean/bankable split isn't
+   affected. Recorded as a known limitation.
+
+## 2026-10-09 (night, offline) — M12-03 survey: after cancellation, certification already matches speech-only, and a residual gate would cut real speech
+
+**Setup.** Offline, on JPad, branch `milestone-12-hear-the-room` @
+`8a2ab82`, with `scripts/m12_gate_survey.py` over the 2026-10-09 ladder
+takes. For each take: `aec.cancel` (as committed), then Silero over raw
+and over clean. Per 512-sample chunk:
+r = 10·log10(E_clean / E_echo), smoothed over 3 chunks, where the echo
+estimate is mic − clean. This is the charter's first, cheapest evidence
+("post-cancellation residual level against the reference level"),
+measured in mic units. A chunk certifies at p ≥ 0.75 (playback
+threshold). The gate would refuse a certified chunk when r < threshold.
+Results are in `data/m12-replay/gate-survey-1.json` (uncommitted).
+
+| take | certified chunks raw → clean | clean + gate at −6 / −3 / 0 / +3 / +6 dB | eligible windows raw → clean | r of certified chunks p10 / p50 / p90 |
+|---|---|---|---|---|
+| C1 / C3 / C4 (speech only) | 0.828 / 0.908 / 0.871, unchanged | unchanged (no playback, r = +∞) | 89 → 89 | — |
+| T1 / T2-MO32, P1 (music only) | 0.000–0.002 → 0.000 | 0.000 | 0 → 0 | — |
+| T3-MO32 (rap only) | **0.345 → 0.001** | 0.001 … 0.000 | **62 → 0** | 3.3 / 3.8 / 4.4 |
+| T1-MX32 / MX66 / MX76 | 0.854 / 0.758 / 0.548 → 0.854 / 0.823 / 0.825 | MX76: 0.727 / 0.552 / **0.331** / 0.159 / 0.099 | 111 / 108 / 84 → 111 / 111 / 111 | MX76: −6.5 / −1.5 / 4.2 |
+| T2-MX32 / MX66 / MX76 | 0.888 / 0.594 / **0.094** → 0.888 / 0.777 / **0.755** | MX76: 0.546 / 0.377 / **0.229** / 0.115 / 0.052 | 116 / 98 / 19 → 116 / 111 / 109 | MX76: −9.1 / −3.0 / 4.5 |
+| T3-MX32 / MX66 / MX76 | 0.943 / 0.895 / 0.876 → 0.820 / 0.816 / 0.824 | MX76: 0.720 / 0.559 / **0.367** / 0.204 / 0.100 | 119 / 114 / 114 → 119 / 115 / 119 | MX76: −6.7 / −0.9 / 5.8 |
+
+**Findings.**
+
+1. **After cancellation, music-only false certification is ~0.** At most
+   0.001 of chunks across four music-only takes, and no eligible window.
+   That includes the rap (0.345 → 0.001), which is the failure M12-03 was
+   chartered for.
+2. **After cancellation, the founder's reading over music certifies like
+   their voice alone.** All nine mix takes land at 0.755–0.888 certified,
+   against 0.828–0.908 for C1, C3 and C4. Raw was 0.094–0.943: blinded
+   under loud piano, inflated by certified rap at 32 %. Cancellation
+   removes both errors.
+3. **The residual-vs-echo gate would reintroduce blindness.** At 66–76 %
+   the music at the mic is as loud as the voice, so real speech chunks sit
+   at r ≈ 0 dB (certified-chunk medians −3.0 to +1.5 dB). A 0 dB gate
+   keeps only 0.23–0.51 of certified chunks on the loud takes. Even
+   −6 dB costs a quarter. Music-only gives it nothing left to remove. So
+   the charter's step 1 is measured **insufficient**, and in fact harmful.
+4. **The charter's step 2 (mic–reference coherence per chunk) is ruled
+   out by the same fact.** Loud music is coherent with the reference
+   whether or not someone talks over it, so it would refuse speech under
+   loud music by construction. After cancellation, the residual music is
+   the part the reference *doesn't* linearly predict, so residual
+   coherence is low for speech and music alike. Not run: both arguments
+   follow from measured quantities (certification at the C-level, the
+   ~7–11 dB linear ceiling).
+
+**Founder decision (2026-10-09): M12-03 is deferred as proposed below.**
+
+**What it means for M12-03 (proposed; the founder's call).** On this
+evidence, the cancellation in M12-02 already does M12-03's job for one
+person reading at 32/66/76 % over three tracks. Building a gate now
+would trade measured-zero false certification for measured speech loss.
+Proposed: don't build a gate; carry M12-03's open question (several
+people talking over vocal music, which these takes don't have) into
+M12-05's pre-registered decision rule. Gate (a) has no reference-free
+part to replay: the 09-30 recording has no reference, and the
+reference-free features were measured ineffective (D3 survey). So its
+table equals the "before" table, as reproduced by
+`scripts/m12_partf_replay.py --gate none`.
+
+## 2026-10-09 (late evening, offline) — M12-02 first canceller on the ladder captures: the rap stops certifying, the blinded reading comes back
+
+**Setup.** Offline, on JPad, branch `milestone-12-hear-the-room` @
+`fcead9d`: `src/sensing/aec.py` (DelayTracker + numpy MDF; constants
+as committed) driven by `scripts/m12_aec_eval.py` over every
+2026-10-09 ladder take. Raw = the mic WAV. Clean = the canceller's
+output, causal, with the reference from the take's `.ref.wav`.
+"Eligible" = 5 s windows with speech ratio ≥ 0.2 at the 0.75 playback
+threshold, the engine's certification during playback. ECAPA
+similarity is the cosine between a take's mean speaker embedding and the
+founder's C1 embedding. Results are in `data/m12-replay/aec-eval-1.json`
+(uncommitted).
+
+| take | ERLE, music-only (dB) | eligible raw → clean | ECAPA to C1 raw → clean | relocks / divergence resets | echo tail (ms) |
+|---|---|---|---|---|---|
+| C1, C4 (no playback) | — | 89 → 89, **bit-identical** | — | 0 / 0 | — |
+| T1-MO32 | **7.3** (ceiling 7.0–7.2) | 0 → 0 | — | 4 / 2 | 176 |
+| T2-MO32 | 6.8 (ceiling 8.5–10.7) | 0 → 0 | — | 1 / 0 | 192 |
+| T3-MO32 (rap, nobody talking) | 4.2 (ceiling ~7) | **62 → 0** | — | 4 / 0 | 173 |
+| P1 (transport) | 7.8 | 0 → 0 | — | 2 / 0 | 151 |
+| X Atmos off | 2.9 | 0 → 0 | — | 3 / 2 | 167 |
+| T1-MX32 / MX66 / MX76 | pause 3.6–5.6 at 66/76 | 111→111 / 108→111 / **84→111** | 0.84→0.85 / 0.76→0.79 / 0.70→0.75 | 1 / 3–4 | 181–203 |
+| T2-MX32 | never locked (piano under speech, coherence < 0.3) | 116 → 116 | 0.87 → 0.87 | 0 / 0 | — |
+| T2-MX66 / MX76 | pause 6.5 / 4.0 | 98→116 / **19→113** | 0.68→0.73 / 0.67→0.69 | 1–3 / 1 | 176–200 |
+| T3-MX32 / MX66 / MX76 | pause — / 2.1 / 6.5 | 119→119 / 114→112 / 114→119 | **0.60→0.74 / 0.24→0.62 / 0.13→0.63** | 1 / 9 / 1 | 163–195 |
+
+CPU: 0.066–0.100 s per audio second on one core (7–10 % of real time).
+
+**Findings.**
+
+1. **The rap alone stops certifying as speech:** T3-MO32 drops from 62
+   eligible windows to **0**. That is the 2026-09-30 failure (vocal music
+   passes the playback gate and becomes a voice), removed by cancellation
+   alone, with no gate change. This happens at an ERLE of only 4.2 dB, so
+   the VAD's belief in the rap is fragile once the record is partly
+   subtracted.
+2. **The blinded reading comes back:** T2-MX76 (founder reading over the
+   loud piano) rises from 19 eligible windows to **113** of 116, and
+   T1-MX76 from 84 to 111. This is the over-gating failure from the ladder
+   entry, undone. RTR could hear the room under loud music again.
+3. **The speaker model hears the founder's voice as closer to their C1
+   voice on every mix take.** Under the bright track the raw embedding was barely the same
+   person (0.13 at 76 %, 0.24 at 66 %), and clean brings it to 0.62–0.63.
+   This is the headcount side of the 2026-09-30 and 2026-10-08 collapses:
+   music-contaminated segments scatter or merge as "voices".
+4. **ERLE sits at or below the linear ceiling, as predicted.** T1 7.3 dB
+   meets its ceiling; T2 (6.8 vs 8.5–10.7) and T3 (4.2 vs ~7) fall short.
+   T3 had 4 re-locks through its alignment steps. In mix takes, the few
+   speech pauses give 2–6.5 dB at 66/76 %. So the canceller removes a
+   few dB of music, and that turns out to be enough for findings 1–3.
+5. **Silence is untouched:** C1 and C4 come out bit-identical, as
+   designed.
+6. **The tracker is the weak part.**
+   - T3-MX66 re-locked 9 times and ended on a wrong lag (−117 ms; that
+     take's other estimates sat near −172 / −190). Under heavy double talk
+     with alignment steps, coherence-scored candidates flap.
+     **Correction (same evening):** it didn't flap. An independent
+     per-window GCC check (10 s windows) shows that take's alignment
+     really slipped about six times, −186 → −119 ms. The tracker followed
+     correctly and ended at −117 ms against GCC's −119. The real cost was
+     that each re-lock reset the learned filter; the robustness pass
+     (`84567a1`) addresses that.
+   - Divergence resets fired 1–4 times on most loud mix takes and on two
+     music-only takes. The guard worked, but each reset costs
+     re-convergence.
+   - T2-MX32 never locked: soft piano under speech, coherence < 0.3. That
+     is the right call (there was little to cancel, and the raw take was
+     already fine).
+7. **Echo tail 151–203 ms**, against a span of 208 ms. The fitted tails
+   reach the end of the filter, so the room's tail may be longer than the
+   span. A longer span is a measured option, not a given.
+
+**Caveats.** One speaker; the founder reading aloud (C3's animated style
+wasn't run with music). One room position. Eligibility counts
+certification, not correctness: "clean" isn't proven to certify only the
+founder, though ECAPA moving toward C1 says more of the certified audio
+is the founder's voice. No live run: the engine still reads raw.
+
+**Re-run after the robustness pass** (`84567a1`; `data/m12-replay/aec-eval-2.json`):
+
+| | first run | after the pass |
+|---|---|---|
+| divergence resets, all takes | 19 | **0** (8 rollbacks to the last good filter) |
+| re-lock action | always reset | chosen per re-lock by 0.5 s test: mostly **shift** (T3-MX66: 7 of 9) |
+| T3-MO32 eligible raw → clean | 62 → 0 | 62 → **0** |
+| T2-MX76 eligible raw → clean | 19 → 113 | 19 → **109** |
+| ECAPA to C1, clean, T3-MX66 / MX76 | 0.62 / 0.63 | **0.68 / 0.65** |
+| ERLE, music-only T1 / T2 / T3 | 7.3 / 6.8 / 4.2 dB | 7.3 / 7.0 / 4.3 dB |
+| controls | bit-identical | bit-identical |
+| CPU, s per audio s | 0.066–0.100 | 0.089–0.160 |
+
+ERLE barely moves, which confirms the 7–11 dB ceiling is JPad's path, not the
+tracker. T1-MX32 no longer locks: the confirmed first lock declines when the
+founder's voice dominates faint music, so that take passes through raw, as it
+already read fine. CPU rose. Profile it before gate (c).
+
+**Step 4 built** (`0353bb0`; founder-approved diff, including the separate clean-path signatures file): `CleanSource` and `RTR_PLAYBACK_CANCEL_ENABLED` (default off).
+The streaming canceller reproduces the offline output bit for bit, both on three real
+takes and through ring plumbing fed in 30 ms chunks.
+
+**Heartbeat check** (`scripts/bench_cancel_heartbeat.py`, T3-MX66 replayed in real time
+from files with no mic, real emotion and headcount workers, 90 s per mode):
+
+| mode | tick interval p50 / p95 / max | latest tick |
+|---|---|---|
+| raw | 2.000 / 2.031 / 2.031 s | 31 ms late |
+| cancelling | 2.000 / 2.032 / 2.063 s | 63 ms late (every frame `clean`, 0 resyncs, no errors) |
+
+p95 is unchanged, and the worst tick was 3 % of a hop late. The engine's absolute
+schedule keeps lateness from accumulating. This is one 90 s run per mode; gate (c)
+repeats it alongside the `bench_headcount.py --fallback` row.
+
+**Founder decisions (2026-10-09, after this entry):** all four below are approved, and the ReferenceSource diff (`1bd14e6`) is approved.
+
+**What it decides (proposed; founder's call):**
+- The numpy MDF is worth integrating; no library evidence event is
+  needed yet.
+- The residual suppressor is not needed for the certification payoff.
+- The tracker needs a robustness pass, against flapping and resets,
+  before or as part of engine integration (step 4).
+- The 12-minute top-up is not needed now. M12-05's live session will
+  measure cancellation on and off at 66/76 % anyway.
+
+## 2026-10-09 (evening, 17:49–~19:30) — dominance ladder + M12-01 probe on JPad: outcome C, the proxy can't separate; the loopback is post-Atmos and pre-volume; rap certifies with nobody talking
+
+**Setup.** Founder alone, run under `docs/DOMINANCE-LADDER-RUN-SHEET.md`
+as extended for M12-01 (decision D4) and signed 2026-10-09 (tolerances
+0.05 / 0.10; `MX66` added; B split into B66 / B76). JPad, branch
+`milestone-12-hear-the-room`. Every take used `capture_room_wav.py
+--reference`, so there was one mic stream through `MicSource` and the
+WASAPI loopback beside it in the same process. No dashboard was running.
+Claude checked each take's files before the next. Captures are in
+`data/captures/ladder-20261009-*` (uncommitted): `.wav`, `.ref.wav` and
+`.json` for each take, plus `-result.json` (dominance) and
+`-reference.json`.
+
+Fixed conditions (founder, before C1):
+
+| setting | value |
+|---|---|
+| Mic Audio enhancements | off |
+| Lenovo Vantage mic noise cancelling | off |
+| Voice Clarity / Studio Effects | not reported |
+| Mic input volume | 34 % |
+| Dolby Atmos for Speakers | **on**, mode **Dynamic** (off only for take 18, then back on; "Dynamic" afterwards not reconfirmed) |
+| Speaker audio effects | device default effects |
+| Spotify | equalizer flat; Normalize volume on, level Normal; volume 100 %; repeat-one |
+| Power | plugged in; Windows power mode Best performance |
+| Do Not Disturb | on (required by the sheet) |
+| Positions | N = 0.6 m, F = 1.5 m, laptop centre of room |
+
+Tracks: T1 *Welcome To New York (Taylor's Version)* (212.6 s); T2
+*Georgia On My Mind*, Oscar Peterson Trio (224.0 s); T3 *Surround Sound*,
+JID ft. 21 Savage & Baby Tate (229.9 s). Exact URIs are in the run sheet.
+
+**Deviations.** T2-MX32 was first read at F by mistake (founder caught
+it). That take is kept as `T2-MX32-atF` with its sidecar annotated, and
+the take was redone at N. C4 came out 4–5 dB quieter than C1 at every
+percentile, with a similar pause share: a softer or more distant voice
+after ~70 min. The founder kept C4 as is, and the rule's drift clause
+covers it (below).
+
+**Part 1 — the dominance ladder** (`analyze_dominance_wav.py`, eligible
+windows: speech ratio ≥ 0.2 at the 0.75 playback threshold):
+
+| take | eligible / windows | p50 | p95 |
+|---|---|---|---|
+| C1 speech N | 88 / 88 | 0.0138 | 0.0225 |
+| C2 speech F | 88 / 88 | 0.0071 | 0.0135 |
+| C3 animated N | 88 / 88 | 0.0200 | **0.0278** |
+| C4 speech N (repeat) | 88 / 88 | 0.0139 | 0.0195 |
+| T1-MX32 / MX66 / MX76 | 111 / 109 / 84 | 0.0179 / 0.0269 / 0.0241 | 0.0253 / 0.0462 / 0.0385 |
+| T2-MX32 / MX66 / MX76 | 115 / 100 / **19** | 0.0140 / 0.0123 / 0.0147 | 0.0232 / 0.0324 / 0.0694 |
+| T3-MX32 / MX66 / MX76 | 118 / 113 / 113 | 0.0232 / 0.0418 / 0.0445 | 0.0335 / 0.0620 / 0.0655 |
+| T1 / T2 / T3 music-only, 32 % | 0 / 0 / **61** of 111 / 115 / 118 | — / — / 0.0405 | — / — / 0.0646 |
+
+Music-only high-band share at the mic, all windows (not just eligible):
+T2 0.008, T1 0.027, T3 0.042 (median). So the three picks span mellow
+to bright as intended.
+
+**The rule, worked.** LO\* = worst control p95 = **0.0278** (C3). HI\* =
+pooled p50 of the `MX76` mix windows = **0.0316**.
+
+- HI\* > LO\*: yes, by 0.0038.
+- Controls at (LO\*, HI\*): bankable C1 0 / C2 0 / C3 0.034 / C4 0, all
+  ≤ 0.05. ✓
+- **A** needs every `MX32`/`MX66`/`MX76` take clean ≤ 0.10. At (LO\*,
+  HI\*) the `MX32` takes are clean 1.000 / 0.991 / 0.771. ✗
+- **B** needs every `MX76` take clean ≤ 0.10. They are clean 0.667 /
+  0.789 / 0.150. ✗ (so neither B66 nor B76)
+- **C**: no scored pair keeps the controls ≤ 0.05 bankable while
+  keeping every `MX76` take clean ≤ 0.10. The config defaults
+  (0.05 / 0.30) put `MX76` clean at 1.000 / 0.947 / 0.991. The knots in
+  force (0.022 / 0.050) put it at 0.524 / 0.789 / 0.106, with C3
+  bankable 0.034. (LO\*, HI\*) is as above. **True.**
+- Drift clause: C1 p95 0.0225 vs C4 0.0195, a difference of 0.003,
+  against a C1–C3 spread of 0.0143. **Not drifting**, so the verdict
+  needs no exclusions.
+
+**Outcome C. Change no knots.** On this mic, the high-band *share*
+cannot separate speech from speech over music. Even the bright track at
+76 % leaves 15 % of mix windows reading as clean, and the mellow track
+reads clean almost everywhere. This is 2026-09-06 finding 1's structural
+prediction (speech dilutes the ratio), now measured across three tracks
+and three volumes. `.env`'s provisional knots and `config.py`'s defaults
+both stay as they are.
+
+**Part 2 — M12-01 probe** (`analyze_reference.py`):
+
+1. **The loopback is tapped after Dolby Atmos.** Atmos off vs on
+   (T1, 32 %): the reference fell **10–15 dB in every octave**, more in
+   the bass (63 Hz −15.6, 125 Hz −14.2, 4 kHz −11.1 dB). The reference
+   is what the speakers are fed, Atmos included, so the canceller need
+   not learn Atmos.
+2. **Atmos is a first-order capture variable.** With it off, the music
+   reached the mic **9 dB quieter** (−52.2 vs −43.1 dBFS), and its
+   high-band share rose **4×** (0.096 vs 0.023). Every signature and
+   knot measured with Atmos on belongs to that capture path. That
+   confirms the "Atmos stays on" doctrine.
+3. **The loopback is before the Windows volume slider.** Reference level
+   was −11.9 dBFS for T1 at 32, 66 and 76 % alike (T2 −17.2, T3 −11.8 at
+   every level). The reference says *what* plays, not *how loud* the room
+   hears it, so gain must be estimated from the mic.
+4. **JPad's output tops out between 66 % and 76 %.** Mic level in the
+   pauses between sentences (p10 of 0.5 s windows), 66 → 76 %: T1 −35.4
+   → −35.1, T2 −41.1 → −40.8, T3 −38.3 → −37.5 dBFS, so under 1 dB.
+   From 32 → 66 % it rose 2–6 dB. The founder confirmed the slider read
+   76 %. With Atmos Dynamic, **76 % is not louder than 66 % on this
+   laptop.** That bears on the 66 % / 76 % room-size levels.
+5. **No clock drift; occasional alignment steps.** Within a take, the
+   GCC-PHAT delay held to an IQR ≤ 0.4 ms in 12 of 16 music takes over
+   2–4 min. Four (T2-MX76, T3-MO32, T3-MX66, P1) show discrete steps of
+   15–30 ms between steady plateaus. In T2-MX76, the steps coincide with
+   irregular loopback block arrivals (~44 s, ~67 s); the 1 s log can't
+   prove which stream slipped. Per-take median delays (−74 to −217 ms)
+   mostly reflect each take's stream-start offset, so a cross-take
+   "session drift" is not measurable from them. The arrival-time clock
+   logs give −300 to +240 ppm, which contradicts the sub-ms within-take
+   stability. They measure delivery jitter, not sample clocks, so don't
+   use them for drift. **M12-02 must track alignment continuously**; a
+   fixed delay will not hold.
+6. **Transport (P1): the reference follows Spotify within 1.4 s.** Play,
+   pause, play, skip, pause were pressed at 10 / 40 / 55 / 85 / 130 s.
+   The reference changed at 11.4 / 41.1 / 55.4 / 85.9 / 131.4 s,
+   including human reaction and Spotify's fades. That is inside one 2 s
+   hop, and far quicker than the controller's 5 s playback poll.
+7. **Silence is exact zeros.** Every control's reference read
+   −120 dBFS (digital zero), consistent with the earlier silent
+   self-test.
+
+**Part 3 — M12 certification evidence, from the ladder's own counts.**
+
+- **Rap certifies as speech with nobody talking.** T3 music-only at
+  32 %: **61 of 118 windows eligible** (speech ratio ≥ 0.2 at the 0.75
+  threshold), against **0** for T1 and **0** for T2. That is the
+  2026-09-30 mechanism on a second vocal hip-hop track.
+- **Loud piano blinds certification.** T2 at 76 % with the founder
+  reading: **19 of 116** windows eligible, against 115 at 32 % and 100 at
+  66 %. That is the over-gating failure M12-03's risk notes name (M5,
+  "blindness, not phantoms"), here caused by the music masking the
+  voice, not by a gate.
+
+**What this decides.**
+
+- **Knots: none change** (outcome C). Per the rule: file a REQUIRES-REVIEW
+  item to replace the proxy. Filed as **ROADMAP M12-06**, because the
+  reference measured here is the natural replacement: playback level is
+  known from the mic-vs-reference relationship, not guessed from a
+  spectral share.
+- **Still the founder's decision (rule, outcome C):** whether
+  `RTR_MUSIC_AWARE_ENABLED` stays on meanwhile. Measured cost of the
+  knots in force: speech-only controls bank pull samples in 3.4 % of C3's
+  animated windows (0 % for C1, C2, C4). In mix, they bank on 0–84 %
+  of windows depending on track and level, so the correction engages
+  mostly on bright music at 66 %+.
+- **M12-01 acceptance** (delay, drift and reference level at both
+  volumes; transport within one hop): met, with the steps in 5 as the
+  open item.
+
+**Founder decisions, same evening.** `RTR_MUSIC_AWARE_ENABLED` **stays on** while M12-06 is built (the outcome C question), at the measured cost above. The reference-capture diff (`75d94ab`) is approved.
+
+**Caveats.** One speaker (the founder), reading aloud except C3. One mic
+position (centre of room). Atmos "Dynamic" was not reconfirmed after
+take 18. C4 was softer than C1, within the drift tolerance.
+
+## 2026-10-09 (evening, offline) — M12 starts: no loopback in the current audio stack; the 09-30 replay is now reproducible from the repo; cheap reference-free features detect music, not the record's vocals
+
+**Setup.** No mic and nobody in the room: device listing and offline
+analysis only, on JPad, branch `milestone-12-hear-the-room`.
+`docs/M12-PROPOSAL.md` decisions D1–D4 were approved by the founder the
+same evening.
+
+**1. The playback reference needs a new dependency (M12-01).** Listing
+devices only, with no stream opened:
+
+- `sounddevice` 0.5.6 bundles PortAudio "V19.7.0-devel". It exposes no
+  WASAPI loopback device, and `WasapiSettings` has no loopback option.
+  JPad has no "Stereo Mix"-style input; the WDM-KS inputs are unnamed
+  endpoints.
+- `soundcard` 0.4.6 lists `'Speakers (Cirrus Logic XU (with APO
+  Extensions))'` as a 2-channel loopback.
+
+Evidence event, per D1: a fresh venv from `pip install -e .[dev]`
+resolved `soundcard` 0.4.6 with numpy 1.26.4, torch 2.2.2+cpu and
+sounddevice 0.5.6. `pip check` was clean, 383 tests passed, the loopback
+was listed, and all four libraries imported together in one process. It
+is pinned in `pyproject.toml`
+(`soundcard>=0.4.6,<0.5; sys_platform == 'win32'`) with provenance. No
+`src/` code uses it yet.
+
+**2. Gate (a) has a committed harness.** `scripts/m12_partf_replay.py`
+mirrors the 09-30 session's JPad config (stated in its docstring) and adds
+a gate hook at the certification point. With `--gate none` it reproduces
+`data/partf-replay/faithful.jsonl` exactly: **830 rows, 0 differing
+fields**. Its per-segment table equals the FIELD-NOTES 2026-09-30 (night)
+"faithful" column on every row:
+
+| segment | buckets (none gate) | certified ratio | frag |
+|---|---|---|---|
+| vocal hip-hop | solo 117 / pair 23 / `3` 3 | 0.79 | 0.80 |
+| instrumental hip-hop | solo 43 / pair 10 | 0.45 | 0.89 |
+| big band | pair 40 / solo 2 | 0.46 | 0.81 |
+| no music (skip gap) | solo 22 | 0.77 | 0.78 |
+| manual Hip-Hop/mid | solo 66 / pair 50 | 0.80 | 0.80 |
+| jazz | pair 152 / `3` 108 / `4` 23 / solo 59 | 0.55 | 0.62 |
+
+**3. Cheap reference-free features detect music, not the record's
+vocals (M12-03, D3).** `scripts/m12_chunk_survey.py` streams Silero
+exactly as the engine does and computes eight model-free features per
+512-sample chunk: VAD `p`, `hi` (> 2 kHz share), `lo` (< 300 Hz share),
+spectral `flat`ness, `flux`, `beat` periodicity over 5 s, `p_sd` over
+1 s, and relative `lvl`. That is 52,000 chunks, 32,332 certified at the
+session's thresholds, in 42 s. The only contrast this recording offers
+is certified chunks in the no-music gap (room speech only, n = 1,057)
+against each music segment's certified chunks (room speech plus whatever
+music certified). Three people talked throughout, so there is no
+per-chunk truth.
+
+AUC against the gap (0.5 = indistinguishable):
+
+| segment | hi | lo | flat | beat |
+|---|---|---|---|---|
+| vocal hip-hop | 0.75 | 0.28 | 0.68 | 0.71 |
+| instrumental | 0.69 | 0.14 | 0.59 | 0.62 |
+| big band | 0.73 | 0.16 | 0.65 | 0.71 |
+| manual Hip-Hop/mid | 0.75 | 0.23 | 0.70 | 0.87 |
+| jazz | 0.60 | 0.20 | 0.51 | 0.81 |
+
+Each feature's threshold was set at 5 % false refusal of the gap's room
+speech. Share of each segment's certified chunks that the threshold
+would refuse:
+
+| feature | vocal hip-hop | instrumental | big band | manual Hip-Hop | jazz |
+|---|---|---|---|---|---|
+| hi | 6 % | 4 % | 4 % | 6 % | 4 % |
+| lo | 15 % | 36 % | 26 % | 16 % | 26 % |
+| flat | 9 % | 3 % | 2 % | 7 % | 1 % |
+| beat | 25 % | 14 % | 27 % | 56 % | 46 % |
+
+Findings:
+
+- **Every feature separates music on from music off, roughly evenly
+  across genres. None singles out vocal hip-hop**, the segment where the
+  VAD certified the record. RTR already knows music is on
+  (`playback_active`), so a music-presence detector adds nothing at the
+  certification point.
+- `lo` points the wrong way for the rap problem: it refuses more under
+  the instrumental (36 %) than under vocal hip-hop (15 %).
+- `beat` is a rhythmic-music detector. It would refuse half the certified
+  chunks under jazz and the hip-hop playlist, where three people were
+  really talking. That is M5's "blindness" failure, built in.
+- The high-band share (the M6 dominance proxy) separates least at a
+  usable false-refusal rate (4–6 %). That matches 2026-09-30 (late
+  night): speech alone reaches the provisional knots.
+
+**What this decides, and what it doesn't.** On this recording, a cheap
+per-chunk reference-free gate isn't worth building: the reference-free
+fallback in M12-03 is not "a threshold on a spectral feature". That
+supports the proposal's order: the reference capture (M12-01) and
+reference-based signals (residual and coherence, M12-02/03) first. The
+classifier option stays third, as chartered. Not tested: end-to-end
+replays with any of these as gates. Each table above shows the gate would
+refuse too little of the rap or too much of the talk to be worth the
+8 minutes. Not shown: whether a model (a speech/music classifier) can
+separate rap from talk. That is the charter's step 3, only if steps 1–2
+are measured insufficient.
+
+**Files** (`data/` is gitignored, uncommitted): `data/m12-replay/none.jsonl`
+(no-gate replay), `data/m12-replay/chunk-survey.npz` (per-chunk features,
+segment, certified).
+
+**4. Loopback self-tests (founder-approved; nothing written to disk).**
+Five seconds each, `soundcard` on its own thread
+(`scripts/loopback_reference.py`, as `capture_room_wav.py --reference`
+uses it):
+
+- **Music playing.** Spotify was still playing the DJ's queue after the
+  M8 gate. 5.00 s of audio arrived in 5.02 s; the longest wait for a
+  100 ms block was 110 ms; the loudest block was −8.7 dBFS.
+- **Spotify paused.** 50 blocks, 5.00 s in 5.03 s, at most 125 ms apart,
+  **all exact zeros**, and the thread exited on stop. So WASAPI loopback
+  on JPad does not stall in silence, and silence in the reference is
+  unambiguous (digital zero, not a noise floor).
+
+Opening took ~0.5 s. The founder's ladder picks (2026-10-09): T2
+*Georgia On My Mind* (Oscar Peterson Trio, 3:44), T3 *Good Life* (Kanye
+West ft. T-Pain, 3:27); URIs in the run sheet. Later the same evening the
+founder replaced T3 with *Surround Sound* (JID ft. 21 Savage & Baby Tate,
+3:50): "a little faster, stronger beat and drums and more speech", which
+means denser drums for the high band and more rap for M12. Windows volume was set to
+66 % at the time of the silent test (no effect on a silent loopback).
+The session sets volume per take.
+
 ## 2026-10-09 (afternoon, 15:45–15:59) — M8 gate part (c), live smoke on JPad: the wiring holds; M8 PASSES (founder call)
 
 **Setup.** Founder alone, run under `docs/M8-TEST-PLAN.md` part (c), on

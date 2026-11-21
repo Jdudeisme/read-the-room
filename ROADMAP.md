@@ -484,7 +484,18 @@ with their measurements.
     Measure it, don't assume it.
 - **Effort:** L
 
-### M12-03 — Playback-aware certification gate — REQUIRES-REVIEW
+### M12-03 — Playback-aware certification gate — REQUIRES-REVIEW — **DEFERRED 2026-10-09**
+
+> **Deferred (founder, 2026-10-09)** on an offline survey (FIELD-NOTES 2026-10-09, night). After M12-02's
+> cancellation, music-only certification is ~0 (the rap 0.345 → 0.001 of chunks), and the founder's reading
+> over music certifies like their voice alone (0.755–0.888 vs 0.828–0.908). Step 1 (residual vs echo) is
+> measured harmful: real speech under loud music sits at r ≈ 0 dB, so a 0 dB gate keeps only 0.23–0.51 of
+> it. Step 2 (coherence) is ruled out by the same fact. **Reopened by M12-05's pre-registered rule** if,
+> with cancellation on, music-only phases still certify, or headcount over vocal music is worse than over
+> instrumental. Then step 3 (the classifier) is next. The charter below stands as written.
+>
+> **M12-05 ran 2026-11-20: the rule keeps this deferred** (FIELD-NOTES 2026-11-20). With cancellation
+> on, 1a is 0.000 on all 9 music-only takes, and 1b doesn't fire at any volume.
 
 - **Problem:** Certification is a single VAD threshold (0.5, or 0.75 during
   playback). Vocal music the VAD fully believes passes it (FIELD-NOTES
@@ -538,6 +549,11 @@ with their measurements.
   difference between matched music-on and music-off phases with the same
   talk, recorded in FIELD-NOTES. The `tuning_report.py` audit passes on the
   new schema.
+- **Status (2026-11-20):** the clean fields shipped (`44e1b26`). The M12-05
+  rule's outcome is **SWITCH** (FIELD-NOTES 2026-11-20): 2b holds on all 12
+  takes, and 2a holds on S-VS-Ib by a thin margin (0.233 vs 0.20), not on
+  G-VS-I. **Remaining:** the mapper-only diff (read `clean_trend` when
+  present), reviewed, before M12 merges.
 - **Effort:** M
 
 ### M12-05 — Evaluation protocol: paired live session on JPad — REQUIRES-REVIEW
@@ -558,7 +574,120 @@ with their measurements.
 - **Acceptance criteria:** The run sheet is approved before the session; the
   session is run once; FIELD-NOTES records each phase's measurements and the
   decision rule's outcome.
+- **Status: RUN 2026-11-20** (FIELD-NOTES 2026-11-20). The run sheet was
+  signed 2026-10-11 and run once, Block S and Block G (4 people) on one day.
+  The outcomes: M12-03 STAYS DEFERRED, 1c FILE (M12-07), mapper SWITCH
+  (M12-04).
 - **Effort:** M
+
+### M12-06 — Replace the high-band dominance proxy with a reference-based dominance — REQUIRES-REVIEW
+
+- **Problem:** The dominance ladder (FIELD-NOTES 2026-10-09, evening)
+  came out **outcome C**: on JPad's built-in array, the high-band *share*
+  can't separate speech from speech over music. No knot pair keeps
+  speech-only controls ≤ 5 % bankable while keeping every 76 % mix take
+  ≤ 10 % clean. The mellow track reads clean almost everywhere, and
+  Atmos alone moves the share 4×. The signed rule requires filing this
+  item.
+- **Why it matters:** `dominance()` scales the M6 correction and decides
+  clean-vs-mixed for the clean baseline. A proxy that can't tell the two
+  apart corrects too little on mellow music and banks pull samples from
+  the wrong windows.
+- **Scope:** Once M12-01c (`ReferenceSource`) exists, estimate playback
+  dominance per window from the mic and the reference, for example
+  coherence, or the energy fraction a fitted reference explains, in place
+  of `spectral_balance.high`. It feeds the same `dominance` input of the
+  music-aware corrector (`src/sensing/music_aware.py`), so M6's estimator
+  is unchanged. Without a reference (feature off), behavior is today's.
+  **Out of scope:** retuning `LO`/`HI` (outcome C forbids it), and the M6
+  estimator itself.
+- **Acceptance criteria:** Rerun the ladder's analysis
+  (`scripts/analyze_dominance_wav.py`, extended to the new estimator) on
+  the 2026-10-09 captures, which carry references, and apply the same
+  signed decision rule. Record the outcome in FIELD-NOTES. No target
+  numbers.
+- **Risk notes:** The reference is pre-volume (FIELD-NOTES 2026-10-09):
+  level must come from the mic-vs-reference fit, not the reference
+  alone. Alignment steps of 15–30 ms occur; estimate per window, not
+  with a fixed delay.
+- **Effort:** M
+
+### M12-07 — Phantom count over RTR's own playback with cancellation on — REQUIRES-REVIEW
+
+> **Carried past M12 (founder, 2026-11-20).** Filed by M12-05 Rule 1c; it does not block M12's merge.
+
+- **Problem:** With the M12-02 canceller locked, one person reading at a taped
+  0.6 m over RTR's playback still reads `pair` (sometimes `3`) for a large
+  share of headcount updates. M12-05 Rule 1c fired on three days:
+  - the 2026-10-09 ladder: `solo` 0.20–0.50 (FIELD-NOTES 2026-10-11, later);
+  - 2026-10-26: 8 of 9 takes, 0.59–0.84;
+  - 2026-11-20 (gate (b)): 7 of 9 takes, 0.28–0.84.
+
+  Vocal hip-hop at 66 % is the worst take on both session days (0.21, 0.28).
+  Jazz at 32 % is clean on both.
+- **Why it matters:** Phantom speakers inflate the headcount bucket the
+  mapper uses for crowd weight. That's the opposite of the accepted trade
+  ("undercounting beats phantom crowds"), and it's caused by the system's own
+  output.
+- **Scope:** Diagnose before changing anything. The leading hypothesis is
+  residual music after cancellation: the 10-26 check measured music-only
+  echo reduction of 10–15 dB, leaving the residual 2–6 dB under the voice at
+  66/76 %. The residual enters the ECAPA buffer as a second cluster. The
+  diagnosis can run offline on the 2026-11-20 and 2026-10-26 Block S
+  captures, which carry references. Measure, per locked mix take:
+  - the residual-to-speech ratio;
+  - the cluster that the non-solo updates add (whether it is the residual).
+
+  Candidate remedies, each a calibration event or a semantics change: a
+  residual-aware headcount gate (it slots into the engine's certification
+  point, invariant 2); a stronger canceller (post-filter / residual echo
+  suppression); or reopening M12-03 step 3 for headcount only.
+  **Out of scope:** the cluster threshold (0.70, measured; CLAUDE.md
+  forbids lowering it for this) and the rescue flag.
+- **Acceptance criteria:** A measurement protocol on the existing captures
+  that attributes (or fails to attribute) the non-solo updates to the
+  residual, recorded in FIELD-NOTES, then a proposal with its own
+  pre-registered rule. No target numbers.
+- **Risk notes:** Real conversation over music (Block G) already
+  undercounts four people. A remedy that suppresses clusters near the
+  residual could deepen that, so the protocol must report Block G alongside
+  Block S.
+- **Effort:** M
+
+### M12-08 — Canceller: a re-lock lag change ≥ the filter length crashes `MdfFilter._shift` — REQUIRES-REVIEW
+
+> **Carried past M12 (founder, 2026-11-20).** Found by the gate (b) analysis; it does not block M12's merge.
+
+- **Problem:** `aec.MdfFilter._shift(taps)` assumes `|taps|` is less than
+  the filter length (`PARTITIONS` × `BLOCK` = 13 × 256 = 3,328 taps, 208 ms
+  at 16 kHz). `_choose_on_relock` (and `StreamingCanceller.process` on a
+  "shift" choice) calls it with the lag change. `DelayTracker` can re-lock
+  anywhere within `MAX_LAG_S` = 0.6 s, so any jump over 208 ms raises
+  `ValueError: could not broadcast input array from shape (N,) into shape
+  (0,)`. The negative branch fails the same way.
+- **Reproduction:** `data/captures/m12s-20261120-G-MX-I76-refglitch.{wav,ref.wav}`
+  (local, kept for this item). Its reference had 88 WASAPI "data
+  discontinuity" warnings and 18 timing steps (11–101 ms, net +407 ms).
+  `aec.cancel(mic, ref)` raises on it (FIELD-NOTES 2026-11-20, finding 4).
+- **Why it matters:** Live, `CleanSource._run` catches the exception, and the
+  engine falls back to raw for the rest of the session (`_fall_back_to_raw`).
+  The heartbeat is safe and the degradation is honest (invariant 7), but
+  **one bad reference glitch silently ends cancellation for the night.**
+  Today the only trace is a log line and `clean.status == "failed"`.
+- **Scope:** In `_shift`, a shift of `|taps|` ≥ the filter length zeroes the
+  filter. Equivalently, `_choose_on_relock` returns "reset" when the lag
+  change exceeds the filter length, since nothing learned survives such a
+  shift. Add an offline test that drives a lag jump > 208 ms through
+  `StreamingCanceller` and asserts a reset rather than an exception, plus the
+  same on the reproduction take. **Out of scope:** the root cause of the
+  WASAPI discontinuities (load on the laptop; tracked by observation) and
+  any change to re-lock thresholds.
+- **Acceptance criteria:** The new tests pass, the suite stays offline and
+  fast, and replaying the reproduction take completes with the re-lock
+  logged as a reset. Gate (a)'s harness and the 2026-11-20 session replay
+  reproduce unchanged on every other take (the change is reached only on a
+  path that crashes today).
+- **Effort:** S
 
 ---
 

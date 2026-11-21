@@ -31,6 +31,15 @@ dependencies = [
     # still uses torch.cuda.amp.custom_fwd, which does. Stay <1.1.
     "speechbrain>=1.0,<1.1",
     "sounddevice>=0.4.6",
+    # M12-01 playback reference: a WASAPI loopback of what the laptop plays.
+    # sounddevice's bundled PortAudio (V19.7.0-devel) exposes no loopback
+    # device and no loopback option, and JPad has no "Stereo Mix" input.
+    # soundcard 0.4.6 lists the speakers' loopback (device listing only,
+    # 2026-10-09; docs/M12-PROPOSAL.md, decision D1). It needs only cffi +
+    # numpy and works under the numpy<2 pin. Windows-only: the reference
+    # capture targets JPad, off by default. Held below 0.5 until a newer
+    # release is checked.
+    "soundcard>=0.4.6,<0.5; sys_platform == 'win32'",
     "python-dotenv>=1.0",
     # Uses the OS certificate store for model downloads; needed behind
     # TLS-intercepting proxies/AV where certifi's bundle fails.

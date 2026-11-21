@@ -653,6 +653,60 @@ orchestration refactor by construction; tick cost is not benchmarked.
 The script still prints the Mac's 1.37 s budget (FIELD-NOTES 2026-10-09);
 the JPad budget above is the README's 1.66 s.
 
+### Milestone 12 gate (Windows laptop `JPad`)
+
+**All three parts are run and recorded** (2026-11-20). The gate is
+"decisions recorded", with no target numbers. Before the merge to `main`:
+the mapper switch that part (b)'s outcome requires (a mapper-only diff,
+under its own review). The two filed items, M12-07 and M12-08, are carried
+past M12 as ROADMAP items (founder, 2026-11-20). See [docs/M12-TEST-PLAN.md](docs/M12-TEST-PLAN.md).
+
+**Part (b), the M12-05 live session (2026-11-20): RUN.** Founder's
+apartment (living-room alcove, 2.8 m × 3.35 m), 17:49–22:17. Block S was
+the founder alone, reading seated at a taped 0.6 m. Block G was 4 people
+(founder + 3 consenting guests) in an arc at ~1.5 m. There were 36
+captures. Three takes were gated and re-taken: S-VS-I (repeat-one off),
+G-MX-I32 (wrong track) and G-MX-I76 (a broken reference). The signed rule,
+applied by `scripts/m12_session_replay.py`, gives:
+
+| Rule | Test | Result | Outcome |
+|---|---|---|---|
+| 1 (M12-03 reopen) | 1a: music-only eligible > 0.05 | 0.000 on all 9 (cancellation on) | **STAYS DEFERRED** |
+| | 1b: Block G, vocal vs instrumental solo share | does not fire at 32/66/76 % | |
+| 1c (phantom count) | Block S, locked mix solo share > 0.15 under the controls | fires on 7 of 9 (solo 0.28–0.84) | **FILE** → M12-07 |
+| 2 (mapper `clean_trend`) | 2a: `trend` minus `clean_trend` rising after the step ≥ 0.20 | S-VS-Ib 0.233 (holds); G-VS-I 0.067 (doesn't) | **SWITCH** |
+| | 2b: clean energy no farther from the controls (66/76 %) | holds on all 12 | |
+
+Block S energy drift is flagged (controls 0.036 apart), and every outcome
+is unchanged with either control dropped. The 2a margin is thin: Block S
+read HOLD on 2026-10-26 (0.167) and SWITCH today (0.233), so it sits within
+day-to-day variation. The first analysis run found a canceller crash on
+large reference timing jumps, filed as M12-08: live, it degrades to raw
+for the session. See FIELD-NOTES 2026-11-20.
+
+**Part (a), the offline 2026-09-30 replay (2026-10-11): RUN.** There is no
+reference-free gate to replay: the D3 survey found the features
+ineffective, and M12-03 is deferred. So "after" equals "before" by
+decision. `scripts/m12_partf_replay.py --gate none` reproduces the
+09-30 "before" table exactly (830 rows, 15,480 fields, 0 differing). See
+FIELD-NOTES 2026-10-11 (afternoon).
+
+**Part (c), budget with the M12 path on (2026-10-11): PASS.**
+`bench_headcount.py --fallback --cancel` runs the playback canceller
+(`CleanSource`, locked, on the ladder's T3-MX66 rap take) in real time
+beside the timed workers. There were three runs, alternated with three plain
+`--fallback` runs (plain: headcount 0.25–0.28 / 0.25–0.29 s, emotion
+0.34–0.41 / 0.41–0.45 s), 14:37–14:40.
+
+| Benchmark | Scenario | mean | p95 | Budget | Verdict |
+|---|---|---|---|---|---|
+| `bench_headcount.py --fallback --cancel` | headcount, contended hops | 0.24–0.30 s | 0.28–0.35 s | < 1.66 s | PASS |
+| `bench_headcount.py --fallback --cancel` | emotion, overall | 0.35–0.44 s | 0.38–0.53 s | < 1.2 s absolute | PASS |
+| `bench_cancel_heartbeat.py` | tick interval, cancelling | p50 2.000 s | 2.016 s (max 2.032 s) | never blocks | PASS (worst tick 32 ms late) |
+
+The canceller held its lock with 0 resyncs throughout. See FIELD-NOTES
+2026-10-11 (afternoon).
+
 ## Tests
 
 ```bash

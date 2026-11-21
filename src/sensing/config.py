@@ -73,6 +73,23 @@ class Config:
     # the capture layer resamples if the device can't open at 16 kHz.
     sample_rate: int = 16_000
     input_device: str | None = None
+    # M12-01c playback reference: capture what the laptop plays (WASAPI
+    # loopback) into its own ring beside the mic's. Off by default for
+    # privacy, not from a measurement: the loopback holds every sound the
+    # laptop plays (calls, notifications). Nothing consumes it before
+    # M12-02/03/06. See sensing/audio.py ReferenceSource.
+    playback_reference_enabled: bool = False
+    # M12-02 step 4: analyse the mic with RTR's own playback cancelled
+    # (sensing/audio.py CleanSource). Needs the reference. When on,
+    # certification, emotion and headcount read the clean stream; loudness,
+    # activity, spectral balance, dominance and the noise floor stay on raw
+    # (M12-04 / M12-06 own those). Music-aware signatures are learned
+    # separately for the clean path, because a signature is only valid for
+    # the capture path that measured it. Off by default: it changes
+    # published values. The offline evidence is FIELD-NOTES 2026-10-09 (late
+    # evening): rap-alone certified windows 62 -> 0, a reading blinded by
+    # loud piano 19 -> 109.
+    playback_cancel_enabled: bool = False
 
     # Rolling analysis window.
     window_s: float = 5.0
@@ -209,6 +226,12 @@ class Config:
         device = _env_str("RTR_INPUT_DEVICE", "") or None
         return cls(
             input_device=device,
+            playback_reference_enabled=_env_bool(
+                "RTR_PLAYBACK_REFERENCE_ENABLED", cls.playback_reference_enabled
+            ),
+            playback_cancel_enabled=_env_bool(
+                "RTR_PLAYBACK_CANCEL_ENABLED", cls.playback_cancel_enabled
+            ),
             window_s=_env_float("RTR_WINDOW_S", cls.window_s),
             hop_s=_env_float("RTR_HOP_S", cls.hop_s),
             emotion_enabled=_env_bool("RTR_EMOTION_ENABLED", cls.emotion_enabled),

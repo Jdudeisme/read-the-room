@@ -41,7 +41,7 @@ from sensing.emotion import EmotionReading
 from sensing.engine import Engine
 from sensing.headcount import HeadcountReading
 from sensing.music import dominance
-from sensing.state import HeadcountBucket
+from sensing.state import HeadcountBucket, energy_score
 
 SR = 16_000
 TRACK_A = "spotify:track:A"
@@ -98,6 +98,7 @@ class FakeEmotion:
         self.reading: EmotionReading | None = None
         self.reference: tuple[str, float, float] | None = None
         self.submits: list[float] = []
+        self.windows: list = []
         self.reference_submits: list[str] = []
 
     def start(self) -> None:
@@ -108,6 +109,7 @@ class FakeEmotion:
 
     def submit(self, window, speech_ratio, now) -> None:
         self.submits.append(speech_ratio)
+        self.windows.append(window)
 
     def submit_reference(self, window, track_id, now) -> None:
         self.reference_submits.append(track_id)
@@ -166,13 +168,14 @@ def _signal(high_share: float, seconds: float, amp: float = 0.1) -> np.ndarray:
 
 
 class Rig:
-    def __init__(self, consumers=(), **overrides):
-        self.config = dataclasses.replace(
-            Config(), music_signatures_path=None, **overrides
-        )
+    def __init__(self, consumers=(), clean=None, **overrides):
+        overrides.setdefault("music_signatures_path", None)
+        self.config = dataclasses.replace(Config(), **overrides)
         self.source = FakeSource()
         self.playback = FakePlayback()
-        self.engine = Engine(self.source, self.config, list(consumers), self.playback)
+        self.engine = Engine(
+            self.source, self.config, list(consumers), self.playback, clean_source=clean
+        )
         self.vad = self.engine.vad = FakeVad()
         self.emotion = self.engine.emotion = FakeEmotion()
         self.headcount = self.engine.headcount = FakeHeadcount()
@@ -622,3 +625,241 @@ def test_final_flush_waits_for_an_in_flight_tick():
     stopper.join(5)
     assert not stopper.is_alive()
     assert len(flushes) == 1
+
+
+# -- M12-01c: the playback reference's lifecycle ---------------------------------
+
+
+class _FakeReference:
+    def __init__(self, fail=False):
+        self.fail = fail
+        self.device_name = "Speakers (fake)"
+        self.starts = 0
+        self.stops = 0
+
+    def start(self):
+        self.starts += 1
+        if self.fail:
+            raise RuntimeError("playback reference unavailable: device busy")
+
+    def stop(self):
+        self.stops += 1
+
+
+def test_reference_starts_and_stops_with_the_engine():
+    rig = Rig(hop_s=0.01)
+    ref = rig.engine.reference = _FakeReference()
+    rig.engine.run(max_ticks=2)
+    rig.engine.stop()  # a second stop (M8-07): still one reference stop
+    assert (ref.starts, ref.stops) == (1, 1)
+
+
+def test_reference_failure_never_stops_sensing():
+    collect = _Collect()
+    rig = Rig(consumers=[collect], hop_s=0.01)
+    rig.engine.reference = _FakeReference(fail=True)
+    rig.engine.run(max_ticks=3)
+    assert len(collect.states) == 3  # ticks ran, published as without it
+    assert rig.engine.reference is None
+
+
+def test_reference_is_off_by_default(monkeypatch):
+    monkeypatch.delenv("RTR_PLAYBACK_REFERENCE_ENABLED", raising=False)
+    assert Config().playback_reference_enabled is False
+    monkeypatch.setenv("RTR_PLAYBACK_REFERENCE_ENABLED", "1")
+    assert Config.from_env().playback_reference_enabled is True
+
+
+# -- M12-02 step 4: analysing the clean stream -------------------------------------
+
+
+class _FakeClean:
+    """A clean stream: its own ring, at half the raw amplitude."""
+
+    def __init__(self, status="running"):
+        self.ring = RingBuffer(int(30 * SR))
+        self.echo_ring = RingBuffer(int(30 * SR))
+        self.status = status
+        self.error = None
+        self.device_name = "fake (playback cancelled)"
+        self.stops = 0
+
+    def start(self):
+        pass
+
+    def stop(self):
+        self.stops += 1
+
+    def windows(self, n):
+        end = min(self.ring.total_written, self.echo_ring.total_written)
+        return self.ring.read_range(end - n, n), self.echo_ring.read_range(end - n, n)
+
+
+def _feed_both(rig, clean, dt=2.0):
+    """Advance one tick with the clean ring carrying half the raw signal and
+    the echo ring the other half (clean + echo = raw)."""
+    rig.now += dt
+    x = _signal(rig.high, dt, rig.amp)
+    rig.source.ring.write(x)
+    clean.ring.write(0.5 * x)
+    clean.echo_ring.write(0.5 * x)
+    return rig.engine._tick(now=rig.now, wall=1.79e9 + rig.now)
+
+
+def test_clean_stream_feeds_certification_emotion_and_headcount_not_dsp():
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    clean.ring.write(0.5 * _signal(0.0, rig.config.window_s, rig.amp))
+    rig.vad.ratio = 0.6
+    raw_only = Rig()
+    raw_only.vad.ratio = 0.6
+    state = _feed_both(rig, clean)
+    ref_state = raw_only.tick(ratio=0.6)
+    assert state.analysis_stream == "clean" and ref_state.analysis_stream == "raw"
+    # VAD read the clean ring (same sample counts, different ring)...
+    assert rig.vad.fed[-1] == raw_only.vad.fed[-1]
+    # ...emotion got the clean window (half amplitude)...
+    w_clean, w_raw = rig.emotion.windows[-1], raw_only.emotion.windows[-1]
+    assert np.allclose(w_clean, 0.5 * w_raw)
+    # ...but loudness is the raw signal's (the DSP heartbeat stays raw).
+    assert state.loudness_dbfs == ref_state.loudness_dbfs
+
+
+def test_clean_path_learns_its_own_signatures_file(tmp_path):
+    cfg_path = str(tmp_path / "sigs.json")
+    clean = _FakeClean()
+    eng = Engine(FakeSource(), dataclasses.replace(Config(), music_signatures_path=cfg_path), [], clean_source=clean)
+    raw = Engine(FakeSource(), dataclasses.replace(Config(), music_signatures_path=cfg_path), [])
+    assert str(eng._signatures.path).endswith("sigs.clean.json")
+    assert str(raw._signatures.path).endswith("sigs.json")
+
+
+def test_failed_clean_stream_falls_back_to_raw_with_raw_signatures(tmp_path):
+    clean = _FakeClean()
+    rig = Rig(clean=clean, music_signatures_path=str(tmp_path / "sigs.json"))
+    clean.ring.write(0.5 * _signal(0.0, rig.config.window_s, rig.amp))
+    assert _feed_both(rig, clean).analysis_stream == "clean"
+    clean.status, clean.error = "failed", "boom"
+    state = _feed_both(rig, clean)
+    assert state.analysis_stream == "raw"
+    assert rig.engine.clean is None and clean.stops == 1
+    assert str(rig.engine._signatures.path).endswith("sigs.json")
+    assert rig.engine._music_aware._signatures is rig.engine._signatures
+
+
+def test_no_reference_means_no_cancellation():
+    collect = _Collect()
+    clean = _FakeClean()
+    rig = Rig(consumers=[collect], clean=clean, hop_s=0.01)
+    rig.engine.reference = _FakeReference(fail=True)
+    rig.engine.run(max_ticks=2)
+    assert rig.engine.clean is None
+    assert {s.analysis_stream for s in collect.states} == {"raw"}
+
+
+# -- M12-06: dominance from the reference while cancellation runs ---------------------
+
+
+def _prime(rig, clean):
+    w = 0.5 * _signal(rig.high, rig.config.window_s, rig.amp)
+    clean.ring.write(w)
+    clean.echo_ring.write(w)
+
+
+def test_dominance_is_the_echo_energy_fraction_while_cancelling():
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    rig.set_signal(MIXED)
+    _prime(rig, clean)
+    rig.play(TRACK_A)
+    rig.reading(0.5, 0.3)
+    rig.vad.ratio = 0.6
+    state = _feed_both(rig, clean)
+    # echo = clean = half the mic: E(echo) / E(mic) = 0.25 exactly
+    assert state.emotion_music_dominance == 0.25
+    assert state.emotion_dominance_source == "reference"
+
+
+def test_dominance_stays_spectral_on_raw_and_none_without_playback():
+    rig = Rig()
+    rig.set_signal(MIXED)
+    rig.play(TRACK_A)
+    on = rig.tick(ratio=0.6)
+    assert on.emotion_dominance_source == "spectral"
+    assert on.emotion_music_dominance == round(rig.window_m(), 3)
+    rig.stop_playback()
+    off = rig.tick(ratio=0.6)
+    assert off.emotion_music_dominance is None and off.emotion_dominance_source is None
+
+
+# -- M12-04: the clean heartbeat beside the raw one ---------------------------------
+
+
+def test_clean_heartbeat_is_absent_without_cancellation():
+    state = Rig().tick(ratio=0.6)
+    assert state.analysis_stream == "raw"
+    assert state.clean_loudness_dbfs is None and state.clean_activity_density is None
+    assert state.clean_spectral_balance is None and state.clean_energy is None
+    assert state.clean_trend is None
+
+
+def test_clean_heartbeat_measures_the_clean_ring_and_raw_fields_stay_raw():
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    _prime(rig, clean)
+    rig.reading(0.2, 0.4)
+    rig.vad.ratio = 0.6
+    raw_only = Rig()
+    raw_only.reading(0.2, 0.4)
+    state = _feed_both(rig, clean)
+    ref_state = raw_only.tick(ratio=0.6)
+    # The existing fields are the raw signal's, exactly as without cancellation...
+    assert state.loudness_dbfs == ref_state.loudness_dbfs
+    assert state.activity_density == ref_state.activity_density
+    assert state.spectral_balance == ref_state.spectral_balance
+    assert state.energy == ref_state.energy
+    # ...and the clean_* fields are the clean ring's: half amplitude is -6.02 dB.
+    assert state.clean_loudness_dbfs == pytest.approx(state.loudness_dbfs - 6.0, abs=0.11)
+    window = clean.ring.read_last(int(rig.config.window_s * SR))
+    assert state.clean_spectral_balance == dsp.analyze(window, SR).spectral_balance
+    # Same weights, the frame's own (clean-certified) speech ratio and arousal.
+    expected = energy_score(
+        state.clean_loudness_dbfs, state.clean_activity_density,
+        state.speech_ratio, state.arousal,
+    )
+    assert state.clean_energy == pytest.approx(expected, abs=2e-3)
+    assert state.clean_energy < state.energy
+    assert state.clean_trend == "stable"
+
+
+def test_bit_identical_clean_stream_reads_the_same_as_raw():
+    """Nothing playing: the canceller passes the mic through bit-identical,
+    so the clean heartbeat must equal the raw one, trend included."""
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    rig.set_signal(0.0, amp=0.01)
+    clean.ring.write(_signal(rig.high, rig.config.window_s, rig.amp))
+    rig.vad.ratio = 0.6
+    for i in range(12):  # ~+2 dB a tick, so the trend has to move
+        rig.now += 2.0
+        x = _signal(rig.high, 2.0, rig.amp * 1.25**i)
+        rig.source.ring.write(x)
+        clean.ring.write(x)
+        clean.echo_ring.write(np.zeros_like(x))
+        state = rig.engine._tick(now=rig.now, wall=1.79e9 + rig.now)
+    assert state.clean_loudness_dbfs == state.loudness_dbfs
+    assert state.clean_activity_density == state.activity_density
+    assert state.clean_spectral_balance == state.spectral_balance
+    assert state.clean_energy == state.energy
+    assert state.clean_trend == state.trend == "rising"
+
+
+def test_clean_heartbeat_goes_absent_when_cancellation_falls_back():
+    clean = _FakeClean()
+    rig = Rig(clean=clean)
+    _prime(rig, clean)
+    assert _feed_both(rig, clean).clean_energy is not None
+    clean.status, clean.error = "failed", "boom"
+    state = _feed_both(rig, clean)
+    assert state.analysis_stream == "raw" and state.clean_energy is None
+    assert state.clean_loudness_dbfs is None and state.clean_trend is None

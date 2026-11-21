@@ -149,8 +149,12 @@ class Mapper:
         pool = RULEBOOK[cell]
 
         # Match the room's direction. Arousal is the energy axis; when it is
-        # flat, defer to the engine's composite energy trend.
-        direction = arousal_trend if arousal_trend != "stable" else state.trend
+        # flat, defer to the engine's composite energy trend, measured on the
+        # playback-clean stream while cancellation runs (M12-05 Rule 2:
+        # SWITCH, FIELD-NOTES 2026-11-20). clean_trend is None whenever
+        # nothing was cleaned (M12-04 D1), which leaves the raw path as it was.
+        energy_trend = state.clean_trend if state.clean_trend is not None else state.trend
+        direction = arousal_trend if arousal_trend != "stable" else energy_trend
         action = {"rising": "raise", "falling": "lower", "stable": "hold"}[direction]
 
         lead = {"raise": cfg.target_lead, "lower": -cfg.target_lead, "hold": 0.0}

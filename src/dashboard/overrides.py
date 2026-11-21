@@ -15,6 +15,10 @@ occupied. Gated lines are still written (`occupied: false`); the tuning
 report excludes them from learning. Tap-action records are unchanged in
 shape.
 
+Schema v3 (M12-04, founder D2 2026-10-11): the stamped state can carry the
+playback-clean heartbeat (`clean_*` fields, None when cancellation was off).
+Additive: a v2 record is a v3 record without them.
+
 Capture ordering matters: the record is appended BEFORE the playback action
 is attempted, so a provider failure can degrade the music but never lose
 the label.
@@ -29,7 +33,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # skip: veto the playing track; wrong_vibe: veto the SELECTION (resample a
 # cell-adjacent pool); manual: human picked a mapped (genre, tier) instead;

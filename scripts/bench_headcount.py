@@ -43,6 +43,15 @@ are the real planning floor, not the solo baseline:
   If --concurrent fails, apply the fallback .env config above and validate
   it with --fallback — re-running --concurrent cannot reflect
   RTR_HEADCOUNT_MIN_INTERVAL_S, since that mode never skips a hop.
+
+--cancel TAKE (M12 gate (c), "with the M12 path enabled"): before timing,
+replay a recorded take's mic and reference (TAKE.wav + TAKE.ref.wav) in
+real time through the real `CleanSource`, with the same file sources as
+`bench_cancel_heartbeat.py`. Wait for the canceller to lock (its locked
+blocks are the costly ones; before the lock it copies), then time exactly
+as the chosen mode does while it keeps cancelling on its own thread. That
+is the CPU and GIL contention the live M12 path adds to the workers.
+Combines with any mode; the gate row is `--fallback --cancel`.
 """
 
 from __future__ import annotations
@@ -124,6 +133,12 @@ def main() -> int:
         "and emotion run concurrently on even hops, emotion alone on odd "
         "hops — validates the pre-approved fallback config",
     )
+    parser.add_argument(
+        "--cancel",
+        metavar="TAKE",
+        help="M12: run the playback canceller on TAKE.wav + TAKE.ref.wav in "
+        "real time beside the timed workers",
+    )
     args = parser.parse_args()
 
     config = Config.from_env()
@@ -147,6 +162,59 @@ def main() -> int:
     for i, w in enumerate(windows[: min(8, len(windows))]):
         _one_headcount_pass(embed, estimator, smoother, w, mask, float(i * 2))
     print(f"buffer after warmup: {estimator.evidence_s:.0f}s of speech evidence")
+
+    canceller = _start_canceller(args.cancel, config) if args.cancel else None
+    try:
+        return _run_mode(config, args, embed, estimator, smoother, rng, windows, mask)
+    finally:
+        if canceller is not None:
+            _report_canceller(*canceller)
+
+
+def _start_canceller(take: str, config):
+    """Start mic + reference file sources and a CleanSource on them; return
+    once the canceller has locked (or after 60 s, reported either way)."""
+    from pathlib import Path
+
+    from bench_cancel_heartbeat import FileSource, read_wav
+    from sensing.audio import CleanSource
+
+    mic = read_wav(Path(take + ".wav"))
+    ref = read_wav(Path(take + ".ref.wav"))
+    buffer_s = config.window_s * 2 + 2.0
+    mic_src = FileSource(mic, "file mic", buffer_s)
+    ref_src = FileSource(ref, "file reference", buffer_s)
+    clean = CleanSource(mic_src, ref_src, buffer_s)
+    mic_src.start()
+    ref_src.start()
+    clean.start()
+    t0 = time.monotonic()
+    while not _locked(clean) and time.monotonic() - t0 < 60.0:
+        time.sleep(0.25)
+    locked = _locked(clean)
+    print(f"[CANCEL] {Path(take).name}: canceller "
+          + (f"locked after {time.monotonic() - t0:.1f}s" if locked else "NOT locked after 60s")
+          + f"; take is {mic.size / 16_000:.0f}s long")
+    return clean, mic_src, ref_src, t0, mic.size / 16_000
+
+
+def _locked(clean) -> bool:
+    # The canceller exists only once both rings have audio (CleanSource.align).
+    c = clean.canceller
+    return c is not None and c.tracker.lag is not None
+
+
+def _report_canceller(clean, mic_src, ref_src, t0, take_s) -> None:
+    elapsed = time.monotonic() - t0
+    print(f"[CANCEL] after {elapsed:.0f}s: status {clean.status}, resyncs {clean.resyncs}, "
+          f"error {clean.error}, still locked {_locked(clean)}"
+          + ("" if elapsed < take_s else "  (WARNING: the take ran out before timing ended)"))
+    clean.stop()
+    mic_src.stop()
+    ref_src.stop()
+
+
+def _run_mode(config, args, embed, estimator, smoother, rng, windows, mask) -> int:
 
     if args.fallback:
         return _run_fallback(config, args, embed, estimator, smoother, rng, windows, mask)
