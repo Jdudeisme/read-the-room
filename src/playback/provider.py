@@ -65,6 +65,11 @@ class Track:
     # per-cell pool weighting has genre-level evidence going forward.
     genre: str | None = None
     tier: str | None = None
+    # M9-07: when the provider played this track IN PLACE OF another (Spotify
+    # track relinking), the id that was requested. None when the provider
+    # doesn't say, which is always the case for tracks drawn by the selector.
+    # Additive: override records gain the key; older records lack it.
+    linked_from: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)

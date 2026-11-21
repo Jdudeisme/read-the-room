@@ -149,6 +149,24 @@ class TestSeam:
         assert now.track.playlist_id == "spotify:playlist:PL1"
         assert now.progress_s == pytest.approx(42.5)
         assert now.is_playing and now.device_id == "dev-spk"
+        assert now.track.linked_from is None
+
+    def test_now_playing_asks_for_relinking_and_reads_linked_from(self, config, fake):
+        # M9-07: market=from_token makes Spotify report the requested URI when
+        # it plays a relinked substitute (2026-11-21: ...3cwGy played as ...0zhDL).
+        fake.player_state = {
+            "is_playing": True,
+            "progress_ms": 1000,
+            "device": {"id": "dev-spk"},
+            "item": {"uri": "spotify:track:0zhDL", "name": "Rondo",
+                     "artists": [{"name": "Mozart"}], "duration_ms": 556493,
+                     "linked_from": {"uri": "spotify:track:3cwGy"}},
+        }
+        now = _provider(config, fake).now_playing()
+        assert now.track.id == "spotify:track:0zhDL"
+        assert now.track.linked_from == "spotify:track:3cwGy"
+        q = urllib.parse.parse_qs(fake.requests[-1].url.query.decode())
+        assert q["market"] == ["from_token"]
 
     def test_play_and_queue_hit_the_control_endpoints(self, config, fake):
         p = _provider(config, fake)
