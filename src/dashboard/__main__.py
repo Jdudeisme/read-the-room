@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     # M12-02: off unless RTR_PLAYBACK_CANCEL_ENABLED=1, and only with a reference.
     clean = (
-        CleanSource(source, reference, buffer_s)
+        CleanSource(source, reference, buffer_s, clip_s=config.debug_cancel_clip_s)
         if config.playback_cancel_enabled and reference is not None
         else None
     )

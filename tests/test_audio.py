@@ -238,3 +238,42 @@ def test_read_range_by_absolute_position_with_wrap_and_zero_fill():
     assert rb.read_range(13, 4).tolist() == [0, 0, 15, 16]  # 13, 14 overwritten
     assert rb.read_range(23, 4).tolist() == [23, 24, 0, 0]  # 25, 26 not yet written
     assert rb.read_range(-2, 3).tolist() == [0, 0, 0]
+
+
+# -- M12-09: the reference's lost-audio estimate ------------------------------------
+
+
+class _ClockedLoopback(_FakeLoopback):
+    """Advances a fake clock by each block's duration, plus a 100 ms gap
+    once: the WASAPI overflow case, where that audio never arrives."""
+
+    def __init__(self, clock, gap_at_block=10, gap_s=0.1):
+        super().__init__()
+        self.clock, self.calls = clock, 0
+        self.gap_at_block, self.gap_s = gap_at_block, gap_s
+
+    def record(self, numframes):
+        self.calls += 1
+        self.clock[0] += numframes / 48_000
+        if self.calls == self.gap_at_block:
+            self.clock[0] += self.gap_s
+        time.sleep(0.001)
+        x = np.zeros(numframes, np.float32)
+        return np.stack([x, x], axis=1)
+
+
+def test_reference_deficit_counts_a_dropout_exactly():
+    clock = [100.0]
+    loop = _ClockedLoopback(clock)
+    ref = ReferenceSource(
+        16_000, 2.0, recorder_factory=lambda rate, ch: ("Speakers (fake)", loop),
+        clock=lambda: clock[0],
+    )
+    ref.start()
+    deadline = time.monotonic() + 5.0
+    while loop.calls < 20 and time.monotonic() < deadline:
+        time.sleep(0.005)
+    ref.stop()
+    assert loop.calls >= 20
+    # 0 before the gap; the 100 ms that never arrived (4800 frames at 48 kHz) after it.
+    assert ref.deficit_frames == pytest.approx(4800, abs=2)

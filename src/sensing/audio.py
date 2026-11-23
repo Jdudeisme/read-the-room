@@ -4,11 +4,17 @@ source for plumbing tests. Both feed a thread-safe ring buffer at 16 kHz mono.
 
 from __future__ import annotations
 
+import json
+import logging
 import math
 import threading
 import time
+import wave
+from pathlib import Path
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 # Rates to try if the device won't open at the analysis rate directly.
 _FALLBACK_RATES = (48_000, 44_100)
@@ -21,6 +27,28 @@ _FALLBACK_RATES = (48_000, 44_100)
 _REFERENCE_NATIVE_RATE = 48_000
 _REFERENCE_CHANNELS = 2
 _REFERENCE_BLOCK_S = 0.02
+
+# M12-09 diagnostics (docs/M12-09-PLAN.md): how often CleanSource logs the
+# live canceller's state and the reference's estimated lost audio. A
+# logging cadence, not a calibration: 10 s spans ~5 hops and is shorter
+# than one re-lock plus re-convergence (~12 s), so a stuck canceller shows
+# within two lines.
+CANCEL_REPORT_S = 10.0
+# The opt-in diagnostic clip starts this long after the canceller's first
+# lock, so it records the steady state, not the 8-30 s first convergence
+# (FIELD-NOTES 2026-10-09).
+CLIP_AFTER_LOCK_S = 30.0
+# The diagnostics (the report's reference level and the clip's ref track)
+# read the reference this far behind the mic block being processed, rounded
+# up to whole canceller blocks. The loopback delivers the reference *after*
+# the mic. On 2026-11-23 a lag-0 read found it present for only 2.6 % of
+# samples, so the clip's ref.wav was 97 % zero-fill and the offline
+# comparison couldn't run (FIELD-NOTES 2026-11-23, finding 3). The canceller
+# itself reads `lag - PRE_DELAY` behind, at most MAX_LAG_S = 0.6 s: it
+# already relies on the reference being there by then. 1.0 s adds margin and
+# stays well inside the ring (window_s * 2 + 2 s). A read delay, not a
+# calibration: no published value moves.
+DIAG_REF_DELAY_S = 1.0
 
 
 class RingBuffer:
@@ -288,6 +316,15 @@ class ReferenceSource:
     never waited on. `recorder_factory` is the test seam: it returns
     `(device_name, context_manager)`, where the manager yields an object
     with `record(numframes) -> ndarray (frames, channels)`.
+
+    **Lost-audio estimate (M12-09).** soundcard fills true silence with
+    wall-clock zeros, so the frames received should track the clock. A
+    WASAPI "data discontinuity" means the capture buffer overflowed (this
+    thread didn't read in time) and that audio is gone. `deficit_frames` is
+    the clock-implied frames since the first block minus the frames
+    received. It wobbles by a block or two with buffering, and grows by
+    whatever is lost, so its growth is the dropout total. `clock` is the
+    test seam.
     """
 
     def __init__(
@@ -295,6 +332,7 @@ class ReferenceSource:
         sample_rate: int,
         buffer_seconds: float,
         recorder_factory=None,
+        clock=time.monotonic,
     ):
         self.sample_rate = sample_rate
         self.ring = RingBuffer(int(buffer_seconds * sample_rate))
@@ -304,6 +342,10 @@ class ReferenceSource:
         self.error: str | None = None
         self.blocks = 0
         self.last_block_at: float | None = None
+        self.frames_received = 0
+        self.deficit_frames = 0.0
+        self._t0: float | None = None
+        self._clock = clock
         self._factory = recorder_factory or _soundcard_loopback
         self._block_frames = int(round(_REFERENCE_BLOCK_S * _REFERENCE_NATIVE_RATE))
         self._resampler = Resampler(_REFERENCE_NATIVE_RATE, sample_rate)
@@ -349,7 +391,15 @@ class ReferenceSource:
                     if out.size:
                         self.ring.write(out)
                     self.blocks += 1
-                    self.last_block_at = time.monotonic()
+                    now = self._clock()
+                    self.last_block_at = now
+                    frames = mono.size
+                    if self._t0 is None:
+                        self._t0 = now - frames / _REFERENCE_NATIVE_RATE
+                    self.frames_received += frames
+                    self.deficit_frames = (
+                        (now - self._t0) * _REFERENCE_NATIVE_RATE - self.frames_received
+                    )
         except Exception as exc:
             self.status, self.error = "failed", f"{type(exc).__name__}: {exc}"
             self._ready.set()
@@ -383,7 +433,10 @@ class CleanSource:
     """
 
     def __init__(self, mic, reference, buffer_seconds: float,
-                 canceller_factory=None, max_behind_s: float = 1.0, poll_s: float = 0.005):
+                 canceller_factory=None, max_behind_s: float = 1.0, poll_s: float = 0.005,
+                 clip_s: float = 0.0, clip_dir: str = "data/captures",
+                 clip_after_lock_s: float = CLIP_AFTER_LOCK_S,
+                 report_s: float = CANCEL_REPORT_S, clock=time.monotonic):
         from .aec import BLOCK, StreamingCanceller
 
         self.mic, self.reference = mic, reference
@@ -408,6 +461,24 @@ class CleanSource:
         self._stop = threading.Event()
         self._stop_lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        # M12-09 diagnostics: interval energy sums for the report, the last
+        # report, and the opt-in clip. Clean-source thread only.
+        self._clock = clock
+        self._report_s = report_s
+        self._next_report: float | None = None
+        self._acc = {"mic": 0.0, "clean": 0.0, "ref": 0.0, "n": 0, "ref_n": 0}
+        self._seen_relocks = 0
+        self._report_canceller = None
+        self._last_deficit = 0.0
+        self.last_report: dict | None = None
+        self._clip_s = clip_s
+        self._clip_dir = clip_dir
+        self._clip_after_lock_s = clip_after_lock_s
+        # Whole blocks, so the delayed reference reads land on the same block
+        # grid as the mic (the clip's tracks then line up sample for sample).
+        self._ref_delay = BLOCK * math.ceil(DIAG_REF_DELAY_S * self.sample_rate / BLOCK)
+        self._clip: dict | None = None
+        self.clip_path: str | None = None  # set once the clip is written
 
     @property
     def canceller(self):
@@ -464,9 +535,154 @@ class CleanSource:
             clean = self._canceller.process(block, self._ref_get)
             self.ring.write(clean)
             self.echo_ring.write(block - clean)  # exactly zero on pass-through
+            self._observe_block(block, clean)
             self._pm += B
             done += 1
+        self._maybe_report()
         return done
+
+    # -- M12-09 diagnostics (clean-source thread; never raise) -----------------
+
+    def _observe_block(self, block: np.ndarray, clean: np.ndarray) -> None:
+        """Accumulate the report's energy sums and feed the opt-in clip. The
+        reference is read at the mic's aligned position (no lag), as
+        capture_room_wav.py records it, so an offline cancel() on the clip
+        sees what a capture would. It is read `_ref_delay` samples behind the
+        block being processed (DIAG_REF_DELAY_S), once the loopback has
+        delivered it. A read at the newest position finds it mostly not yet
+        written, and zero-filled (FIELD-NOTES 2026-11-23)."""
+        i = self._pm - self._pm0
+        j = i - self._ref_delay
+        ref = self._ref_get(j, len(block)) if j >= 0 else None
+        acc = self._acc
+        acc["mic"] += float(np.dot(block, block))
+        acc["clean"] += float(np.dot(clean, clean))
+        acc["n"] += len(block)
+        if ref is not None:
+            acc["ref"] += float(np.dot(ref, ref))
+            acc["ref_n"] += len(ref)
+        if self._clip_s > 0 and self.clip_path is None:
+            try:
+                self._clip_step(i, block, clean, j, ref)
+            except Exception:
+                log.exception("diagnostic clip failed; no clip this session")
+                self._clip_s = 0.0
+
+    def _maybe_report(self) -> None:
+        now = self._clock()
+        if self._next_report is None:
+            self._next_report = now + self._report_s
+            return
+        if now < self._next_report:
+            return
+        self._next_report = now + self._report_s
+        try:
+            self.last_report = self._report()
+            log.info("%s", _format_cancel_report(self.last_report))
+            if self._clip is not None:
+                self._clip["reports"].append(self.last_report)
+        except Exception:
+            log.exception("canceller report failed")
+
+    def _report(self) -> dict:
+        can = self._canceller
+        if can is not self._report_canceller:  # fresh canceller after a resync
+            self._report_canceller, self._seen_relocks = can, 0
+        res = getattr(can, "result", None)
+        tracker = getattr(can, "tracker", None)
+        relocks = list(getattr(res, "relocks", []))
+        choices = list(getattr(res, "relock_choices", []))
+        new_choices = choices[self._seen_relocks :]
+        self._seen_relocks = len(choices)
+        acc, self._acc = self._acc, {"mic": 0.0, "clean": 0.0, "ref": 0.0, "n": 0, "ref_n": 0}
+        reduction = (
+            10 * math.log10(acc["mic"] / acc["clean"])
+            if acc["mic"] > 0 and acc["clean"] > 0 else None
+        )
+        ref_dbfs = (
+            10 * math.log10(acc["ref"] / acc["ref_n"]) if acc["ref"] > 0 and acc["ref_n"] > 0 else None
+        )
+        deficit = float(getattr(self.reference, "deficit_frames", 0.0))
+        lost_delta = deficit - self._last_deficit
+        self._last_deficit = deficit
+        return {
+            "t": round(time.time(), 3),
+            "locked": getattr(tracker, "lag", None) is not None,
+            "lag": getattr(tracker, "lag", None),
+            "coherence": round(float(getattr(tracker, "coherence", 0.0) or 0.0), 3),
+            "relocks_total": len(relocks),
+            "relocks_new": new_choices,
+            "divergence_resets": int(getattr(res, "divergence_resets", 0)),
+            "rollbacks": int(getattr(res, "rollbacks", 0)),
+            "resyncs": self.resyncs,
+            "reduction_db": None if reduction is None else round(reduction, 2),
+            "ref_dbfs": None if ref_dbfs is None else round(ref_dbfs, 1),
+            "ref_deficit_ms": round(deficit / (_REFERENCE_NATIVE_RATE / 1000), 1),
+            "ref_lost_ms_new": round(lost_delta / (_REFERENCE_NATIVE_RATE / 1000), 1),
+        }
+
+    def _clip_step(self, i: int, block: np.ndarray, clean: np.ndarray,
+                   j: int, ref: np.ndarray | None) -> None:
+        """Opt-in (RTR_DEBUG_CANCEL_CLIP_S > 0): from first lock +
+        clip_after_lock_s, keep clip_s seconds of raw mic, clean and
+        reference on the same positions, then write them once. `i` is the
+        block's canceller position. `ref` is the reference for position `j`
+        (`_ref_delay` earlier), so the ref track completes that much later
+        than the mic track. A resync while recording breaks the positions,
+        so the clip is discarded and recorded afresh after the next lock."""
+        c = self._clip
+        if c is not None and self.resyncs != c["resyncs_at_start"]:
+            log.info("diagnostic clip discarded: a resync broke its sample positions; "
+                     "recording again after the next lock")
+            c = self._clip = None
+        if c is None:
+            relocks = getattr(getattr(self._canceller, "result", None), "relocks", [])
+            pos_s = i / self.sample_rate
+            if not relocks or pos_s < relocks[0] + self._clip_after_lock_s:
+                return
+            c = self._clip = {"mic": [], "clean": [], "ref": [], "n": 0, "n_ref": 0, "i0": i,
+                              "started_at": time.time(), "resyncs_at_start": self.resyncs,
+                              "canceller_pos_s": round(pos_s, 3), "reports": []}
+            log.info("diagnostic clip: recording %.0f s", self._clip_s)
+        target = int(self._clip_s * self.sample_rate)
+        if c["n"] < target:
+            c["mic"].append(block.copy())
+            c["clean"].append(clean.copy())
+            c["n"] += len(block)
+        if ref is not None and j >= c["i0"] and c["n_ref"] < c["n"]:
+            c["ref"].append(ref.copy())
+            c["n_ref"] += len(ref)
+        if c["n"] >= target and c["n_ref"] >= c["n"]:
+            self._write_clip()
+
+    def _write_clip(self) -> None:
+        c, self._clip = self._clip, None
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(c["started_at"]))
+        base = Path(self._clip_dir) / f"live-clip-{stamp}"
+        base.parent.mkdir(parents=True, exist_ok=True)
+        tracks = {kind: np.concatenate(c[kind])[: c["n"]] for kind in ("mic", "clean", "ref")}
+        for kind, audio in tracks.items():
+            _write_wav16(Path(f"{base}.{kind}.wav"), audio, self.sample_rate)
+        sidecar = {
+            "what": "M12-09 diagnostic clip (docs/M12-09-PLAN.md): raw mic, clean, "
+                    "reference on the same sample positions. Founder-alone sessions only; "
+                    "delete once the FIELD-NOTES entry is written.",
+            "started_at": c["started_at"],
+            "seconds": round(c["n"] / self.sample_rate, 3),
+            "sample_rate": self.sample_rate,
+            "canceller_pos_s": c["canceller_pos_s"],
+            "resyncs_during": self.resyncs - c["resyncs_at_start"],
+            "ref_read_delay_s": round(self._ref_delay / self.sample_rate, 3),
+            # Exact zeros in the ref track. Near 1 while music plays means the
+            # reference wasn't there to read (the 2026-11-23 failure).
+            "ref_zero_fraction": round(float(np.mean(tracks["ref"] == 0.0)), 4),
+            "mic_device": getattr(self.mic, "device_name", ""),
+            "reference_device": getattr(self.reference, "device_name", ""),
+            "reports": c["reports"],
+        }
+        Path(f"{base}.json").write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
+        self.clip_path = str(base)
+        log.info("diagnostic clip written: %s.{mic,clean,ref}.wav", base)
 
     def _run(self) -> None:
         try:
@@ -511,3 +727,28 @@ def list_input_devices() -> str:
                 f"({info['max_input_channels']} ch, {info['default_samplerate']:.0f} Hz)"
             )
     return "\n".join(lines)
+
+
+def _format_cancel_report(r: dict) -> str:
+    """One log line per CANCEL_REPORT_S (M12-09)."""
+    state = f"locked lag={r['lag']} coh={r['coherence']}" if r["locked"] else "not locked"
+    relocks = f"+{len(r['relocks_new'])}"
+    if r["relocks_new"]:
+        relocks += f" ({','.join(r['relocks_new'])})"
+    red = "n/a" if r["reduction_db"] is None else f"{r['reduction_db']:.1f} dB"
+    ref = "silent" if r["ref_dbfs"] is None else f"{r['ref_dbfs']:.1f} dBFS"
+    return (
+        f"canceller: {state} relocks={relocks} resets={r['divergence_resets']} "
+        f"resyncs={r['resyncs']} reduction={red} | reference: {ref} "
+        f"lost={r['ref_lost_ms_new']:+.0f} ms (deficit {r['ref_deficit_ms']:.0f} ms)"
+    )
+
+
+def _write_wav16(path: Path, audio: np.ndarray, sample_rate: int) -> None:
+    """16-bit PCM mono WAV (the M12-09 diagnostic clip)."""
+    pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2")
+    with wave.open(str(path), "wb") as fh:
+        fh.setnchannels(1)
+        fh.setsampwidth(2)
+        fh.setframerate(sample_rate)
+        fh.writeframes(pcm.tobytes())
