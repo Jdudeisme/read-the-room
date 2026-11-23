@@ -624,7 +624,9 @@ with their measurements.
   - 2026-11-20 (gate (b)): 7 of 9 takes, 0.28–0.84.
 
   Vocal hip-hop at 66 % is the worst take on both session days (0.21, 0.28).
-  Jazz at 32 % is clean on both.
+  Jazz at 32 % is clean on both. The live dashboard on 2026-11-23 (founder alone at ~1.5 m, vocal hip-hop,
+  32/66 %) showed the same: 7 of 10 selection cells `pair`, with raw bucket-3 updates during *TWIST & TURN*
+  (FIELD-NOTES 2026-11-23, finding 5).
 - **Why it matters:** Phantom speakers inflate the headcount bucket the
   mapper uses for crowd weight. That's the opposite of the accepted trade
   ("undercounting beats phantom crowds"), and it's caused by the system's own
@@ -698,6 +700,16 @@ with their measurements.
 
 > **Filed 2026-11-21** from the cancellation-default live check (FIELD-NOTES 2026-11-21, night). It blocks
 > `cancel-on-by-default` (`4a1903b`, not merged), and is carried past M12 like M12-07/08.
+>
+> **2026-11-23 diagnostics session (FIELD-NOTES 2026-11-23), not yet attributed.** With the founder alone at
+> ~1.5 m, the live canceller removed 6.5 dB (32 %) and 7.6 dB (66 %) median while they read. Lost reference
+> audio was 0–20 ms per phase, so dropouts are ruled out *in that condition*. Two new facts:
+> (a) for ~90 s after first lock, the reduction was negative at a steady lag with rollbacks climbing (a filter
+> carried through three "shift" re-locks);
+> (b) **the diagnostic clip's reference is 97 % zeros**: `_observe_block` reads the reference at lag 0, ahead
+> of the loopback's head, so the offline comparison failed, and the logged `reference: … dBFS` is unreliable.
+> Next: fix the clip read on `m12-09-diagnostics` (read the reference far enough behind the head), then a
+> session in the 11-21 condition (several people talking) with a working clip.
 
 - **Problem:** In the live dashboard (`CleanSource` on the real mic and the
   WASAPI loopback), the clean stream was only 0.1–0.5 dB quieter than raw
@@ -971,6 +983,11 @@ only to RTR's own playback; live music still arrives with
 
 > **Filed 2026-11-21** (FIELD-NOTES 2026-11-21, night, finding 2). Found during the cancellation live check;
 > independent of M12.
+>
+> **Live check 2026-11-23 (FIELD-NOTES 2026-11-23): 2 of 3 confirmed, 1 unresolved.** *TWIST & TURN* crossed
+> under a substituted ID (matched by title+duration) and earned `played_through`. *Healing* crossed by the same
+> ID. The founder's third title, *It's Up*, was only ever held, never pushed. They're unsure what the line
+> showed. The founder asked for a focused re-check, watching the next-up line, before `m9-07-queue-slot` merges.
 
 - **Problem:** `PlaybackController` holds one pushed track in `_queued` and
   clears it only when the provider reports the **same ID** playing
@@ -1001,6 +1018,43 @@ only to RTR's own playback; live music still arrives with
   track: the next selection is pushed at the following boundary. The
   existing controller tests stay green. A live check, watching one named
   next-up title across a boundary, records the match in FIELD-NOTES.
+- **Effort:** S
+
+### M9-08 — A human pause in Spotify doesn't hold: bootstrap restarts playback — REQUIRES-REVIEW
+
+> **Filed 2026-11-23** (FIELD-NOTES 2026-11-23, finding 4). Found in the M12-09 / M9-07 live session, phase D.
+
+- **Problem:** `PlaybackController` treats "nothing playing" as bootstrap: a
+  new non-guard recommendation starts its selection at once (module
+  docstring, `_handle`). It can't tell a human pause from silence. On
+  2026-11-23 the founder paused Spotify at 14:49:10 and kept reading, and
+  RTR started a track at 14:49:18, 14:50:21 and 14:51:22, once per
+  emission. Each was paused by hand. It stopped only when the room fell
+  silent (no emissions).
+- **Why it matters:** A host, or a performer at an M9 demo, can't pause RTR
+  from Spotify. The only way to stop the music is to quit the dashboard
+  (or go silent). It also breaks any protocol phase that needs "music
+  paused, people talking". The 2026-11-23 phase D control survived only in
+  pieces.
+- **Scope:** A product decision first (the gentle-DJ policy is the founder's
+  call), then the controller. Options:
+  - (a) A pause observed while a selection RTR started is playing (the same
+    track ID, `is_playing` true → false, no boundary) suppresses bootstrap
+    until playback resumes or a human override arrives;
+  - (b) a dashboard "hold" control that does the same, explicitly;
+  - (c) both.
+
+  Out of scope: the 403 `pause()` handling (M8-08) and anything in the
+  sensing path.
+- **Acceptance criteria:** An offline test (`httpx.MockTransport`):
+  - the provider reports the playing track paused, then a non-guard
+    recommendation arrives, and no `play` is issued;
+  - a resume or a human override restores normal behavior;
+  - existing bootstrap tests (nothing ever played; a track ran out into
+    silence) stay green.
+
+  Then a live check: pause in Spotify and keep talking for 2 minutes, with
+  no restart, recorded in FIELD-NOTES.
 - **Effort:** S
 
 ---

@@ -5,6 +5,176 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-11-23 (afternoon, live, founder alone) — M12-09 diagnostics + M9-07 next-up check: live, the canceller removed 6.5–7.6 dB while the founder read; the diagnostic clip's reference is unusable; M9-07 is 2 of 3 confirmed
+
+**What this was.** The session in `docs/LIVE-SESSION-M12-09-M9-07.md`, run
+on the test branch `live-session-m12-09-m9-07` (`814e1e8`, which is `main`
+`77646fa` + `m12-09-diagnostics` + `m9-07-queue-slot`). Claude ran the
+preflight: clean tree, 447 tests passing, nothing on :8000, and no
+REFERENCE/CANCEL/DEBUG lines in `.env`. **The founder started and stopped
+everything.** It ran in their own PowerShell window with
+`RTR_PLAYBACK_REFERENCE_ENABLED=1`, `RTR_PLAYBACK_CANCEL_ENABLED=1` and
+`RTR_DEBUG_CANCEL_CLIP_S=60`, logging to
+`data/sessions/live-2026-11-23.log`. Claude confirmed that the process on
+:8000 was the one just started: python, created 14:28:45, which matches
+the log's first line at 14:28:46 (FIELD-NOTES 2026-09-06). The playback
+reference was 'Speakers (Cirrus Logic XU (with APO Extensions))', and RTR
+analysed 'Microphone Array on SoundWire D (playback cancelled)'. The
+2026-11-21 `--- Logging error ---` did **not** recur. The log holds 8
+soundcard "data discontinuity in recording" warnings. They carry no
+timestamp, so they can't be matched to phases. 2026-11-21 had ~35 and ~60.
+
+**Conditions.**
+- **Room:** the living-room alcove, laptop on the TV stand in the gate
+  (b) / 2026-11-21 spot, TV off.
+- **People:** the **founder alone** at **~1.5 m** (estimated, not taped).
+  1.5 m was chosen to match 2026-11-21 and the 2026-11-20 Block G takes
+  that M12-09 compares against.
+- **Volumes:** Windows 32 % in A and B, 66 % in C. Mic input 34 % and
+  Dolby Atmos per the run sheet. The founder confirmed the setup but did
+  not separately report the mic-input reading.
+- **Reading:** from the laptop screen. The founder could barely read it at
+  1.5 m, so the reading was not as even as at 0.6 m. Their attention was
+  on the volume changes and on keeping the reading going, not on the
+  dashboard (this matters for M9-07 below).
+
+**Phases** (founder's times):
+
+| phase | start | music | founder |
+|---|---|---|---|
+| — | 14:28:45 | none (Spotify paused on a Ravel track) | — |
+| A | 14:34 (genre pick Hip-Hop / mid at 14:34:01, `action: manual`) | *Circo Loco* (Drake, 21 Savage), then the playlist continued, 32 % | silent |
+| B | 14:39 | 32 % | reading aloud |
+| C | 14:44 | 66 % | reading aloud |
+| D | 14:49:10 | paused in Spotify, but see finding 4 | reading aloud until ~14:52 |
+
+The founder stopped the dashboard after ~14:57.
+
+**Canceller, per phase** (from the 10 s `canceller:` log lines).
+"Reduction" is 10·log10(Σmic² / Σclean²) over each 10 s report. **This
+isn't the metric 2026-11-21 used:** that was each frame's
+`loudness_dbfs` − `clean_loudness_dbfs`, and today's dashboard frames
+weren't recorded. So today's numbers aren't directly comparable with the
+11-21 0.1–0.5 dB.
+
+| phase | reports | reduction median | range | negative | re-locks | lags | lost reference audio |
+|---|---|---|---|---|---|---|---|
+| A (32 %, silent) | 30 | **1.0 dB** | −7.8 … +19.0 | 11 | 5 | 1354 → 1514 → 1674 → 1834 | ≈ 0 (net −35 ms) |
+| A after 14:36:09 | 18 | 5.8 dB | −5.8 … +19.0 | 2 | 0 | 1834 | — |
+| B (32 %, reading) | 30 | **6.5 dB** | +2.9 … +8.9 | 0 | 0 | 1834 | 0 ms |
+| C (66 %, reading) | 31 | **7.6 dB** | −2.7 … +11.0 | 1 | 1 | 1962 | 20 ms |
+| D (paused) | 18 | passes through: 0.0 dB, coherence 0, while silent | — | 0 | 2 (at RTR's restarts) | 1962 → 2534 → 3144 | 80 ms |
+
+**Findings.**
+
+1. **Founder alone at ~1.5 m, the live canceller removes the music.** In
+   B and C it took 6.5 and 7.6 dB (median) out of mic energy that
+   included the founder's speech, with a steady lag and no negative
+   reports in B. **Reference dropouts, M12-09's leading hypothesis, are
+   ruled out as the cause in this condition:** lost reference audio was
+   0–20 ms per phase, and the lag held. The 11-21 failure therefore
+   didn't reproduce with one quiet talker. The conditions that differ:
+   - 5 people talking most of the time (double talk and level);
+   - a heavier model load (5 voices);
+   - ~10× more data-discontinuity warnings on 11-21.
+
+   This points toward double talk or level, but the metrics differ (see
+   above), so it is a lead, not an attribution.
+2. **After the first lock, ~90 s of negative reduction at a steady lag.**
+   The canceller first locked at 14:34:09, then re-locked by "shift"
+   three times in 30 s (lag 1354 → 1834) and stayed at 1834 from 14:34:39.
+   From 14:34:29 to 14:35:59, 9 of 10 reports were **negative** (down to
+   −7.8 dB): the clean stream was louder than the mic. Coherence was
+   0.89–0.95 throughout, and `rollbacks` climbed 5 → 20 during the clip
+   window (divergence guard). It converged by ~14:36:30. In music-only
+   conditions, a filter carried through three shifts adds energy for
+   about a minute and a half. That alone could produce 11-21's "clean
+   louder than raw" frames after every re-lock.
+3. **The diagnostic clip's reference is unusable: a bug in the M12-09
+   diagnostics.** `data/captures/live-clip-20261123-143433` covers
+   14:34:33–14:35:33, exactly finding 2's window. Its `ref.wav` is
+   **97.4 % exact zeros**: about 900 real samples every 32,000 (2 s), 35
+   runs. Offline `aec.cancel()` on it **never locked**, and full-clip
+   GCC-PHAT peaks at 0.031, with coherence 0.019 at lag 1834. The cause
+   is in `CleanSource._observe_block`
+   (`m12-09-diagnostics`, `src/sensing/audio.py`). It reads the reference
+   at the mic's *current* position (`_ref_get(self._pm - self._pm0, …)`,
+   lag 0). The loopback hasn't delivered those samples yet, so
+   `read_range` zero-fills them. The 2 s rhythm suggests the pump falls
+   briefly behind on each `DelayTracker` estimate (`TRACK_EVERY_S = 2.0`),
+   and only then is the reference present. The live canceller reads
+   `lag − PRE_DELAY` = 1322 samples (83 ms) further back, so **its own
+   input wasn't affected.** But the `reference: … dBFS` figure in every
+   log line comes from the same lag-0 read, so **those reference levels
+   are unreliable** (lost-audio and deficit come from `ReferenceSource`'s
+   counters and are fine). `capture_room_wav.py` doesn't have this
+   problem because it reads after the fact. The clip's mic and clean
+   tracks were sound (−32.4 and −27.9 dBFS RMS: clean louder, as
+   finding 2 says). With no usable reference, **the live-versus-offline
+   comparison (M12-09 plan, step 5) couldn't be made.** The clip was
+   deleted after this entry, as `docs/M12-09-PLAN.md` D2 promises.
+4. **A human pause in Spotify doesn't hold.** In phase D the founder
+   paused at 14:49:10. RTR then started a new selection three times
+   (`-> play`):
+   - 14:49:18, *I Hear Voices Pt. 1*. The founder paused it within ~3 s,
+     so the start check logged "nothing started within 3.0 s" and
+     briefly dropped to shadow mode;
+   - 14:50:21, *Blue Skies*;
+   - 14:51:22, *Gameboy in Traffic*.
+
+   The founder paused each one. This is the controller's documented
+   bootstrap rule: with nothing audible, the selection starts. Each new
+   non-guard emission from the founder's reading triggered a start, about
+   once a minute; nothing restarted once the founder fell silent. The
+   design has no notion of "a person paused this". Filed as ROADMAP
+   M9-08. It also cut phase D into three silent stretches
+   (14:49:39–14:50:19, 14:50:39–14:51:19 and 14:51:49–14:52:09). In each,
+   the canceller passed audio through unchanged (0.0 dB) and lost audio
+   kept being counted. So the control still holds, in pieces. Each
+   restart moved the lag (1962 → 2534 → 3144), which is consistent with
+   the reference stream restarting.
+5. **Phantom `pair` over vocal hip-hop with cancellation on (M12-07, a
+   new instance).** The founder saw `pair` while alone and felt the
+   dashboard was counting the rappers. **Evidence:**
+   - 7 of the 10 logged selection cells were `pair`. Of the 3 `solo`
+     cells, two came in phase D with no music, and the third (14:45:16)
+     came in phase C;
+   - the 14:49:18 selection, 8 s after the pause and with music still in
+     the buffer, was `pair`;
+   - the `played_through` record at 14:45:47 carries `headcount_bucket:
+     "pair"` (confidence 0.16) and `headcount_recent_raw_log2` [1.585 ×4,
+     0.0], which is raw bucket-3 updates, during *TWIST & TURN*.
+
+   This matches M12-07 (vocal hip-hop the worst case) and adds a
+   live-dashboard data point at ~1.5 m. No new item.
+
+**M9-07 — next-up** (the founder's notes against the log):
+
+| founder's note | log | verdict |
+|---|---|---|
+| next: *TWIST & TURN* → it played | selected 14:40:10; `pushed next-up … inside the boundary window` 14:41:13; `crossed the boundary as spotify:track:3K9SEwkE7WJQjCXU5uTdj9 (matched by title+duration)` 14:41:24; `played_through` at 14:45:47 with the selection's attribution | **confirmed:** the substituted-ID case M9-07 fixes, and the substituted play earned `played_through` |
+| next: *Healing* → it played | selected 14:45:16; pushed 14:45:32. It was the `queued_track` (`queued_state: pushed`) in the 14:45:47 record. A same-ID crossing isn't logged, and no "never observed" warning followed | **confirmed** |
+| next: *It's Up* → it played | selected 14:41:14 as **held** and replaced at 14:42:22 by *Stompin' At The Savoy*. **Never pushed.** The songs after *TWIST & TURN* (*Healing*) and after *Healing* (paused mid-track) weren't it | **not consistent with the log** |
+
+The founder doesn't remember when *It's Up* played, or whether the line
+said `(held)` or `(queued in Spotify)`. They remember only "next: It's Up".
+The likeliest reading is that they saw the held selection during *TWIST &
+TURN* (14:41:14–14:42:22). It's unresolved: the token lacks the
+recently-played scope, and the session recorded no frames. **The founder
+wants a focused re-check with attention on the next-up line**, so the
+merge decision waits for it.
+
+**M12-09 status.** The diagnostics ran and the live log lines work. Lost
+audio, lag, re-locks and reduction are all usable; the reference level is
+not (finding 3). The acceptance criterion, attributing the
+ineffectiveness, is **not yet met**:
+- dropouts are ruled out for the founder-alone condition;
+- 11-21's condition isn't reproduced, and the comparison clip failed.
+
+The next step is the clip fix (read the reference far enough behind the
+loopback's head), then a session with the 11-21 condition (several people
+talking) and a working clip. `cancel-on-by-default` stays parked.
+
 ## 2026-11-21 (night, live, founder + 4 people) — cancellation-default live check (D3): the plumbing passes, but live, the canceller doesn't remove the music
 
 **What this was.** The live check that `docs/M12-CANCEL-DEFAULT-PLAN.md`
