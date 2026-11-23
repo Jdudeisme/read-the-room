@@ -107,6 +107,13 @@ def main() -> int:
     side_path = Path(f"{base}.json")
     if side_path.exists():
         side = json.loads(side_path.read_text(encoding="utf-8"))
+        zf = side.get("ref_zero_fraction")
+        if zf is None:
+            print("\nWARNING: this clip predates the delayed reference read (FIELD-NOTES "
+                  "2026-11-23): its ref track may be mostly zero-fill")
+        elif zf > 0.5:
+            print(f"\nWARNING: the ref track is {zf:.0%} exact zeros: the reference wasn't there "
+                  "to read, so the offline column is not a fair comparison")
         print(f"\nlive reports during the clip (resyncs during: {side.get('resyncs_during')}):")
         for r in side.get("reports", []):
             print("  ", {k: r.get(k) for k in ("locked", "lag", "coherence", "relocks_new",

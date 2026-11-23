@@ -250,11 +250,14 @@ import json  # noqa: E402
 import wave  # noqa: E402
 
 
-def _run_clean_source(seconds, **kw):
-    """Feed synthetic linear echo through CleanSource in 30 ms lockstep
-    chunks on a fake clock (one chunk = 30 ms of clock)."""
+def _run_clean_source(seconds, lag=800, ref_late_chunks=0, **kw):
+    """Feed synthetic linear echo through CleanSource in 30 ms chunks on a
+    fake clock (one chunk = 30 ms of clock). With `ref_late_chunks`, each
+    reference chunk lands that many chunks after the mic chunk of the same
+    instant, as the live loopback delivers it after the mic
+    (FIELD-NOTES 2026-11-23)."""
     ref = _music(seconds, seed=21)
-    mic = _echo(ref, _room(), 800)
+    mic = _echo(ref, _room(), lag)
     m, r = _RingOnly(seconds + 5), _RingOnly(seconds + 5)
     t = [0.0]
     cs = CleanSource(m, r, seconds + 5.0, clock=lambda: t[0], **kw)
@@ -264,7 +267,9 @@ def _run_clean_source(seconds, **kw):
     assert cs.align()
     for i in range(chunk, mic.size - chunk + 1, chunk):
         m.ring.write(mic[i : i + chunk])
-        r.ring.write(ref[i : i + chunk])
+        k = i - ref_late_chunks * chunk
+        if k >= chunk:
+            r.ring.write(ref[k : k + chunk])
         t[0] += chunk / SR
         cs.pump()
     return cs, mic, ref
@@ -294,6 +299,49 @@ def test_clean_source_writes_an_aligned_clip_only_when_enabled(tmp_path):
     assert side["seconds"] >= 2.0 and side["resyncs_during"] == 0
     off, _, _ = _run_clean_source(14, clip_s=0.0, clip_dir=str(tmp_path / "off"))
     assert off.clip_path is None and not (tmp_path / "off").exists()
+
+
+def _wav_i16(path):
+    with wave.open(path, "rb") as fh:
+        return np.frombuffer(fh.readframes(fh.getnframes()), "<i2")
+
+
+def test_clip_reference_lines_up_when_the_loopback_arrives_late(tmp_path):
+    # 2026-11-23: the live clip read the reference at the newest mic position,
+    # before the loopback had delivered it, and ref.wav came out 97 % zeros.
+    # Here the reference lands 4 chunks (120 ms) after the mic. The echo lag
+    # (0.25 s) keeps the canceller's own reads behind the reference's head, as
+    # live. The clip's ref track must be the true reference, sample for
+    # sample, at the mic track's positions.
+    cs, mic, ref = _run_clean_source(
+        16, lag=4000, ref_late_chunks=4, clip_s=2.0, clip_dir=str(tmp_path), clip_after_lock_s=0.0
+    )
+    assert cs.clip_path is not None
+    side = json.loads(open(f"{cs.clip_path}.json", encoding="utf-8").read())
+    start = 480 + round(side["canceller_pos_s"] * SR)  # pm0 = 480 (aligned after one chunk)
+    got = {kind: _wav_i16(f"{cs.clip_path}.{kind}.wav") for kind in ("mic", "ref")}
+    n = got["mic"].size
+    assert n >= 2 * SR and got["ref"].size == n
+    pcm = lambda x: (np.clip(x, -1.0, 1.0) * 32767.0).astype("<i2")
+    assert np.array_equal(got["mic"], pcm(mic[start : start + n]))
+    assert np.array_equal(got["ref"], pcm(ref[start : start + n]))
+    assert side["ref_zero_fraction"] < 0.01 and side["ref_read_delay_s"] >= 1.0
+    # The report's reference level reads the same delayed positions: the true level.
+    true_dbfs = 10 * np.log10(np.mean(ref.astype(np.float64) ** 2))
+    assert abs(cs.last_report["ref_dbfs"] - true_dbfs) < 1.5
+
+
+def test_clip_is_discarded_when_a_resync_breaks_its_positions(tmp_path):
+    cs, _, _ = _run_clean_source(14, clip_s=30.0, clip_dir=str(tmp_path), clip_after_lock_s=0.0)
+    assert cs._clip is not None and cs.clip_path is None  # recording, not done
+    burst = np.zeros(2 * SR, np.float32)  # > max_behind_s (1 s) arrives at once
+    cs.mic.ring.write(burst)
+    cs.reference.ring.write(burst)
+    assert cs.pump() == 0 and cs.resyncs == 1
+    cs.mic.ring.write(np.zeros(480, np.float32))
+    cs.reference.ring.write(np.zeros(480, np.float32))
+    cs.pump()
+    assert cs._clip is None and cs.clip_path is None and not list(tmp_path.iterdir())
 
 
 def test_debug_clip_is_off_by_default_and_documented(monkeypatch):
