@@ -191,22 +191,29 @@ class PlaybackController:
         return True, now.track.id
 
     def snapshot(self) -> dict:
-        """Dashboard frame extras: status + what is playing/next. The
-        `queued_track` key carries the EFFECTIVE next-up — the held
-        selection if one is waiting, else the already-pushed track."""
+        """Dashboard frame extras: status + what is playing/next.
+        `queued_track` is the track that plays next: the pushed track if one
+        sits in the provider's queue, else the held selection.
+        `queued_state` says which ("pushed" / "held"). `held_track` is the
+        current held selection, which waits behind a pushed track for the
+        following boundary."""
         with self._lock:
-            now, queued = self._now, (self._intent or self._queued)
-            # M9-07: whether next-up is only held here or already sits in the
-            # provider's queue; the two looked identical on 2026-11-21.
-            state = "held" if self._intent is not None else (
-                "pushed" if self._queued is not None else None
-            )
+            now, pushed, held = self._now, self._queued, self._intent
+        # M9-07: the provider's queue is append-only, so a pushed track plays
+        # next whatever RTR has selected since. Preferring the newer held pick
+        # here misnamed the next song: on the 2026-11-23 re-check a selection
+        # 0.6 s after the push hid *Gas Drawls* for its last 16 s, and earlier
+        # that day *It's Up*, picked 1 s after a push, read as next while
+        # *TWIST & TURN* played (FIELD-NOTES 2026-11-23).
+        nxt = pushed if pushed is not None else held
+        state = "pushed" if pushed is not None else ("held" if held is not None else None)
         return {
             "playback_status": self.status,
             "playback_error": self.error,
             "now_playing": now.to_dict() if now is not None else None,
-            "queued_track": queued.to_dict() if queued is not None else None,
+            "queued_track": nxt.to_dict() if nxt is not None else None,
             "queued_state": state,
+            "held_track": held.to_dict() if held is not None else None,
         }
 
     # -- human overrides (HTTP threadpool; provider I/O is acceptable here,

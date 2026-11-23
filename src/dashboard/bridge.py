@@ -242,6 +242,7 @@ class DashboardBridge:
                 "now_playing": None,
                 "queued_track": None,
                 "queued_state": None,
+                "held_track": None,
             }
         return self.playback.snapshot()
 

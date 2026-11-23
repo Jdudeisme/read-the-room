@@ -600,6 +600,23 @@ class TestBoundaryWindow:
         c._observe(self._playing(played, 170.0))  # the next boundary window
         assert [t.id for t in provider.queued] == ["track-2", "track-1"]
 
+    def test_a_pick_after_the_push_never_hides_the_pushed_track(self, provider):
+        # 2026-11-23 re-check: Gas Drawls was pushed and 0.6 s later a new
+        # selection arrived; the line showed the new pick "(held)" for the
+        # song's last 16 s, though Gas Drawls (append-only queue) played next.
+        c = self._controller(provider)
+        current = _track(99, playlist=None)
+        self._push_jazz(c, provider, current)
+        c._handle(_rec())  # a fresh selection: Pop -> track-1, held behind it
+        snap = c.snapshot()
+        assert snap["queued_track"]["id"] == "track-2"
+        assert snap["queued_state"] == "pushed"
+        assert snap["held_track"]["id"] == "track-1"
+        c._observe(self._playing(_track(2, "pl-jazz-mid"), 0.0))  # it plays next
+        snap = c.snapshot()
+        assert (snap["queued_track"]["id"], snap["queued_state"]) == ("track-1", "held")
+        assert snap["held_track"]["id"] == "track-1"
+
     def test_linked_from_matches_even_when_the_title_differs(self, provider):
         c = self._controller(provider)
         self._push_jazz(c, provider, _track(99, playlist=None))

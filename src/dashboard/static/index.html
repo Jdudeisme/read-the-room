@@ -346,7 +346,11 @@ function updatePlayback(f) {
       (f.queued_track
         ? ` · next: ${f.queued_track.title}` +
           (f.queued_state === "pushed" ? " (queued in Spotify)"
-            : f.queued_state === "held" ? " (held)" : "")
+            : f.queued_state === "held" ? " (held)" : "") +
+          // M9-07: a newer pick waits behind the pushed track; it never
+          // replaces it on the line (the pushed one plays next).
+          (f.queued_state === "pushed" && f.held_track
+            ? ` · then: ${f.held_track.title} (held)` : "")
         : "");
   } else {
     displayedNowPlaying = null;
