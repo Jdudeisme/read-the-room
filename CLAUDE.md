@@ -145,6 +145,25 @@ are already tracked.
 - **Never commit**: `.env`, anything under `data/` except `data/.gitkeep` and
   `data/playlists.json` (the founder's baseline — don't overwrite it with
   local curation). Token cache and corpus files are local by design.
+- **Recording policy: MVP build phase** (founder decision, 2026-11-23). Until
+  the founder prepares a release to real customers, RTR may record **and
+  keep** room audio and room-derived logs (diagnostic clips,
+  `capture_room_wav.py` takes, frame logs) for development, so they can be
+  re-analysed as RTR improves. This replaces the earlier
+  "delete once written up" and "clip with the founder alone only" rules
+  (M12-09-PLAN D2). Conditions:
+  - Everyone present is **told before recording starts** that they're being
+    recorded to build RTR. If anyone objects, the recording stays off.
+  - Recordings stay **local under `data/`**: never committed, never sent to
+    an outside service.
+  - Capture features still **default to off**, and a human turns them on.
+    Claude never starts a capture or a live session.
+  - **Promises already made stand.** Recordings whose people were told they'd
+    be deleted are deleted as promised, unless those people agree otherwise.
+    The 2026-11-20 Block G guests (M12-05 run sheet) have since agreed that
+    their takes may be kept (founder, 2026-11-23).
+  - **It ends at customer release.** The founder revisits the policy then,
+    saving stops, and the fate of existing recordings is decided.
 - **Never edit corpus files** (`data/annotations/`, `data/overrides/`)
   — append-only day files written by the running system. Analysis reads them;
   nothing rewrites them.
@@ -194,7 +213,7 @@ Get explicit human sign-off on plan **and** diff for:
   records (e.g. correction logic, estimator behavior, `separation_score`).
 - Anything touching **audio capture** (`src/sensing/audio.py` device/stream
   handling) or adding a **new capture/log of room-derived data** (privacy:
-  default new captures to off).
+  default new captures to off; see the recording policy above).
 - **Live-session protocols** (gates, soak runs, characterization sessions):
   these are human-run on the reference machine with people in the room. You
   write the protocol; a human executes it. Never start a live mic session

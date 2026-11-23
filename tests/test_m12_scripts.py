@@ -115,3 +115,81 @@ def test_eligible_windows_counts_certified_5s_windows():
     probs[: per_win] = 0.9  # only the first window is mostly speech
     assert ev.eligible_windows(probs) >= 1
     assert ev.eligible_windows(np.zeros_like(probs)) == 0
+
+
+# -- M12-09 clip compare: the speech-proof music measure (2026-11-23) -------------
+
+compare = _load("m12_09_clip_compare")
+
+
+def test_music_reduction_ignores_talk_the_energy_measure_does_not():
+    sr = compare.aec.SR
+    rng = np.random.default_rng(9)
+    n, lag = 5 * sr, 1800
+    src = (0.1 * rng.standard_normal(n + lag)).astype(np.float32)
+    h = (rng.standard_normal(400) * np.exp(-np.arange(400) / 80.0)).astype(np.float32)
+    h *= 0.3 / np.sqrt(np.sum(h**2))
+    ref = src[lag:]                                    # the loopback: n samples
+    echo = np.convolve(src, h)[: n + lag][: n].astype(np.float32)  # heard `lag` later
+    # echo[k] = (h*src)[k] = (h*ref)[k - lag]: the mic trails the reference by `lag`.
+    # Talk from quiet to twice the music's level (the echo's RMS is ~0.03);
+    # the canceller removed 6 or 10.5 dB of music (residual gain 0.5 / 0.3).
+    for talk_gain in (0.002, 0.03, 0.06):
+        for residual, true_db in ((0.5, 6.0), (0.3, 10.5)):
+            talk = (talk_gain * rng.standard_normal(n)).astype(np.float32)
+            mic, clean = echo + talk, talk + residual * echo  # talk kept, music cut
+            est = compare.estimate_lag(mic, ref)
+            assert abs(est - lag) <= 4
+            coh = compare.music_reduction_db(mic, clean, compare.align_ref(ref, est))
+            energy = compare._db(float(np.dot(mic, mic)), float(np.dot(clean, clean)))
+            assert abs(coh - true_db) < 1.5, (talk_gain, true_db, coh)
+            if talk_gain == 0.06:
+                assert energy < true_db - 1.0  # talk caps the energy measure
+
+
+def test_music_reduction_reads_zero_when_nothing_was_removed():
+    sr = compare.aec.SR
+    rng = np.random.default_rng(10)
+    n = 5 * sr
+    ref = (0.1 * rng.standard_normal(n)).astype(np.float32)
+    mic = 0.2 * ref + 0.02 * rng.standard_normal(n).astype(np.float32)
+    ref_al = compare.align_ref(ref, compare.estimate_lag(mic, ref))
+    assert abs(compare.music_reduction_db(mic, mic.copy(), ref_al)) < 1e-6
+
+
+def test_phase_of_places_windows_and_skips_transitions():
+    starts = [("G1", 1000.0), ("G2", 1300.0)]
+    assert compare.phase_of(990.0, starts) is None          # before the first phase
+    assert compare.phase_of(1005.0, starts) is None         # inside G1's transition
+    assert compare.phase_of(1200.0, starts) == "G1"
+    assert compare.phase_of(1305.0, starts) is None         # inside G2's transition
+    assert compare.phase_of(1400.0, starts) == "G2"
+
+
+def test_clip_compare_runs_end_to_end_with_phases(tmp_path, monkeypatch, capsys):
+    import time as _time
+    import wave as _wave
+
+    sr = compare.aec.SR
+    rng = np.random.default_rng(12)
+    n, lag = 30 * sr, 800
+    src = (0.1 * rng.standard_normal(n + lag)).astype(np.float32)
+    h = (rng.standard_normal(400) * np.exp(-np.arange(400) / 80.0)).astype(np.float32)
+    h *= 0.3 / np.sqrt(np.sum(h**2))
+    ref, mic = src[lag:], np.convolve(src, h)[:n].astype(np.float32)
+    clean = (0.3 * mic).astype(np.float32)  # a stand-in "live" clean: 10.5 dB
+    base = tmp_path / "live-clip-x"
+    for kind, x in (("mic", mic), ("clean", clean), ("ref", ref)):
+        with _wave.open(f"{base}.{kind}.wav", "wb") as fh:
+            fh.setnchannels(1), fh.setsampwidth(2), fh.setframerate(sr)
+            fh.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
+    t0 = 1_800_000_000.0
+    (tmp_path / "live-clip-x.json").write_text(json.dumps(
+        {"started_at": t0, "ref_zero_fraction": 0.0, "resyncs_during": 0, "reports": []}))
+    hms = lambda t: _time.strftime("%H:%M:%S", _time.localtime(t))
+    monkeypatch.setattr(sys, "argv", ["x", str(base), "--phase", f"A={hms(t0)}",
+                                      "--phase", f"B={hms(t0 + 20)}"])
+    assert compare.main() == 0
+    out = capsys.readouterr().out
+    assert "per phase" in out and "\n  A " in out and "\n  B " in out
+    assert "offline canceller's tracker" in out
