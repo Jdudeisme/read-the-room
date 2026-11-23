@@ -988,6 +988,12 @@ only to RTR's own playback; live music still arrives with
 > under a substituted ID (matched by title+duration) and earned `played_through`. *Healing* crossed by the same
 > ID. The founder's third title, *It's Up*, was only ever held, never pushed. They're unsure what the line
 > showed. The founder asked for a focused re-check, watching the next-up line, before `m9-07-queue-slot` merges.
+>
+> **Focused re-check 2026-11-23, late afternoon (FIELD-NOTES): the controller passes.** There were 6 pushes and all
+> 6 played next and earned `played_through`, one under a substituted ID. The re-check found a display defect:
+> a pick arriving after a push replaced the pushed track on the next-up line. That also explains *It's Up*.
+> Fixed in `ce96c33`: the line shows the pushed track, plus `then: … (held)`, with an additive `held_track`
+> field. The fix is not re-verified live.
 
 - **Problem:** `PlaybackController` holds one pushed track in `_queued` and
   clears it only when the provider reports the **same ID** playing

@@ -5,6 +5,79 @@ The gates live in the milestone test plans; this file records what the
 tool did in the wild, what the logs captured, and which hypotheses that
 raises. Newest session first.
 
+## 2026-11-23 (late afternoon, live, founder alone) — M9-07 focused re-check: every pushed track played next; the next-up line hid a pushed track behind a newer pick (fixed)
+
+**What this was.** The re-check in `docs/LIVE-SESSION-M9-07-RECHECK.md`,
+run on `m9-07-queue-slot` (`de02fc4`). Claude ran the preflight: clean
+tree, 443 tests passing, nothing on :8000, and no
+REFERENCE/CANCEL/DEBUG lines in `.env`. The founder used a fresh window
+and cleared the earlier session's `$env:` variables. **The founder
+started and stopped the dashboard.** The process on :8000 was created at
+15:34:01, which matches the log
+(`data/sessions/live-2026-11-23-m9-07.log`). Source: raw mic, with no
+cancellation (`capturing from 'Microphone Array on SoundWire D'`).
+Conditions:
+- the founder alone, reading aloud from printed or phone text, close
+  enough to read the dashboard (distance not reported);
+- Windows 32 %;
+- Spotify untouched after the start.
+
+At launch Spotify reported no active player (`204 No Content`).
+RTR's bootstrap still started the first song: *Roses*, 15:36:27, cell
+`('solo','low','low')`.
+
+**Result, against the pre-registered reading.** There were 26 selections
+and 6 pushes, one per song change. The founder observed 5 of the
+changes:
+
+| # | pushed | crossed (log / `played_through`) | founder's line in the last ~20 s | played next |
+|---|---|---|---|---|
+| 0 | *Dumky* (Dvořák) 15:37:50 | 15:38:04 | (the founder noted it as the first song) | ✓ |
+| 1 | *French Quarter* 15:42:10 | 15:42:29 | held, then `(queued in Spotify)`; seen in Spotify's queue too | ✓ |
+| 2 | *Red Button* 15:46:18 | 15:46:32 | held 15:45, `(queued in Spotify)` 15:46 | ✓ |
+| 3 | *SOMEBODY LOVES ME PT. 2* 15:48:59 | 15:49:14, **substituted ID**, `matched by title+duration` | held 15:48, `(queued in Spotify)` 15:49 | ✓ |
+| 4 | *Gas Drawls* 15:51:59.4 | 15:52:16 | *Gas Drawls* held at 15:51. **Never saw `(queued in Spotify)`**: the line showed a different song, held | ✓ |
+| 5 | *?* (MF DOOM, Kurious) 15:55:59 | 15:56:15 | `(queued in Spotify)` | ✓ |
+
+- **Controller: pass.** Every pushed track played next, and each earned
+  `played_through` (6 records in `data/overrides/2026-11-23.jsonl`).
+  There was a push at every song change while the founder talked: no
+  stall, the original M9-07 failure. The substituted-ID path fired once
+  more (#3). There was no "never observed" warning, and at least 3
+  changes were observed.
+- **Display: a defect, found here and fixed.** In #4 a new selection
+  (*Housekeeping Knows*) arrived **0.6 s after the push**
+  (15:52:00.1). `PlaybackController.snapshot()` returned
+  `_intent or _queued`, which prefers the newer held pick. So for the
+  song's last ~16 s the line read *Housekeeping Knows (held)*, although
+  *Gas Drawls*, already in Spotify's append-only queue, played next.
+  #1 had the same masking 4 s after its push (*I Was Doing All Right*,
+  15:42:13). The founder saw `(queued)` before then.
+  **This also explains the earlier session's *It's Up***
+  (FIELD-NOTES 2026-11-23, afternoon). It was selected 1 s after
+  *TWIST & TURN*'s push (14:41:13 → 14:41:14), so the line read "next:
+  It's Up" while *TWIST & TURN* played.
+- **Fix (`ce96c33` on `m9-07-queue-slot`):**
+  - `queued_track` / `queued_state` now carry the **pushed** track
+    whenever one sits in the provider's queue;
+  - a new additive frame field `held_track` carries the current held
+    pick;
+  - the line reads `next: <pushed> (queued in Spotify) · then: <held>
+    (held)`;
+  - a new test (the Gas Drawls sequence) fails on the old code and
+    passes. 444 tests pass.
+
+  `queued_track` also appears in the `state` of override and
+  `played_through` records. From `ce96c33` on, it names the track that
+  plays next, not the newest pick. No analysis reads it. Records before
+  the fix keep the old meaning. **Not re-verified live.** The controller's
+  pushing is unchanged; only the snapshot's ordering changed.
+
+**Side observation (no new item).** With the founder alone and the raw
+mic over RTR's playback, the selection cells were `solo` 15, `pair` 6 and
+`3` 5. That is the pre-M12 phantom count over RTR's own playback,
+expected with cancellation off (M12 charter; M12-07).
+
 ## 2026-11-23 (afternoon, live, founder alone) — M12-09 diagnostics + M9-07 next-up check: live, the canceller removed 6.5–7.6 dB while the founder read; the diagnostic clip's reference is unusable; M9-07 is 2 of 3 confirmed
 
 **What this was.** The session in `docs/LIVE-SESSION-M12-09-M9-07.md`, run
