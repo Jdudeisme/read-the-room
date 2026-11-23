@@ -159,8 +159,9 @@ are already tracked.
   - Capture features still **default to off**, and a human turns them on.
     Claude never starts a capture or a live session.
   - **Promises already made stand.** Recordings whose people were told they'd
-    be deleted (the 2026-11-20 Block G takes, M12-05 run sheet) are deleted
-    as promised, unless those people agree otherwise.
+    be deleted are deleted as promised, unless those people agree otherwise.
+    The 2026-11-20 Block G guests (M12-05 run sheet) have since agreed that
+    their takes may be kept (founder, 2026-11-23).
   - **It ends at customer release.** The founder revisits the policy then,
     saving stops, and the fate of existing recordings is decided.
 - **Never edit corpus files** (`data/annotations/`, `data/overrides/`)
