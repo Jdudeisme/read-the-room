@@ -665,8 +665,9 @@ class CleanSource:
             _write_wav16(Path(f"{base}.{kind}.wav"), audio, self.sample_rate)
         sidecar = {
             "what": "M12-09 diagnostic clip (docs/M12-09-PLAN.md): raw mic, clean, "
-                    "reference on the same sample positions. Founder-alone sessions only; "
-                    "delete once the FIELD-NOTES entry is written.",
+                    "reference on the same sample positions. Kept for re-analysis in "
+                    "the MVP build phase; everyone present is told first (CLAUDE.md, "
+                    "recording policy).",
             "started_at": c["started_at"],
             "seconds": round(c["n"] / self.sample_rate, 3),
             "sample_rate": self.sample_rate,

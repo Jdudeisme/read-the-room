@@ -112,3 +112,15 @@ written.
 - A `bench_headcount.py --fallback --cancel` row with the report running,
   within run-to-run variance of gate (c). The report adds per-block energy
   sums on the clean-source thread.
+
+## Amendment, 2026-11-23 (founder): D2's "founder alone" rule is superseded
+
+The founder set a **recording policy for the MVP build phase** (CLAUDE.md,
+"Recording policy"). RTR may record and keep room audio for re-analysis,
+as long as everyone present is told before recording starts. Recordings
+stay local, and the policy ends at customer release. The diagnostic clip
+may therefore run with guests present (as in the M12-09 group session,
+`docs/LIVE-SESSION-M12-09-GROUP.md`), and clips are kept, not deleted after
+the write-up. D2's other terms stand: the clip defaults to off, and a
+human turns it on. The 2026-11-23 founder-alone clip was deleted under the
+old rule before this amendment.

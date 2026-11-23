@@ -15,8 +15,10 @@ changes.
 PRIVACY: this is an opt-in capture of room audio. Nothing in the running
 system records; audio is written only when a human runs this script. Output
 lands in `data/captures/`, which `.gitignore` already excludes via `data/*`
-— these files are local by design and are never committed. Delete them once
-the question is settled.
+— these files are local by design and are never committed. During the MVP
+build phase they are kept for re-analysis (CLAUDE.md, recording policy):
+tell everyone present before recording, and delete takes whose people were
+promised deletion.
 
 Capture goes through `MicSource`, not a fresh sounddevice stream, so the WAV
 carries whatever the real path does to the signal: device resolution, the
