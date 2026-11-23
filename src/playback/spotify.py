@@ -311,7 +311,11 @@ class SpotifyProvider:
             raise
 
     def now_playing(self) -> NowPlaying | None:
-        res = self._request("GET", "/me/player")
+        # market=from_token makes Spotify apply track relinking and report
+        # the requested URI in item.linked_from when it substitutes one
+        # (M9-07: on 2026-11-21 a pushed track played under another id and
+        # jammed the controller's next-up slot).
+        res = self._request("GET", "/me/player", params={"market": "from_token"})
         if res.status_code == 204 or not res.content:
             return None  # no active session anywhere
         data = res.json()
@@ -327,6 +331,7 @@ class SpotifyProvider:
             playlist_id=context.get("uri")
             if context.get("type") == "playlist"
             else None,
+            linked_from=(item.get("linked_from") or {}).get("uri") or None,
         )
         return NowPlaying(
             track=track,

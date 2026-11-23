@@ -67,6 +67,37 @@ log = logging.getLogger(__name__)
 
 _ATTRIBUTION_KEEP = 8  # selected tracks to keep rec attribution for
 _OVERRIDDEN_KEEP = 16  # overridden track ids to remember
+# M9-07 (docs/M9-07-PLAN.md). A tolerance on "the same recording", not a
+# calibration: the 2026-11-21 substitution matched title and duration to the
+# millisecond (556.493 s under both ids).
+_SAME_TRACK_DURATION_S = 2.0
+# A pushed track normally plays at the first boundary after the push
+# (Spotify plays its queue first). One more boundary tolerates a single
+# human change in between (genre pick, skip in the Spotify app) while the
+# provider's queue still holds it. Past that, the slot is presumed
+# consumed or dropped. A policy bound: clearing at one boundary would risk
+# the stale-queue pile-up the module docstring describes.
+_QUEUED_MAX_BOUNDARIES = 2
+
+
+def _same_track(requested: Track, observed: Track) -> str | None:
+    """Why `observed` is the track that was `requested`, or None. The
+    provider may play a request under another id (Spotify track relinking,
+    seen 2026-09-30 and 2026-11-21): match on the id, on the provider's
+    `linked_from`, or on title + duration."""
+    if observed.id == requested.id:
+        return "id"
+    if observed.linked_from is not None and observed.linked_from == requested.id:
+        return "linked_from"
+    if (
+        observed.title
+        and observed.title == requested.title
+        and observed.duration_s is not None
+        and requested.duration_s is not None
+        and abs(observed.duration_s - requested.duration_s) <= _SAME_TRACK_DURATION_S
+    ):
+        return "title+duration"
+    return None
 
 
 def cell_adjacent_pool(matched_cell: tuple, exclude: list[str]) -> list[str]:
@@ -115,6 +146,8 @@ class PlaybackController:
         self._now: NowPlaying | None = None
         self._intent: Track | None = None  # held selection, not yet pushed
         self._queued: Track | None = None  # pushed to the provider, unplayed
+        self._boundaries = 0  # track changes observed (M9-07 backstop clock)
+        self._queued_at = 0  # self._boundaries when _queued was pushed
         self._last_rec: Recommendation | None = None  # for override resamples
         self._attribution: dict[str, dict] = {}  # track id -> rec/choice dict
         self._overridden: dict[str, None] = {}  # ordered set of track ids
@@ -158,16 +191,29 @@ class PlaybackController:
         return True, now.track.id
 
     def snapshot(self) -> dict:
-        """Dashboard frame extras: status + what is playing/next. The
-        `queued_track` key carries the EFFECTIVE next-up — the held
-        selection if one is waiting, else the already-pushed track."""
+        """Dashboard frame extras: status + what is playing/next.
+        `queued_track` is the track that plays next: the pushed track if one
+        sits in the provider's queue, else the held selection.
+        `queued_state` says which ("pushed" / "held"). `held_track` is the
+        current held selection, which waits behind a pushed track for the
+        following boundary."""
         with self._lock:
-            now, queued = self._now, (self._intent or self._queued)
+            now, pushed, held = self._now, self._queued, self._intent
+        # M9-07: the provider's queue is append-only, so a pushed track plays
+        # next whatever RTR has selected since. Preferring the newer held pick
+        # here misnamed the next song: on the 2026-11-23 re-check a selection
+        # 0.6 s after the push hid *Gas Drawls* for its last 16 s, and earlier
+        # that day *It's Up*, picked 1 s after a push, read as next while
+        # *TWIST & TURN* played (FIELD-NOTES 2026-11-23).
+        nxt = pushed if pushed is not None else held
+        state = "pushed" if pushed is not None else ("held" if held is not None else None)
         return {
             "playback_status": self.status,
             "playback_error": self.error,
             "now_playing": now.to_dict() if now is not None else None,
-            "queued_track": queued.to_dict() if queued is not None else None,
+            "queued_track": nxt.to_dict() if nxt is not None else None,
+            "queued_state": state,
+            "held_track": held.to_dict() if held is not None else None,
         }
 
     # -- human overrides (HTTP threadpool; provider I/O is acceptable here,
@@ -316,7 +362,9 @@ class PlaybackController:
         start: Track | None = None
         emit: tuple[dict, dict] | None = None
         failed_start: Track | None = None
-        substituted: tuple[Track, str] | None = None
+        substituted: tuple[Track, str, str | None] | None = None
+        crossed: tuple[Track, str, str] | None = None
+        abandoned: Track | None = None
         with self._lock:
             prev = self._now
             self._now = new
@@ -333,17 +381,33 @@ class PlaybackController:
                         # stopped: the play was dropped.
                         failed_start = pending
                     elif new.track.id != pending.id:
-                        substituted = (pending, new.track.id)
-            took_over = (
-                new is not None
-                and self._queued is not None
-                and new.track.id == self._queued.id
+                        why = _same_track(pending, new.track)
+                        substituted = (pending, new.track.id, why)
+                        if why is not None:
+                            # The same selection under another id: keep its
+                            # attribution so it can still earn played_through.
+                            self._alias_locked(pending.id, new.track.id)
+            match = (
+                _same_track(self._queued, new.track)
+                if new is not None and self._queued is not None
+                else None
             )
+            took_over = match is not None
             if took_over:
+                if new.track.id != self._queued.id:
+                    crossed = (self._queued, new.track.id, match)
+                    self._alias_locked(self._queued.id, new.track.id)
                 self._queued = None  # next-up crossed the boundary
             boundary = prev is not None and (
                 new is None or new.track.id != prev.track.id
             )
+            if boundary:
+                self._boundaries += 1
+                if (
+                    self._queued is not None
+                    and self._boundaries - self._queued_at >= _QUEUED_MAX_BOUNDARIES
+                ):
+                    abandoned, self._queued = self._queued, None
             # Completion requires the track's last observation inside the
             # boundary window of its own end: a track that vanishes
             # mid-flight (provider quit, external skip) never "ended".
@@ -372,11 +436,23 @@ class PlaybackController:
                 and self._near_end(new)
             ):
                 push = self._intent
+        if crossed is not None:
+            log.info(
+                "next-up %r crossed the boundary as %s (matched by %s)",
+                crossed[0].title, crossed[1], crossed[2],
+            )
+        if abandoned is not None:
+            log.warning(
+                "pushed track %r never observed after %d boundaries; assuming it "
+                "was consumed or dropped, next-up slot cleared",
+                abandoned.title, _QUEUED_MAX_BOUNDARIES,
+            )
         if push is not None:
             self._provider.queue(push)  # the one outstanding queue slot
             with self._lock:
                 if self._intent is push:
                     self._queued, self._intent = push, None
+                    self._queued_at = self._boundaries
             log.info("pushed next-up %r inside the boundary window", push.title)
         if start is not None:
             self._play_now(start)
@@ -387,14 +463,16 @@ class PlaybackController:
             except Exception:
                 log.exception("played_through sink failed; label lost")
         if substituted is not None:
-            # Not a failure, but attribution is keyed by the requested id,
-            # so this track cannot earn a played_through (FIELD-NOTES
-            # 2026-09-30 open item).
+            # Not a failure. When it is the same track by _same_track, its
+            # attribution now follows the reported id (M9-07, closing the
+            # FIELD-NOTES 2026-09-30 open item); otherwise something else
+            # started and the selection earns nothing.
             log.info(
-                "started %r, but the provider reports id %s for requested %s",
+                "started %r, but the provider reports id %s for requested %s (%s)",
                 substituted[0].title,
                 substituted[1],
                 substituted[0].id,
+                f"same track by {substituted[2]}" if substituted[2] else "a different track",
             )
         if failed_start is not None:
             raise ProviderError(
@@ -432,6 +510,19 @@ class PlaybackController:
             self._attribution[track_id] = chose_it
             while len(self._attribution) > _ATTRIBUTION_KEEP:
                 self._attribution.pop(next(iter(self._attribution)))
+
+    def _alias_locked(self, requested_id: str, observed_id: str) -> None:
+        """Caller holds self._lock. The provider played `requested_id` as
+        `observed_id`: carry its attribution and any override mark over, so
+        played_through and overrides key on what is actually playing."""
+        if requested_id in self._attribution:
+            self._attribution[observed_id] = self._attribution[requested_id]
+            while len(self._attribution) > _ATTRIBUTION_KEEP:
+                self._attribution.pop(next(iter(self._attribution)))
+        if requested_id in self._overridden:
+            self._overridden[observed_id] = None
+            while len(self._overridden) > _OVERRIDDEN_KEEP:
+                self._overridden.pop(next(iter(self._overridden)))
 
     def _mark_overridden(self, track_id: str) -> None:
         with self._lock:

@@ -569,6 +569,116 @@ class TestBoundaryWindow:
         assert len(events) == 1
         assert events[0][0]["track"]["id"] == "track-1"
 
+    # -- M9-07 (docs/M9-07-PLAN.md): substituted ids and the next-up slot -----
+
+    @staticmethod
+    def _as(track: Track, new_id: str, **changes) -> Track:
+        """`track` as the provider reports it under another id."""
+        d = track.to_dict()
+        d.update(id=new_id, **changes)
+        return Track.from_dict(d)
+
+    def _push_jazz(self, c, provider, current):
+        provider.play(current)
+        c._handle(_rec(genre_pool=("Jazz",), target_arousal=0.0))
+        c._observe(self._playing(current, 170.0))  # inside the window: push
+        assert [t.id for t in provider.queued] == ["track-2"]
+        assert c.snapshot()["queued_state"] == "pushed"
+
+    def test_substituted_pushed_track_clears_the_slot_and_pushing_resumes(self, provider):
+        # 2026-11-21: requested ...3cwGy, played as ...0zhDL, same title and
+        # duration; before M9-07 the slot never cleared and nothing else was pushed.
+        c = self._controller(provider)
+        current = _track(99, playlist=None)
+        self._push_jazz(c, provider, current)
+        played = self._as(_track(2, "pl-jazz-mid"), "track-2-relinked")
+        c._observe(self._playing(played, 0.0))
+        assert c.snapshot()["queued_track"] is None
+        assert c.snapshot()["queued_state"] is None
+        c._handle(_rec())  # a fresh selection: Pop -> track-1, held
+        assert c.snapshot()["queued_state"] == "held"
+        c._observe(self._playing(played, 170.0))  # the next boundary window
+        assert [t.id for t in provider.queued] == ["track-2", "track-1"]
+
+    def test_a_pick_after_the_push_never_hides_the_pushed_track(self, provider):
+        # 2026-11-23 re-check: Gas Drawls was pushed and 0.6 s later a new
+        # selection arrived; the line showed the new pick "(held)" for the
+        # song's last 16 s, though Gas Drawls (append-only queue) played next.
+        c = self._controller(provider)
+        current = _track(99, playlist=None)
+        self._push_jazz(c, provider, current)
+        c._handle(_rec())  # a fresh selection: Pop -> track-1, held behind it
+        snap = c.snapshot()
+        assert snap["queued_track"]["id"] == "track-2"
+        assert snap["queued_state"] == "pushed"
+        assert snap["held_track"]["id"] == "track-1"
+        c._observe(self._playing(_track(2, "pl-jazz-mid"), 0.0))  # it plays next
+        snap = c.snapshot()
+        assert (snap["queued_track"]["id"], snap["queued_state"]) == ("track-1", "held")
+        assert snap["held_track"]["id"] == "track-1"
+
+    def test_linked_from_matches_even_when_the_title_differs(self, provider):
+        c = self._controller(provider)
+        self._push_jazz(c, provider, _track(99, playlist=None))
+        played = self._as(_track(2, "pl-jazz-mid"), "track-2-alt",
+                          title="Song 2 (Remastered)", linked_from="track-2")
+        c._observe(self._playing(played, 0.0))
+        assert c.snapshot()["queued_track"] is None
+
+    @pytest.mark.parametrize("changes", [
+        {"title": "Another Song"},       # same duration, different title
+        {"duration_s": 183.5},           # same title, 3.5 s apart
+    ])
+    def test_a_different_track_is_not_the_pushed_one(self, provider, changes):
+        c = self._controller(provider)
+        self._push_jazz(c, provider, _track(99, playlist=None))
+        other = self._as(_track(2, "pl-jazz-mid"), "track-77", **changes)
+        c._observe(self._playing(other, 0.0))
+        assert c.snapshot()["queued_state"] == "pushed"  # one boundary: still held
+
+    def test_backstop_clears_a_slot_never_observed_after_two_boundaries(self, provider, caplog):
+        c = self._controller(provider)
+        self._push_jazz(c, provider, _track(99, playlist=None))
+        c._observe(self._playing(_track(50, playlist=None), 0.0))  # boundary 1: not it
+        assert c.snapshot()["queued_state"] == "pushed"
+        with caplog.at_level("WARNING"):
+            c._observe(self._playing(_track(51, playlist=None), 0.0))  # boundary 2
+        assert c.snapshot()["queued_track"] is None
+        assert "never observed after 2 boundaries" in caplog.text
+        c._handle(_rec())
+        c._observe(self._playing(_track(51, playlist=None), 170.0))
+        assert [t.id for t in provider.queued] == ["track-2", "track-1"]
+
+    def test_substituted_pushed_track_earns_played_through(self, provider):
+        events = []
+        c = self._controller(provider, sink=lambda np, rec: events.append((np, rec)))
+        self._push_jazz(c, provider, _track(99, playlist=None))
+        played = self._as(_track(2, "pl-jazz-mid"), "track-2-relinked")
+        c._observe(self._playing(played, 0.0))
+        c._observe(self._playing(played, 172.0))  # last seen near its end
+        c._observe(self._playing(_track(60, playlist=None), 0.0))
+        assert len(events) == 1
+        assert events[0][0]["track"]["id"] == "track-2-relinked"
+        assert events[0][1]["genre_pool"] == ["Jazz"]
+
+    def test_substituted_start_earns_played_through(self):
+        # The FIELD-NOTES 2026-09-30 open item: a substituted START could never
+        # earn played_through, because attribution was keyed by the requested id.
+        provider = SubstitutingProvider(library={("Pop", "high"): [_track(1)]})
+        events = []
+        c = PlaybackController(
+            provider, TrackSelector(provider, seed=0),
+            PlaybackConfig(poll_interval_s=0.05, queue_lead_s=15.0, start_verify_s=0.0),
+            on_played_through=lambda np, rec: events.append((np, rec)),
+        )
+        c._handle(_rec())  # bootstrap: plays track-1, reported as track-1-substituted
+        sub = provider.now_playing().track
+        c._observe(self._playing(sub, 1.0))  # start verified: same track by title+duration
+        c._observe(self._playing(sub, 172.0))
+        c._observe(self._playing(_track(60, playlist=None), 0.0))
+        assert len(events) == 1
+        assert events[0][0]["track"]["id"] == "track-1-substituted"
+
 
 class DroppingProvider(FakeProvider):
     """Accepts play() and loads nothing — what the Windows desktop client
